@@ -99,6 +99,7 @@ export const DOMAINS: Domain[] = [
       'lib/payroll-export', 'lib/three-way-match', 'lib/purchase-order',
       'lib/cost-allocation', 'lib/contract-rate', 'lib/expense-approval',
       'lib/loose-ends', 'lib/erp-profiles', 'lib/ar-ageing', 'lib/credit',
+      'lib/ap-delay', 'app/api/ap', 'app/dashboard/ap',
       'app/api/ar', 'app/dashboard/ar',
       'app/dashboard/profitability', 'app/dashboard/invoices', 'app/dashboard/payroll',
       'app/dashboard/expenses', 'app/dashboard/purchase-orders', 'app/dashboard/loose-ends',
@@ -187,7 +188,7 @@ export const DOMAINS: Domain[] = [
       'the generated company sites, lead capture and nurture, and the distribution ' +
       'of requirements and bench candidates up and down a chain without breaching ' +
       'an NDA on the way.',
-    l2: ['L2.1.2', 'L2.2.2'],
+    l2: ['L2.1.4'],
     owns: [
       'lib/positioning', 'lib/site-voice', 'lib/public-site', 'lib/distribution',
       'app/page', 'app/site', 'app/c', 'app/api/c',
@@ -209,7 +210,8 @@ export const DOMAINS: Domain[] = [
       'app/api/settings', 'app/api/imports', 'app/api/integrations',
       'app/api/onboarding', 'app/api/automation',
       'lib/evals', 'middleware',
-      'lib/db', 'lib/auth', 'lib/api-context', 'lib/domains',
+      'lib/db', 'lib/auth', 'lib/api-context', 'lib/domains', 'lib/matrix',
+      'lib/feedback',
       'lib/company-defaults', 'lib/company-domains', 'lib/domains-owned',
       'lib/registrable-domain', 'lib/account-lifecycle',
       'lib/service-accounts', 'lib/import-mapper', 'lib/importable',
