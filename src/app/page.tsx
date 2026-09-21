@@ -171,9 +171,10 @@ const NAV_MENUS: { label: string; items: { t: string; d?: string; href: string }
     items: [
       { t: 'What it does, in four steps', d: 'A role goes out, a person starts, a week is signed, a bill is paid.', href: '#steps' },
       { t: 'Your contractors', d: 'Every contractor on site, across every supplier, one row each.', href: '#monday' },
-      { t: 'Requisitions & suppliers', d: 'Raised, approved, released to the suppliers you cleared.', href: '#lifecycle' },
-      { t: 'Hours, invoices & bills', d: 'Signed hours, and bills matched to the order behind them.', href: '#lifecycle' },
+      { t: 'Requisitions & suppliers', d: 'Raised, approved, released to the suppliers you cleared.', href: '/flows/requisition-to-start' },
+      { t: 'Hours, invoices & bills', d: 'Signed hours, and bills matched to the order behind them.', href: '/flows/time-and-money' },
       { t: 'Rates across suppliers', d: 'What each supplier charges for the same skill, side by side.', href: '#monday' },
+      { t: 'The chain you buy through', d: 'Your suppliers, and the subcontractors behind them.', href: '/flows/suppliers-and-the-chain' },
     ],
   },
   {
@@ -189,10 +190,10 @@ const NAV_MENUS: { label: string; items: { t: string; d?: string; href: string }
   {
     label: 'Compliance',
     items: [
-      { t: 'Work authorization', d: 'Blocked, not warned, where the law is behind it.', href: '#lifecycle' },
-      { t: 'Tenure & co-employment', d: 'Counted per person across suppliers, not per assignment.', href: '#exposure' },
-      { t: 'Insurance & good standing', d: 'A lapsed certificate stops a start until it is renewed.', href: '#exposure' },
-      { t: 'Governance & approvals', d: 'Every override keeps the name of whoever gave it.', href: '#exposure' },
+      { t: 'Work authorization', d: 'Blocked, not warned, where the law is behind it.', href: '/flows/compliance-and-governance#l17' },
+      { t: 'Tenure & co-employment', d: 'Counted per person across suppliers, not per assignment.', href: '/flows/compliance-and-governance#l17' },
+      { t: 'Insurance & good standing', d: 'A lapsed certificate stops a start until it is renewed.', href: '/flows/requisition-to-start#l12' },
+      { t: 'Governance & approvals', d: 'Every override keeps the name of whoever gave it.', href: '/flows/compliance-and-governance#l16' },
     ],
   },
   {

@@ -310,6 +310,11 @@ export const DOMAINS: Domain[] = [
       // claim and any invented urgency on it.
       'app/census', 'lib/census-copy',
       'app/dashboard/market', 'app/api/market', 'app/api/site',
+      // The flow pages, and the file they are generated into. They are
+      // marketing pages by the same rule the home page is: a reader who
+      // has never heard of Etyme meets them, so the words on them answer
+      // to `lib/positioning` and may never name another company.
+      'app/flows', 'lib/flows.generated',
     ],
   },
   {
