@@ -7,6 +7,7 @@ import Link from 'next/link'
 // take. The footer's routes are literals below; the cast is at the render
 // rather than on the data so the list stays readable.
 import type { Route } from 'next'
+import { EXPOSURE, DECIDED } from '@/lib/site-why'
 
 /**
  * The front door.
@@ -200,10 +201,10 @@ const NAV_MENUS: { label: string; items: { t: string; d?: string; href: string }
     label: 'Why Etyme',
     items: [
       { t: 'Who sits at the program office desks', href: '#ways' },
-      { t: 'Never runs a bench, never places anybody', href: '#why' },
-      { t: 'Governance is never a paid tier', href: '#why' },
+      { t: 'Never runs a bench, never places anybody', href: '/why#settled' },
+      { t: 'Governance is never a paid tier', href: '/why#settled' },
       { t: 'Rules first, a model only on what is left', href: '#compliance' },
-      { t: 'Free while we prove it out', href: '#why' },
+      { t: 'Free while we prove it out', href: '/why#settled' },
     ],
   },
 ]
@@ -399,38 +400,6 @@ const TWO_WAYS: { label: string; lines: string[] }[] = [
 ]
 
 /**
- * The business case, which is not the reason anybody buys.
- *
- * People buy because they cannot answer the four questions above. They
- * justify the purchase to finance with these three. Each one is a risk
- * and then the method that closes it, in that order, because a risk
- * with no method under it is a scare.
- */
-const EXPOSURE: { t: string; p: string }[] = [
-  {
-    t: 'A co-employment claim counts every supplier together',
-    p:
-      'One contractor can work two years on your site through two suppliers. ' +
-      'The claim lands on you, not on the supplier that billed the first year. ' +
-      'Etyme counts days per person across suppliers and blocks a new submission at your limit.',
-  },
-  {
-    t: 'A supplier whose insurance lapsed keeps working',
-    p:
-      'Cover runs out in March and its contractors are on your site in April. ' +
-      'Nobody watches the date on the certificate, because it lives in an inbox. ' +
-      'Etyme reads the dates on the certificate and stops a start until the supplier renews it.',
-  },
-  {
-    t: 'A bill is paid with no signed timesheet behind it',
-    p:
-      'It matched no timesheet and no order line. It was paid because the month ' +
-      'closes and somebody has to approve it. ' +
-      'Etyme pays only bills that match a signed week and an order.',
-  },
-]
-
-/**
  * How a placement moves — six milestones, not eighteen states.
  *
  * This was eighteen numbered stages, which is the internal lifecycle
@@ -572,31 +541,6 @@ const SUPPLY = [
     line:
       'Your consultant stays unnamed until there is a signed right to represent, ' +
       'and what you are paid never travels in either direction.',
-  },
-]
-
-/** What is settled about the commercials, in the absence of a price. */
-const DECIDED = [
-  {
-    t: 'Governance is never a paid tier',
-    p:
-      'Tenure caps, approval chains and the record of who approved what are ' +
-      'included for everybody. Any company with two hiring managers needs them. ' +
-      'Charging extra for them loses the deal before the negotiation starts.',
-  },
-  {
-    t: 'Etyme never runs a bench and never places anybody',
-    p:
-      'We sit between the firms that do. The moment we compete with our own ' +
-      'suppliers, they stop putting their people in the system and the network ' +
-      'stalls. It is built into how this works, not a policy we might change.',
-  },
-  {
-    t: 'Looking around costs nothing and needs no card',
-    p:
-      'You get a live workspace with a worked example in it, and you can change ' +
-      'anything in there. If it is not useful in there, a price was never going ' +
-      'to fix that.',
   },
 ]
 

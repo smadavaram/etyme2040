@@ -315,6 +315,9 @@ export const DOMAINS: Domain[] = [
       // has never heard of Etyme meets them, so the words on them answer
       // to `lib/positioning` and may never name another company.
       'app/flows', 'lib/flows.generated',
+      // The business case and the money, moved off the home page on
+      // 2026-09-21 because it was thirteen sections and the founder said so.
+      'app/why', 'lib/site-why',
     ],
   },
   {
