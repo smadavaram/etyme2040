@@ -1,4 +1,5 @@
 import { EtymeLogo } from '@/components/logo'
+import { MuralDivider, MuralHeroMobile } from '@/components/mural'
 import { TryDemo } from '@/components/try-demo'
 import { Ask } from '@/app/site/ask'
 import { ASK_COPY } from '@/lib/public-site/leads'
@@ -807,8 +808,10 @@ export default function LandingPage() {
             five thousand.
           </p>
 
-          <figure className="overflow-hidden rounded-xl border border-etyme-rule
-                             bg-etyme-raised shadow-sm">
+          <MuralHeroMobile className="md:hidden" />
+
+          <figure className="hidden overflow-hidden rounded-xl border border-etyme-rule
+                             bg-etyme-raised shadow-sm md:block">
             {/* Taken from the seeded demo world on the date stamped on the
                 image below, UTC — the same stamp the step screens carry
                 beside `from`. A test cannot read a PNG, so the date is
@@ -901,6 +904,8 @@ export default function LandingPage() {
           Why four and not ten: a CTO recognizes post, choose, approve,
           pay. The ten stations of a placement are in #lifecycle below,
           where somebody who wants them will look. */}
+      <MuralDivider />
+
       <section id="steps" className="border-b border-etyme-rule bg-etyme-surface scroll-mt-6">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
           <p className="eyebrow mb-3">What it does, in four steps</p>
@@ -1081,6 +1086,8 @@ export default function LandingPage() {
           paragraph under both is the neutrality commitment, said in the
           one place a reader is weighing whether to hand Etyme the
           program. */}
+      <MuralDivider />
+
       <section id="ways" className="border-b border-etyme-rule scroll-mt-6">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
           <p className="eyebrow mb-3">Who sits at the desks</p>
