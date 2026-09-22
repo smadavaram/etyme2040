@@ -57,6 +57,17 @@ import { CENSUS_COPY } from '@/lib/census-copy'
 const PAGE = readFileSync(join(process.cwd(), 'src/app/page.tsx'), 'utf8')
 
 /** The real page, split at roughly where a first screen ends. */
+/**
+ * The copy the home page renders, which since 2026-09-21 spans two files.
+ *
+ * `EXPOSURE` and `DECIDED` moved to `lib/site-why` so the home page and /why
+ * read the same words from one place and cannot drift apart. They are still
+ * the home page's copy — it imports and renders them — so a guard that read
+ * only `page.tsx` would stop seeing sentences that are on the page, which is
+ * a guard going quiet rather than a decision being made.
+ */
+const IMPORTED_COPY = readFileSync(join(process.cwd(), 'src/lib/site-why.ts'), 'utf8')
+
 const words = copyFrom(PAGE)
 const live: Copy = { hero: words.slice(0, 12), body: words.slice(12) }
 
@@ -330,6 +341,14 @@ describe('The reader finds words that are actually on the page', () => {
 // here rather than in a week.
 
 const body = words.slice(12).join(' ')
+/**
+ * The body, plus the copy the page imports and renders.
+ *
+ * Only the rules about those two blocks read this. Everything else still
+ * reads `body`, because a guard that suddenly sees a second file's words
+ * starts matching labels that were never on the page.
+ */
+const bodyAndImported = `${words.slice(12).join(' ')} ${copyFrom(IMPORTED_COPY).join(' ')}`
 const all = words.join(' ')
 /** Everything above the fold, as one string, for the guards that read it. */
 const hero = live.hero.join(' ')
@@ -404,10 +423,13 @@ describe('Below the hero, the page says what the business is', () => {
   })
 
   it('names the three things the exposure actually is, rather than gesturing at compliance', () => {
-    expect(PAGE).toContain('const EXPOSURE')
-    expect(body).toContain('A co-employment claim counts every supplier together')
-    expect(body).toContain('A supplier whose insurance lapsed keeps working')
-    expect(body).toContain('A bill is paid with no signed timesheet behind it')
+    // The array moved to `lib/site-why` on 2026-09-21 so the home page and
+    // /why read the same words from one file and cannot drift apart. What
+    // this rule is for is the three sentences below, not where the data
+    // lives, and those are checked against the rendered page either way.
+    expect(bodyAndImported).toContain('A co-employment claim counts every supplier together')
+    expect(bodyAndImported).toContain('A supplier whose insurance lapsed keeps working')
+    expect(bodyAndImported).toContain('A bill is paid with no signed timesheet behind it')
   })
 
   it('does not lead with a penalty, because nobody is fined at month nineteen', () => {
@@ -615,9 +637,9 @@ describe('Below the hero, the page says what the business is', () => {
   })
 
   it('says the three things about the commercials that are settled', () => {
-    expect(body).toContain('Governance is never a paid tier')
-    expect(body).toContain('Etyme never runs a bench and never places anybody')
-    expect(body).toContain('Looking around costs nothing and needs no card')
+    expect(bodyAndImported).toContain('Governance is never a paid tier')
+    expect(bodyAndImported).toContain('Etyme never runs a bench and never places anybody')
+    expect(bodyAndImported).toContain('Looking around costs nothing and needs no card')
   })
 
   it('no longer heads a section with one module describing itself', () => {
@@ -848,7 +870,13 @@ describe('The record is the product, and the program office is offered quietly',
     // are sub-headings inside #ways now, and the section headline is
     // about the record.
     expect(PAGE).toContain('const TWO_WAYS')
-    const twoWays = PAGE.slice(PAGE.indexOf('const TWO_WAYS'), PAGE.indexOf('const EXPOSURE'))
+    // To the next declaration, whichever it is. This used to slice to
+    // `const EXPOSURE`, which moved to `lib/site-why` on 2026-09-21 and took
+    // the end of the slice with it — the labels then ran to the foot of the
+    // file and the rule read the footer's as its own.
+    const twoWaysAt = PAGE.indexOf('const TWO_WAYS')
+    const nextConstAt = PAGE.indexOf('\nconst ', twoWaysAt + 1)
+    const twoWays = PAGE.slice(twoWaysAt, nextConstAt)
     const labels = [...twoWays.matchAll(/label: '([^']+)'/g)].map((m) => m[1])
     expect(labels).toEqual(['VMS software', 'MSP provider'])
     expect(PAGE).toContain('{w.label}')
