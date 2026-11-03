@@ -8,6 +8,7 @@ import { complianceSubtitle, complianceView, owedSentence, sayCheckType, sayEnfo
 import { plainDate } from '@/lib/plain-date'
 import { ComplianceRefused } from './refused'
 import { RecordCheck, type RecordFor, type RecordKind } from './record-check'
+import { i9RecordFor } from './record-for'
 import { usePageSection } from '@/components/page-section'
 import { EmptyState, LoadingState, PageHead, RefusedState } from '@/components/ui'
 
@@ -78,6 +79,12 @@ interface HeldStart {
   fix: string | null
   blocking: string[]
   chasing: string[]
+  /** True where this firm employs the person and completes their papers. */
+  own?: boolean
+  /** The customer the start is for, on the employer's own rows. */
+  client?: string | null
+  /** Whose these papers are, in a sentence to this reader. */
+  whoFiles?: string
 }
 
 /** One document this firm, or somebody it placed, still owes. */
@@ -94,6 +101,10 @@ interface OwedDocument {
   word: string
   asked: string
   waivedSays: string | null
+  /** The person the line is for, where the worker owes it. */
+  personId?: string | null
+  /** An I-9 this firm records as the person's employer, from this row. */
+  recordI9?: boolean
 }
 
 interface LapsedSupplier {
@@ -372,6 +383,10 @@ export default function CompliancePage() {
   const [tab, setTab] = useState<ComplianceTab>('policies')
 
   const [readAt, setReadAt] = useState(0)
+  // Recording the I-9 straight from a held start of somebody this firm
+  // employs (the second Tapin walk, 2026-10-30).
+  const [recordingStart, setRecordingStart] = useState<RecordFor | null>(null)
+  const [startRecorded, setStartRecorded] = useState<string | null>(null)
   useEffect(() => {
     fetch('/api/compliance')
       .then(r => r.json())
@@ -382,6 +397,22 @@ export default function CompliancePage() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [readAt])
+
+  // Opened for one person from another screen's refusal ("Record the I-9
+  // on Compliance", the screen walk of 2026-11-01): once, when the page
+  // has read whom this firm records an I-9 for.
+  const [askedFor] = useState(() => {
+    if (typeof window === 'undefined') return null
+    const q = new URLSearchParams(window.location.search)
+    return q.get('record') === 'I9' ? q.get('person') : null
+  })
+  const [openedFor, setOpenedFor] = useState(false)
+  useEffect(() => {
+    if (!askedFor || openedFor || !data) return
+    setOpenedFor(true)
+    const who = i9RecordFor(data, askedFor)
+    if (who) setRecordingStart(who)
+  }, [askedFor, openedFor, data])
 
   useEffect(() => {
     fetch('/api/compliance/classification')
@@ -440,6 +471,21 @@ export default function CompliancePage() {
         <p className="text-[13px] text-etyme-ink mb-6">{standing}</p>
       )}
 
+      {startRecorded && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-etyme-verified/10 text-sm text-etyme-verified flex justify-between">
+          <span>{startRecorded}</span>
+          <button onClick={() => setStartRecorded(null)} className="text-etyme-verified/70">Close</button>
+        </div>
+      )}
+      {recordingStart && (
+        <RecordCheck
+          kind="I9"
+          who={recordingStart}
+          onClose={() => setRecordingStart(null)}
+          onDone={(says) => { setRecordingStart(null); setStartRecorded(says); setReadAt((n) => n + 1) }}
+        />
+      )}
+
       {/* ── Starts the paperwork is holding up ──
           The dashboard said Ingrid Sørensen could not start without her
           I-9 while this page said nothing was outstanding. The same
@@ -466,20 +512,30 @@ export default function CompliancePage() {
                   </span>
                   <span className="font-medium text-etyme-ink text-[13px]">{s.name}</span>
                   <span className="text-[12px] text-etyme-muted">
-                    through {s.supplier} · starts {plainDate(s.startDate)}
+                    {s.own
+                      ? `you employ them${s.client ? ` · for ${s.client}` : ''} · starts ${plainDate(s.startDate)}`
+                      : `through ${s.supplier} · starts ${plainDate(s.startDate)}`}
                   </span>
                 </div>
                 <p className="text-[12px] text-etyme-muted mt-1">{s.says}</p>
                 {s.fix && <p className="text-[12px] text-etyme-action mt-1">{s.fix}</p>}
-                {/* Who does the fixing. On a client's page the employer
-                    completes the I-9 and holds the documents behind it; a
-                    client collecting a contractor's passport is excessive
-                    collection and co-employment exposure at once. */}
-                {data?.viewerIsClient && s.blocking.length > 0 && (
-                  <p className="text-[12px] text-etyme-muted mt-1">
-                    {s.supplier} employs {s.name.split(' ')[0]} and puts these on file. Ask them — you do not
-                    collect the documents yourself.
-                  </p>
+                {/* Who does the fixing. The employer completes the I-9 and
+                    holds the documents behind it; a client collecting a
+                    contractor's passport is excessive collection and
+                    co-employment exposure at once, and a prime buying a
+                    sub-vendor's W2 is not the employer either. */}
+                {s.whoFiles && (s.own || (data?.viewerIsClient && s.blocking.length > 0)) && (
+                  <p className="text-[12px] text-etyme-muted mt-1">{s.whoFiles}</p>
+                )}
+                {s.own && [...s.blocking, ...s.chasing].some(l => /\bI-9\b/.test(l)) && (
+                  <div className="mt-2 flex flex-wrap gap-3 text-[12px]">
+                    <button
+                      className="text-etyme-action hover:underline"
+                      onClick={() => setRecordingStart({ contractId: s.contractId, personId: s.personId, name: s.name })}
+                    >
+                      Record the I-9
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -573,12 +629,24 @@ export default function CompliancePage() {
                 </div>
                 <p className="text-[12px] text-etyme-muted mt-1">{owedSentence(o)}</p>
                 {o.waivedSays && <p className="text-[12px] text-etyme-muted mt-1">{o.waivedSays}</p>}
-                <a
-                  className="text-[12px] text-etyme-action hover:underline"
-                  href={`/dashboard/documents/requirements?sellContractId=${o.lineId}`}
-                >
-                  See everything this line asks for
-                </a>
+                <div className="flex flex-wrap gap-3 text-[12px]">
+                  {/* The employer records the I-9 from here, whether or not a
+                      start is listed as held (the screen walk, 2026-11-01). */}
+                  {o.recordI9 && o.personId && (
+                    <button
+                      className="text-etyme-action hover:underline"
+                      onClick={() => setRecordingStart({ contractId: o.lineId, personId: o.personId!, name: o.aboutName ?? 'this person' })}
+                    >
+                      Record the I-9
+                    </button>
+                  )}
+                  <a
+                    className="text-etyme-action hover:underline"
+                    href={`/dashboard/documents/requirements?sellContractId=${o.lineId}`}
+                  >
+                    See everything this line asks for
+                  </a>
+                </div>
               </div>
             ))}
           </div>
@@ -1069,6 +1137,16 @@ function VerificationsTab({
                             {startOf.get(person.personId ?? "")!.says}
                           </p>
                         )}
+                        {/* An I-9 this firm owes as the employer, with no start listed
+                            as held: the same form, from the line it is owed on. */}
+                        {!startOf.has(person.personId ?? "") && person.personId && (() => {
+                          const who = i9RecordFor(data, person.personId)
+                          return who ? (
+                            <div className="mt-2 flex flex-wrap gap-3 text-[12px]">
+                              <button className="text-etyme-action hover:underline" onClick={() => setRecording({ kind: 'I9', who })}>Record the I-9</button>
+                            </div>
+                          ) : null
+                        })()}
                         {startOf.has(person.personId ?? "") && (() => {
                           const start = startOf.get(person.personId ?? "")!
                           const who: RecordFor = { contractId: start.contractId, personId: start.personId, name: start.name }

@@ -30,13 +30,24 @@ import { buildPeople, peopleAfterJobsSteps, peopleSteps } from './people'
 import { jobSteps } from './jobs'
 import { paperAfterRatesSteps, paperSteps } from './papers'
 import { seedRates } from './rates/rows'
-import { SCALE_VERSION, type PersonFacts, type ScaleFrame } from './types'
+import { PEOPLE_PER_RATIO, SCALE_SLUG_PREFIX, SCALE_VERSION, scaleSize, type PersonFacts, type ScaleFrame, type ScaleSize } from './types'
+import { prisma as db } from '@/lib/db'
+import { seedSetupChecklists } from '@/lib/seed-setup'
 
 /**
  * Money's rows in shares: its first full run is about 215 queries, so four
  * keep every step well under the 350 a step may ask.
  */
 export const RATE_SHARES = 4
+
+/**
+ * How many shares a step split into `base` at two thousand people takes at
+ * this size: more as the world grows, so each step stays under the queries
+ * a step may ask (2026-11-02). Never fewer than `base`. Pure.
+ */
+export function sharesFor(base: number, size: ScaleSize): number {
+  return Math.max(base, Math.ceil((base * size.people) / PEOPLE_PER_RATIO))
+}
 
 /**
  * Every step of the generated world, in order: the frame; the people
@@ -46,22 +57,50 @@ export const RATE_SHARES = 4
  * the people's careers wrote and write the orders; and what each order
  * asks for on paper (regulatory), which needs those orders.
  */
-function allSteps(frame: ScaleFrame): FrameStep[] {
+function allSteps(frame: ScaleFrame, size: ScaleSize = scaleSize()): FrameStep[] {
   let people: PersonFacts[] | null = null
   const theirs = () => (people ??= buildPeople(frame))
+  // The architect's shares grow with the world; each domain's own steps size themselves.
+  const rates = sharesFor(RATE_SHARES, size)
+  const setups = sharesFor(SETUP_SHARES, size)
   return [
-    ...frameSteps(),
+    ...frameSteps(size),
     ...peopleSteps(frame),
     ...paperSteps(frame, theirs),
     ...jobSteps(theirs),
     // Every career line points at the filled job it came from (supply):
     // after the jobs exist, before the rates price the lines.
     ...peopleAfterJobsSteps(),
-    ...Array.from({ length: RATE_SHARES }, (_, index): FrameStep => ({
-      name: `scale:rates:${index + 1}-of-${RATE_SHARES}`, run: (f) => seedRates(f, { index, of: RATE_SHARES }),
+    ...Array.from({ length: rates }, (_, index): FrameStep => ({
+      name: `scale:rates:${index + 1}-of-${rates}`, run: (f) => seedRates(f, { index, of: rates }),
     })),
     ...paperAfterRatesSteps(theirs),
+    // Last, once every agreement, line, order and one-person company exists.
+    ...Array.from({ length: setups }, (_, index): FrameStep => ({
+      name: `scale:setup:${index + 1}-of-${setups}`, run: () => seedSetupFor({ index, of: setups }),
+    })),
   ]
+}
+
+/**
+ * The base world's setup rule (lib/seed-setup), for every generated firm
+ * (2026-11-02): its legal address from its own site, payment details
+ * where it bills and has none, those details checked, its paper sets
+ * confirmed. The founder-scale run refused 657 bills with "Add a billing
+ * address under Setup → Addresses, then send the bill", because no
+ * generated firm had an address or checked payment details, where every
+ * base-world firm that bills has both. Read by slug, so the one-person
+ * companies the people steps found are included. In shares: the rule
+ * writes one row per firm for its legal name, and a step may ask 350.
+ */
+export const SETUP_SHARES = 4
+
+async function seedSetupFor(share: { index: number; of: number }): Promise<void> {
+  const slugs = (await db.company.findMany({
+    where: { slug: { startsWith: SCALE_SLUG_PREFIX } }, select: { slug: true }, orderBy: { slug: 'asc' },
+  })).map((c) => c.slug).filter((_, i) => i % share.of === share.index)
+  // No prefix matches the four seeded client programs, so only the firms' own rows are written.
+  if (slugs.length) await seedSetupChecklists({ prefix: SCALE_SLUG_PREFIX, slugs })
 }
 
 /** The names of every step, in the order they run. Reads the base world's birthday, as the steps do. */

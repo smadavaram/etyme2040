@@ -776,6 +776,29 @@ The founder cannot read code. This is the compensating discipline.
    suite. The full suite runs once per wave, on a quiet tree, and its
    red list is routed to owners. See `docs/how-agents-work.md`.
 
+8. **A screen is tested against the route it calls, and a form is
+   tested by pressing Save. Decided by the founder, 2026-11-02**, on the
+   I-9 dialog that could never be accepted (*"What's the right way to
+   test so we can catch and fix bugs like the I-9 field?"*). Three
+   layers, each catching what the one below cannot:
+   - **The route's own tests** prove the rule: a refusal for every
+     missing field, in a sentence. They cannot see a screen.
+   - **A contract test between every screen and its route** proves the
+     screen can satisfy the rule: for each field a route refuses
+     without, the dialog that calls it offers that field, and a route
+     that gains a required field fails the build until its screen gains
+     the field in the same commit (`every question a route asks, its
+     screen has a field for`). Cheap, in the unit suite, on every push.
+   - **A browser test per form that presses Save on the seeded world**
+     and proves the record three ways (the sentence, the record on
+     reload, the row), for every form on the two trust flows (papers
+     and money) before any deploy that touches them, and for every form
+     of every party nightly. The simulation, which calls routes, can
+     never replace it.
+   And a bug found on a screen by a person becomes all three before it
+   is called fixed: a browser case that fails first, the contract line
+   that would have caught its class, and one line here.
+
 6. **Ready is the edges, and `/ready` is the only measure of it.** Tests
    prove the inside. An edge with the outside world — a real tenant
    signing in, a real file imported, an email that left, a Teams channel
@@ -1365,6 +1388,78 @@ things, then stops" (2026-10-07) in its second half only:
   (ASD-STE100 at about 80%). The drawing is judged on those three
   words before the build.
 
+## Setup and settings are a conversation with the Owner — the founder, 2026-11-03
+
+*"'Ask Etyme' chat for company setup and settings — like a headless
+model that can work with the owner or company admin."* Tested against
+the five questions: the core problem is strong (the admin's setup is
+eleven screens nobody finishes, and the 2017 admin filled six screens
+over weeks; one question at a time with a default is how a founder who
+is not a coder finishes); micro-distribution strong (how a firm gets
+onto the record); real economy partial; credit and arbitrage missing;
+the stepping stone is Teams-first setup and the same headless agent for
+every party; the number is acts per day in the chat; and it is said in
+a sentence: "Set up your company by answering Etyme's questions."
+**Verdict: build now**, as the next piece after the 2026-11-03 deploy,
+ahead of the work-country and degree pieces, because it is the
+founder's own first day on Tapin and every new company's.
+
+What it is, in the shape already decided ("Ask Etyme is the app", the
+role contract, the setup checklist):
+
+- **No new screen.** It is the existing chat, for the Owner and the
+  Admin only, with the eleven setup items and the settings as
+  questions and cards. The checklist page stays one click behind and
+  reads the same answers; a thing answered in the chat is ticked on the
+  page and the other way round.
+- **It asks one thing at a time, with the answer already filled.** After
+  sign-in the Owner's greeting opens the first unfinished item: "Your
+  legal address, from your domain's record, looks like 14 Mill Street,
+  Dayton. Is that right?" Yes, or a correction typed in a sentence, or
+  "Skip for now"; then the next. Every answer says where it came from
+  (the domain, a paper dropped into the chat and read by rules, the
+  website by the guarded read, or the person's own words, which is
+  source PERSON with the sentence kept as the quote).
+- **A settings change is a card, never a silent act.** "Change our week
+  to approve by Thursday" draws the current value, the new value, what
+  it changes and what it stops ("approvals get one more day; bills and
+  pay wait a day with them"), Yes and Not now, through the one approval
+  route, recorded with who and when like a change made on the page.
+- **Tiers, in the role contract first, before any card is drawn.** A
+  new act kind per settings group (`setup.answer`, `settings.change`,
+  `team.invite`, `sites.change`, `papers.require`), each NEEDS
+  APPROVAL: the twin drafts and the Owner's yes is the act. ACTS ALONE
+  holds nothing here. NEVER TOUCHES: bank details (they walk Finance's
+  verification and are shown as the bank, the name and four digits),
+  the domain claim (verification only), the company type for anybody
+  but the Owner, and any grant of a role the role table does not hold.
+  A skipped item still refuses only the act that needs it, in a
+  sentence that names the step.
+- **Rules first; the model only where it is on.** The eleven items have
+  fixed fields, so the chat works by questions and chips with no model
+  at all. Free text ("we are closed Fridays, pay every other Friday")
+  is mapped to settings by rules where a rule fits, and by the model
+  only where the company turned it on, masked at the edge, every
+  prompt logged; a mapping the rules did not make is confirmed as a
+  card before it is written, never written from the model's reading.
+- **Headless means Teams too.** The same cards go to the Owner's Teams
+  channel when the keys exist, through the one bot route; nothing in
+  Teams writes a setting directly.
+- **Written before it is built, not drawn.** The chat's shape exists
+  and the founder has corrected it three times; what is new is the
+  words. The first conversation, all eleven items as the twin would say
+  them with the defaults for a US supplier, is written as one page for
+  the founder to read, and the build follows his read, the way the
+  voice was written and not drawn (2026-10-13).
+- **Built in this order:** the act kinds and their tiers (architect);
+  the eleven items as questions and cards and the settings cards, on
+  the checklist's own reader and writer so the page and the chat cannot
+  disagree (conversation, with architect's setup code untouched); the
+  paper dropped into the chat read through the setup's existing W-9 and
+  insurance readers (regulatory); the greeting opening on the first
+  unfinished item for an Owner (conversation). Tests as sentences; the
+  walk as a new Owner on screens; the fifty-question score unchanged.
+
 ## Onboarding is tested as every party and fills itself from what the company already has — decided by the founder, 2026-10-27
 
 *"So test and ease onboarding for every party; fetch from any source of
@@ -1683,6 +1778,83 @@ client nothing to act on (market). Report:
 `scratchpad/walk-tapin/report.md`, 172 screens. The fix wave goes
 ahead of other work, per "the two trust flows get the first seat";
 the second walk records its verdict under this line.
+
+**The fix wave shipped to production 2026-10-30 (1dd0b5ad0 on the
+deploy branch, source f73276c07).** Every fault above closed, each with
+its owner's test sentences: a supplier's certificate accepted by the
+client on Paperwork, on Document requests or through the examine route
+is written by one function (`recordSupplierPaper`) onto the record the
+award, the clearance and the nightly watch read, so the award clears
+the same day; the refusal names the firm once; a firm with a team files
+its own W-9, insurance and good standing from Company paperwork
+(`mayFileFirmPapers`); the rate band is stored in cents through one
+reader (`centsTyped`/`typedFromCents`); who may send a job down depends
+on the kind of firm (`who-sends.ts`); a job received from a prime has
+"Put forward"; the award joins the prime's existing open order between
+the two firms and says so where the dates differ, order numbers take
+their suffix from both firms, and the client's award row never carries
+the prime's order to its sub; a worker's own page and rate history read
+only the line that pays her (`isWorkersOwnPayLine`, `ownPayLineWhere`);
+"Record a placement" reads the caller's company from the seat; the
+order refusal names the roles that may at that kind of firm; an
+agreement is countersigned on screen; a link request is a card with
+Yes and Not now and on the one decisions list with a join request, so
+Today and the mark agree; a sub-vendor's greeting names the job it was
+sent, the interview and the start, and firms below the supplier hear
+their person's rounds; a said notice stays in "Since you last looked"
+five minutes, which was why the first walk's greeting missed notices;
+a bench firm's page gives a client who is coming free (only people who
+said yes to being shown beyond the firm, never a name or a rate), an
+ask box into the firm's Ask Etyme and the firm's contact, and never
+claims a letter went when none could; the checklist says where each
+answer came from (DOMAIN with the domain quoted, PAPER with the W-9
+line, PERSON), a skipped item says skipped, every item has its own
+address; what a firm types about a person who already has an account
+is kept on its own listing (`BenchListing.firmHeadline`, `firmSkills`,
+`firmLocation`, `firmNotes`) and never on the person; "Answer
+interview" opens the round. Release pass 30 on a quiet copy of
+f73276c07, fully green: type check, 12,420 unit, 2,605 integration,
+build. Gates: no source difference, no Ruby, brand kit present, no
+schema line removed. Smoke: every public page, the four doors and
+`/site/tapin` 200, the inbound email door 404 to a POST. Still open,
+with owners: a firm that lists a person can overwrite that person's
+own profile through the edit route (supply); the award's cover sentence
+reads "The supplier" where no name is passed from other callers
+(demand); the seed's dead 12-day cover at Cavanaugh (architect). The
+second Tapin walk on screens records its verdict under this line.
+
+**The second walk said: still no, and the chain now reaches the bill.**
+Steps one to five work on screens: every checklist answer says where it
+came from, three people onto the bench by their yes with what Tapin
+typed kept, the link request a card and one number on Brightmoor's
+mark, greeting and Today, the agreement countersigned, the order
+raised, Tapin's own papers filed and accepted, the job sent by the
+account manager and read at $90–$110, Put forward, the interview
+answered from the worker's page, the award clearing on the accepted
+insurance, the week signed by Northbend and accepted by Brightmoor and
+Tapin ($5,200 signed, $4,000 accepted at each rung, $1,800 owed to
+Ravi, who sees only his $45). Three things stop the week, each with
+its owner: **the employer cannot record its own W2's I-9** (Tapin's
+Compliance page lists starts only at the client rung, the upload lands
+on the Northbend–Brightmoor line and Brightmoor is told; regulatory);
+**Activate asks for a reason and draws no box** for a paperwork
+warning (demand); **the bill can never be sent**, because the award put
+a line starting Oct 19 on Brightmoor's order that opens Oct 30, the
+check fails "starts before PO opens", only Brightmoor may waive it and
+Brightmoor cannot see an unsent bill or change its order's dates
+(money; the 2026-09-19 rule says a line outside its order's window is a
+sentence, never a refusal). Also: the start card's Open lands on a
+missing contracts page (demand); Today says "Sent, not yet paid" of a
+bill never sent and the order shows $4,000 drawn for it (money);
+Tapin's Paperwork says "not examined" after Brightmoor accepted and the
+request still asks (regulatory); bench counts differ across Consultants,
+Today and Ask Etyme (supply); Northbend's mark stale until a reload
+(conversation); wrong words: "Brightmoor employs Ravi", "Accounts
+Receivable" raises an order, "BILL RATE" for what the prime pays,
+"vendor / client / msp", "organisation" on a public page, a client's
+chat suggestions on a supplier's seat, the sign-up panel speaking to a
+client, "(job MSA5YG)". Report `scratchpad/walk-tapin-2/report.md`,
+218 screens. The third walk records its verdict under this line.
 
 ## The setup checklist and the four doors' maps are built — "Build it", the founder, 2026-10-28
 
@@ -2311,6 +2483,241 @@ Each has an owner; the screen fixes go ahead of new work, because the
 document flow is a trust layer and the verdict was "do not ship it as
 finished". From now on **every wave that changes a trust flow ends
 with a walk on screens, not only a simulation.**
+
+## Load and performance: 100,000 transactions on each page — the founder, 2026-11-01
+
+*"Do load and performance testing for 100000 transactions on each page"*,
+with the walk he meant: job → submissions by every route (direct, bench
+to prime, prime to client, prime to integrator, prime to prime) →
+interviews → offer and placement → the papers gate → timesheets →
+invoices and AR/AP. Then: *"Go from one company to another"*, *"Are you
+not working on live system?"*, *"Simulate documents to attach, sign or
+fill for positive and negative cases"*, and *"ensure UI saves records and
+UX flows are optimal."* What was decided and done, so the next run is
+not re-derived:
+
+- **Never on production.** A load test writes hundreds of thousands of
+  synthetic rows; production's database never carries them. The runs
+  are the simulation harness on a fresh copy of the generated world on
+  the session's box. Production-grade throughput needs a preview
+  deployment with its own hosted database, which only the founder can
+  provision; the box's numbers say which routes degrade first and by
+  how much, not what the hosted platform does.
+- **The run crosses companies by construction.** Every transaction
+  walks the chain the trade walks: the client raises the job, primes
+  and sub-vendors receive it, a bench firm's person goes forward through
+  the prime, the client signs, each rung accepts, the bill goes up one
+  rung and lands as an invoice receipt at the next, payroll runs at the
+  employer.
+- **A pages pass measures the screens, not only the routes**
+  (`npm run simulate:pages -- --db etyme_sim_<stamp> --concurrency 40
+  --rounds 3`, platform): every page on every party's menu, tabs
+  included, read from `lib/nav-table` so it cannot drift, opened as
+  26 seats through the demo door, with the reads each page makes on
+  load, p50/p95 per page, the two-second fault line, and the table
+  counts behind the pages (`reports/pages-<stamp>.md`).
+- **Documents both ways** (regulatory, `stages/regulatory/both-ways.ts`,
+  `doc-matrix.ts`): every document kind × action (attach, sign or
+  countersign, fill from fields) × outcome (accepted, sent back,
+  refused, held), the founder's six documents first (proof of right to
+  work undated then dated; the I-9 on a printed edition and on one the
+  issuer never printed; the background check verdict verbatim with and
+  without reference and date; the NDA and confidentiality undertaking
+  signed then countersigned, and the wrong order; the drug screen as a
+  provider's verdict; Brightmoor's good standing clearing the start, and
+  lapsed). It runs on the next scale run.
+- **Only a walk on screens proves a person can save a record.** The
+  release walker opens every form of every party in a real browser on
+  the kept scale world, presses Save, and proves the save three ways
+  (the sentence, the record on reload, the row), measuring clicks,
+  fields and seconds per flow against the zero-training test; its
+  verdict is recorded under this line.
+
+**Calibration, 200 placements × 4 weeks, 40 at once (1 Nov):** 17,830
+calls in 206 s, no server error, 3 routes over two seconds (the nightly
+agent run 9.0 s, an agent approval 5.4 s, the greeting 2.25 s). The
+"$535M billed" in its report was dong, pesos and rupees summed as
+dollars: the stations now report per currency.
+
+**The founder's scale, 2,000 jobs × 12 weeks, 60 at once (1 Nov,
+`reports/simulation-20261101180424.md`):** 338 firms, 3,663 seats,
+183,514 calls in 49 minutes (62 a second on four cores shared with the
+database); 2,000 jobs, 11,861 invitations, 13,861 matching runs, 2,697
+interview rounds, 1,011 awards, 881 starts, 9,184 weeks filed, 9,012
+signed, 8,316 accepted, 292 pay periods. **The one failure: 25 of 720
+bill sends answered 500 after 20 to 44 s**, the submit's five-second
+interactive transaction starving the pool under sixty senders (money).
+Thirteen routes over two seconds at p95: the nightly run 45.9 s for 338
+firms, an agent approval 14.1 s, sending a job to suppliers 7.6 s, the
+greeting 7.3 s, the award 5.4 s, matching 4.0 s, terms 3.3 s, and six
+between 2.0 and 2.6 s. Four lessons, none a product fault: 657 bills
+refused for a missing billing address (the generated world's firms had
+none; the seed gets `lib/seed-setup`'s rule); 500 starts refused as
+HR's work (148 of 160 generated suppliers had an HR role and nobody in
+it; the station now has the Owner seat somebody and asks as HR); 696
+acceptances refused as one's own hours and 731 flagged weeks signed
+without a reason (the stations at generated firms). The pages pass on
+that world (682,538 rows behind the pages, 263,813 of them access-log
+and 432,336 notices): 4,374 timed calls, none failed; 46 of 158 pages
+and 87 reads over two seconds at 40 at once; the worst reads
+`/api/suppliers` 20.7 s at Corvane's hiring manager, `/api/decisions`
+13.4 s, the greeting 12.7 s, `/api/program` 10.7 s. Every Settings tab
+at the supplier read 5.5 to 9.4 s, which looked like a cost shared by
+the Settings shell and was not: the pass took each seat's pages in
+menu order, so the longest menu's last section opened beside the
+other seats' heaviest reads (a median of 17 heavy reads in flight
+against 3); measured alone the same tabs are 1.1 to 2.3 s at p50, and
+the pass now shuffles each round. The one-person firm's and the
+worker's pages were all under the line. The fix wave after the run,
+measured at forty at once: the client's suppliers list from 414
+queries and 23.6 s to 103 and 10.1 s (demand), the program page's
+four figures from 75 queries and 4.2 s to one query and 0.13 s
+(demand), sending a job from 52 queries to 32 (demand), the bill send
+from 34 server errors in 40 to none (money), a worker's own first
+screen from 52 queries to 31 (supply), the compliance page's per-line
+reads batched (regulatory), the signer's name and who approved a
+week read for many weeks at once (architect).
+
+**The target is 100,000 complete transactions, not per page.
+Corrected by the founder, 2026-11-02:** *"100000 in complete
+transactions and not per page."* A complete transaction is one
+placement walked through every station to a paid invoice receipt at
+its payer and a worked-out pay period at its employer, and the
+report's headline counts those against the target. The scale run
+closed about 1,000 complete transactions in 49 minutes at about 180
+calls each, and wrote about 430 notices and 190 access-log rows per
+transaction; a world of 3,429 people cannot hold more at once, because
+a placement needs a person. So the rungs are: the fixes above and the
+documents matrix on a 2,000-job run; 10,000 complete transactions on
+this box from a generated world of about 17,000 people (about eight
+hours, the generator taking a size); 100,000 on a preview deployment
+with its own hosted database, which the founder provisions, the
+harness driving it by URL through the demo door and refusing any
+production host. Notices and log rows per transaction are reported as
+a cost, because at 100,000 they decide the disk. Decided 2026-11-02 on
+the architect's costing, each reversible by the founder in a sentence:
+a complete transaction is a placement whose every rung's invoice
+receipt is paid by its payer and whose employer has worked out a pay
+period covering one of its weeks, with the partial states counted
+beside it so the report says where the chain stops; the world's size
+knob (`--people N`) gets its frame first (addresses, a namer, steps,
+the template name) and its per-domain sizes after; and `--url` against
+a preview waits on three things only the founder holds: the preview's
+NEXTAUTH_SECRET (without it only the demo-door seats open),
+its CRON_SECRET (the nightly stations) and a read-only database URL
+(the seat catalog).
+
+**A screen that cannot reach its own rule, and why the tests did not
+catch it. The founder, 2026-11-02:** his own walker found on production
+that the "Accept or send back" dialog for an I-9 in Document requests
+has only the expiry and the edition, while the route refuses an I-9
+with no document named ("Say which document Rajesh Iyer showed … on
+its own it proves nothing"), so the I-9 can never be accepted from the
+screen, the placement stays held, and no timesheet or bill follows for
+any new placement. *"I am not sure why your testing is unable to catch
+bugs like this."* The honest answer, written down so the fix is
+structural and not one dialog: the simulation drives routes, and the
+routes were given the document's name, so every rule held; the unit
+tests test a route and a dialog each on its own, and nothing asserted
+that the dialog offers every field the route refuses without; the
+screen walks that would have met it (the 2026-10-22 papers walk, the
+two Tapin walks) recorded the I-9 as typed in on Compliance, not
+accepted from a packet. Three things follow: (1) regulatory adds the
+document shown (which list document, its number, the issuer, its
+expiry) to every place an I-9 is accepted; (2) an invariant, "every
+question a route asks, its screen has a field for": for each refusal a
+route can give for a missing field, the dialog that calls it offers
+that field, built as far as the code allows and naming what it cannot
+cover; (3) the screen walk that presses Save on every form of every
+party (the release walker, running on the scale world) is a release
+gate for the trust flows, not a walk after the fact: no deploy that
+touches papers or money without it, and its faults recorded here by
+class, "the screen cannot reach the rule" first.
+
+**The screen walk's verdict, 2026-11-02: do not ship as "every screen
+saves".** 175 forms pressed on 26 seats across all six parties on the
+scale world (the 1 Nov build, before this wave's fixes), 675 page
+opens at desktop and phone width, no page error and no sideways
+scroll: 118 saved and proven (the sentence, the row, the record on
+reload), 13 refused rightly in a sentence that names the fix, 31
+failed, 13 not proven. The money chain works on screens end to end:
+the worker files, the client signs with a reason and the overtime
+decision, the supplier accepts from Ask Etyme, AR bills the right
+figure, the AP clerk pays from the chat with a bank reference. What
+fails is the paper that lets a person start, in the class the founder
+named: an I-9 or a license arriving through Document requests is
+refused for a field the dialog does not have; an I-9 accepted on
+Paperwork says "examined" and writes nothing the start gate reads
+(the worst class: success said, nothing saved). Both are closed in
+this wave by regulatory (5b4ca4d5) and are proven only when the walk
+runs again on the new build, which is the release gate. Also found,
+each with its owner: an over-hours week on Today's Approvals has no
+reason box and prints 45 hours as "$45.00" (demand); Roll off and
+Accept on an expense are offered to a program manager whose route
+refuses them silently (demand, money); an MSP seated in a program is
+offered "Message <supplier>" and "Send on" that always refuse, one in
+a permission code (conversation, market); "Ask the supplier" is a
+browser prompt (money); a setup question is refused as outside the
+record (conversation); a one-person firm cannot change its type
+(architect); machine words on screen ("endDate must be after
+startDate", "Timesheet is APPROVED, can only approve from SUBMITTED",
+"voided cheque"), "will hear from you by email" where none can leave,
+and "employs … at $85/hr" before the person said yes. Report:
+`scratchpad/walk-saves/report.md`, screenshots before and after every
+press.
+
+**The second screen walk, 2026-11-03, on the build after the fixes
+(f84db49d9), said: the class "the screen cannot reach the rule" is
+closed for the I-9 and the license, and the build still does not ship
+as "every screen saves".** 59 presses on 24 seats on the scale world:
+35 saved and proven, 17 refused rightly in a sentence, 7 failed, 8 not
+proven. The I-9 cases one by one: a paper a firm named its own way
+("I-9, with the document it is completed from") is read as the I-9, the
+worker sends it from her page, HR accepts it on Paperwork with the
+edition, the passport, its number, issuer and expiry, the Verification
+and its backing are written and the person starts; the founder's own
+case on Document requests (Casimir Kestrel at Ardley Systems) now has
+the fields and is accepted; Record the I-9 on Compliance is offered for
+an employee with no held start and saves, and for nobody the firm does
+not employ; a license through Document requests carries its number and
+board; an I-94 is never read as an I-9; an expired passport is refused
+rightly. The money chain holds on screens: an over-hours week on Today
+draws its reason box and the overtime question and says "44 hours",
+never "$45.00"; the supplier accepts from Ask Etyme; the bill is
+generated right ($4,508 = 40 × $98 + 4 × $147); the AP clerk pays from
+the chat with a bank reference. Also confirmed: a seated MSP's "Message
+<supplier>" drawn only where the route opens it and the supplier
+reading "Aptiva Workforce, for Cavanaugh Glassworks"; "Ask the supplier"
+a field; Roll off and Accept-expense not drawn for a program manager;
+the Owner changing the company type and three other seats refused;
+setup questions answered with the next item; every machine sentence and
+empty email promise of the first walk reworded; Propose a round and
+Edit a job request saving. **Three failed, two of them this wave's
+own and fixed before the deploy:** an I-9 accepted on Paperwork on an
+edition the issuer never printed or on a retired one, because that
+path did not read `editions.ts` (regulatory); Ask Etyme's "Open who
+applied" landing on an empty Candidates page because the page did not
+read the job in the link (demand). **Pre-existing, each with its
+owner:** a client's typed-in invoice receipt can never name a supplier
+because `receipt-options` reads only the caller's own buy lines, the
+last of the class "the screen cannot reach the rule" (money); the
+client's signature posts the order's drawn figure at straight time
+after a premium was chosen, $4,312 against the $4,508 billed (money, a
+money figure, so it goes first in money's next wave); a bill generated
+from Bills carries no pay-to and reads "44 h × $98/hr = $4,508.00";
+"₫170.00" shows cents the dong does not have (money); Compliance says
+every I-9 "is on file with nothing behind it" though the backing is
+recorded, and Paperwork says "On file" for a paper nobody examined
+(regulatory); a worker's own I-9 upload notifies every seat at her
+employer, nine notices (conversation); candidate cards still read word
+for word alike; the client's greeting calls an invoice receipt a
+"bill" (conversation); Grant the seat with empty fields says nothing,
+Activate offered to HR, the worker's link saying "due to start" on a
+past day (demand); Add consultant offered to a delivery manager whose
+route refuses it (supply). Not proven: a non-dollar expense on a
+client's Approvals row (no Corvane agreement names billable expense
+kinds, so none reaches a client), and the 390 px phone pass. Report:
+`scratchpad/walk-saves/report2.md`, shots under `shots2/`.
 
 ## Ask Etyme runs parallel to the dashboard, and the CFO gets exceptions, not a page — decided 2026-10-22 to 2026-10-26
 
@@ -4772,6 +5179,154 @@ still carry their own list and must read this one instead, which is
 are `etyme-conversation`'s. Until that lands the table is written by the
 seed and read by its own door, and nothing that computes a verdict today
 has changed meaning.
+
+### Work authorization is checked where the work is done — decided by the founder, 2026-11-03
+
+The founder, asked what happens when a candidate turns out to have no
+work authorization after three interviews: *"Especially for the onsite
+jobs — offshore jobs is fine."* So the question is never "is this person
+authorized" in the abstract; it is "authorized where this job's work is
+done". The record already holds the three facts the rule needs: the
+job's work mode (`Requirement.workMode`: ONSITE · HYBRID · REMOTE), the
+site's country (`CompanyLocation.country` through the job's site), and
+the country the person works from (`ConsultantProfile.country`).
+
+- **An onsite or hybrid job checks the site's country.** A US site asks
+  the two lawful screening questions in words (authorized to work in the
+  US; sponsorship needed now or later), **records the sponsorship answer
+  as a field** rather than words on the packet, and says it at
+  put-forward where the job lawfully offers none ("Priya said she will
+  need sponsorship; this job offers none"), so the interview is never
+  booked. The start still refuses without the I-9, and work authorization
+  still cannot be waived.
+- **A remote job worked from the person's own country is offshore, and
+  asks nothing about the site's country.** An engineer in Pune working
+  for a client in Ohio through an Indian supplier needs no US
+  authorization and completes no I-9, because she is not employed in the
+  US. What the start needs is the work country's own set, and that set
+  is regulatory's to confirm with its source before it is enforced
+  (today the gate asks every placement for an I-9 or a right-to-work
+  check, which is wrong for an offshore line and is the first thing this
+  changes).
+- **A remote job worked from the site's country is onsite for this
+  purpose.** Remote from Austin for a client in Ohio is US work.
+- **The lawful-basis rule stands**: a job refuses a person over status
+  only with a recorded basis (export control, a federal contract clause,
+  a clearance, a statute, no sponsorship offered); without one it warns.
+  "No sponsorship" never turns away somebody who needs none.
+- **What was found, so it is not re-derived:** until this day the
+  screening answer was kept as words on the packet item
+  (`WORK_AUTH_QUESTION`) and nothing read it, so a candidate who said
+  "I will need sponsorship" could be interviewed three times for a job
+  that offers none, and nobody was told until the award refused the
+  start; and the put-forward warning read only the papers on file (an
+  I-9 or a right-to-work check), so it fired for nearly everybody not
+  yet employed and told the submitter nothing about sponsorship.
+- **Built in the wave after the 2026-11-03 deploy, in this order:** the
+  work country of a job and of a line, read from the three facts above
+  (demand, with architect if a column is needed); the sponsorship answer
+  as a field and the put-forward sentence (demand); the start gate and
+  the required set per work country, confirmed with a source before any
+  is enforced, and the offshore line's set (regulatory). The simulation
+  gets an offshore chain so "horizontal, never vertical" is proven on it.
+
+### A degree is read, not just held, and a year that does not look right is said — decided by the founder, 2026-11-03
+
+The founder, the same hour: *"Also negative tests on education — year of
+graduation — when something doesn't look right."* Today a degree is a
+file and nothing else: `DEGREE` is a verification type with no
+institution, no qualification and no year on it, `EDUCATION_EVALUATION`
+is a provider's verdict, and no rule reads either. "On file" is the
+whole check. So:
+
+- **A degree is recorded with its fields**, the way a license carries
+  its number, issuer and expiry: the institution, the qualification, the
+  name on it and **the year of graduation**, read by rules first, by the
+  model only where the company turned it on (masked, logged, each value
+  shown with the quote it came from) and confirmed by a person before it
+  is recorded. The copy stays on the person's record as before.
+- **Education stays proof, not compliance** (the purpose table above):
+  nothing about a degree blocks a start. When something does not look
+  right the record **warns, says why in a sentence beside the paper, and
+  HR decides** — ask for the transcript, send the package to an
+  education-verification provider, or send the paper back with the
+  reason. Etyme renders no verdict on a degree; the provider does
+  ("Who renders the verdict").
+- **What "does not look right" means, as rules, each a sentence on the
+  screen:** the year is in the future; the year is before or after what
+  the person's own résumé says for the same degree; the name on the
+  certificate is not the person's; the institution is not the one the
+  résumé names; the same file was already filed for a different person;
+  a qualification the job requires (a nursing degree for an RN role) is
+  not the qualification on the paper. A degree a provider has verified
+  (`EDUCATION_EVALUATION` with name, reference and date) clears every
+  warning on that degree. Date of birth is not held and is not asked
+  for this; age is never a check.
+- **Negative cases in the documents matrix.** The both-ways matrix
+  (regulatory, `scripts/simulate/stages/regulatory/doc-matrix.ts`) gains
+  education: a degree attached with every field right (accepted); a
+  future year (warned, HR told why); a year the résumé contradicts
+  (warned); another person's name (sent back with the reason); a file
+  already filed for somebody else (warned, both names said to HR only);
+  a provider's verdict clearing a warned degree; and the worker told, in
+  words, what was asked and why. Each proven through the real routes and
+  then pressed on screens by the walk.
+- **The degree is the person's, uploaded once, read as fully as it can
+  be, and kept for good. The founder, the same hour:** *"Why can't
+  people upload degree and we extract as much details — the record is
+  permanent for candidate."* So: the person uploads it from their own
+  page (the copy is already kept on their record since 2026-10-27);
+  everything on it is read, not four fields only: the institution, the
+  qualification and field, the year, the name, honors, the certificate
+  or registrar number, the date it was issued, each shown with the
+  quote it came from and confirmed by the person. **For a paper a person
+  uploads to their own record, the model reads it on the person's own
+  yes**, asked once at the upload ("Read the details from this document
+  for you?"), masked and logged like every other read, rules first
+  always; a company's switch governs a company's papers, and this one is
+  the person's. **Once confirmed, the facts and any provider's verdict
+  stay on the person's record permanently**: a degree never expires,
+  so the next firm and the next client read it by the person's one
+  click (the apply form's reuse), it is never asked for twice, it does
+  not belong to a firm the person leaves, and every read of it by a
+  firm is logged like any other read of a person's paper. A verified
+  degree shown as verified to the next client is the first piece of
+  the moat said in "Tenure is the moat": one person's papers across
+  every supplier, which no VMS and no supplier can produce.
+- **Candidate and supplier fraud: collect and forward, and say what the
+  record itself can see. Corrected by the founder the same hour:** the
+  "fraud module" he asked about was never about money; it is **a wrong
+  candidate or a wrong supplier**, a proxy who is not the person
+  interviewed, a borrowed identity, a padded résumé, a shell firm, a
+  borrowed certificate. The rule to start with, in his words: *"At this
+  point we collect and forward to background check company to
+  verify."* So the verdict on a person is the background-check
+  provider's and the verdict on a firm is Procurement's and HR's
+  qualification (references, the D&B report, the sanctions and
+  litigation screening, the insurance certificate, good standing), both
+  recorded verbatim with who said it, reference and date; Etyme renders
+  neither. What Etyme itself says, because it is the only party that
+  can see it, is what the record shows against itself: a degree year
+  the résumé contradicts, a name on a paper that is not the person's,
+  the same file filed for two people, one person arriving twice through
+  two suppliers (the Duplicate check page, `/dashboard/identity`, which
+  confirms and never merges), a firm's tax number already on another
+  firm, an insurance certificate whose dates do not cover the start,
+  and the one question at the start: the hiring manager confirms the
+  person who started is the person interviewed, yes or no on the start
+  card, recorded with who said it. Each is a sentence to the role that
+  decides, with one click to send the package to the provider; none is
+  a verdict and none blocks except where the law blocks. It is called
+  verification on every screen and is in the record for everybody;
+  whether any of it is priced is the founder's decision when prices
+  are set, and nothing a supplier reads says "fraud" or reads as aimed
+  at it.
+- **Built in the wave after the 2026-11-03 deploy**, beside the
+  work-country piece: the degree's fields and the rules (regulatory,
+  with the schema request to the architect for the four fields on the
+  verification), the résumé's own education lines as the thing a degree
+  is checked against (supply, which owns the consultant's page and
+  parse), the warning's wording to HR and to the worker (conversation).
 
 **Four models overlap here and none is a superset:** `Verification` and
 `VerificationDoc` (the person's compliance evidence, expiry watched by

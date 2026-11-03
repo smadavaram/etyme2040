@@ -1,4 +1,5 @@
 import { formatDay } from '@/lib/format-date'
+import { otherFirmWord } from '@/lib/parties'
 
 /**
  * The words the Submissions page uses for a row — never the column's code.
@@ -122,4 +123,25 @@ export function refusalSays(message: string, reasons: readonly string[]): string
   const first = message.trim()
   const head = first.charAt(0).toUpperCase() + first.slice(1)
   return rest.length === 0 ? head : `${head} — ${rest.join(' · ')}`
+}
+
+/**
+ * What another firm is, beside its name in a picker: "Brightmoor
+ * Staffing · supplier", "Aptiva Workforce · MSP", a one-person firm.
+ *
+ * The Send on picker printed the column, lower-cased: "vendor", "client",
+ * "msp", "gsi", "consultant_corp" (the second Tapin walk, 2026-10-30). The
+ * words are `lib/parties`' own word for another firm (`otherFirmWord`),
+ * so the picker, the sidebar and every other screen that names a firm
+ * beside its name cannot drift apart. A kind nobody knows says nothing
+ * rather than its code.
+ */
+export function firmWord(kind: string | null | undefined): string {
+  return otherFirmWord(kind)
+}
+
+/** "Brightmoor Staffing · supplier", or the name alone where the kind says nothing. */
+export function firmOption(f: { name: string; kind?: string | null }): string {
+  const word = firmWord(f.kind)
+  return word ? `${f.name} · ${word}` : f.name
 }

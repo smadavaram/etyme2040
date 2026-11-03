@@ -9,12 +9,14 @@ import { seatMayRead, seatScope, desksThatHold, complianceRefusal } from '@/lib/
 import { hasPermission } from '@/lib/permissions'
 import { logBulkAccess, recordRefusal } from '@/lib/access-log'
 import { supplierCoverGate, standingOf, coverLabel, licenseGate, nameCredential, COVER_THAT_STOPS_WORK, type HeldCredential } from '@/lib/document-stages'
-import { ADVERSE_STEPS, credentialKeys, credentialDetail, contractClearance, lineExtras } from '@/lib/contract-clearance'
+import { ADVERSE_STEPS, credentialKeys, credentialDetail, contractClearance, lineExtrasForSellLines, requirementsForSellLines } from '@/lib/contract-clearance'
 import { chainTop } from '@/lib/chain-top'
 import { checkHealth } from './health'
+import { employedPairs } from './verifications/record'
+import { whoPutsItOnFile, type WhoEmploys } from '@/app/dashboard/compliance/says'
 import { orderedNotCollected, readVerdict } from '@/lib/attestation'
 import { labelFor, humanKey } from '@/lib/document-type'
-import { requirementsFor } from '@/lib/document-requirements'
+import type { LineRequirements } from '@/lib/document-requirements'
 import {
   outstandingItems,
   heldFromDocInstances,
@@ -247,7 +249,49 @@ export async function GET(request: NextRequest) {
     orderBy: { startDate: 'asc' },
   })
   const notStarted = chainTop(notStartedRungs)
-  const contractPersonIds = [...new Set([...activeContracts, ...notStarted].map(c => c.personId))]
+
+  // ── The starts of people this firm employs ──────────────────────────
+  //
+  // The second Tapin walk, 2026-10-30. Tapin employs Ravi and sells his
+  // time to Brightmoor, which sells it to Northbend. Tapin's page listed
+  // only the starts where Tapin was the buyer, so the one firm that
+  // completes Ravi's I-9 could not see that his start was waiting on it,
+  // and the only start anybody could record against was the line at the
+  // top of the chain. The employer is answerable for its own people's
+  // papers, so its own lines for them are read here too — only those of
+  // people it employs (an employee seat, or a line of its own paying them
+  // by payroll), never its whole book of business.
+  const readingOwnPage = !seat && caller.company?.id === clientCompany.id
+  const ownCandidates = readingOwnPage
+    ? await prisma.sellContract.findMany({
+        where: { companyId: clientCompany.id, state: { in: ['DRAFT', 'PENDING_VERIFICATION', 'VERIFIED'] } },
+        select: {
+          id: true,
+          personId: true,
+          companyId: true,
+          clientCompanyId: true,
+          startDate: true,
+          endDate: true,
+          person: { select: { id: true, name: true } },
+          company: { select: { id: true, name: true } },
+          clientCompany: { select: { name: true } },
+          endClientCompany: { select: { name: true } },
+          requirement: { select: { title: true } },
+        },
+        orderBy: { startDate: 'asc' },
+        take: 25,
+      })
+    : []
+  const employed = await employedPairs([
+    ...ownCandidates.map(c => c.personId),
+    ...notStarted.map(c => c.personId),
+  ])
+  const alreadyListed = new Set(notStarted.map(c => c.personId))
+  const ownStarts = ownCandidates.filter(
+    c => employed.has(`${c.companyId}:${c.personId}`) && !alreadyListed.has(c.personId)
+  )
+
+  const contractPersonIds = [...new Set([...activeContracts, ...notStarted, ...ownStarts].map(c => c.personId))]
   const vendorCompanyIds = [...new Set([...activeContracts, ...notStarted].map(c => c.companyId))]
 
   // ── Whose name this reader may read ─────────────────────────────────
@@ -538,7 +582,25 @@ export async function GET(request: NextRequest) {
   }
 
   // What this firm owes, on the lines it is paid on.
-  const owes = await whatThisFirmOwes(clientCompany.id, now)
+  // ── One read of each line's required set, for the whole page ──
+  //
+  // The page-timing pass, 2026-11-02: at 40 at once this route took 10 s
+  // at the 95th percentile, and a large supplier's page made about 628
+  // statements, because every start, every one of its own people's starts
+  // and every line it owes on asked the set's door again, and every start
+  // read its person's and its firm's checks on its own. Each line's set is
+  // read once here and shared; the starts read their checks in two
+  // queries and their line extras through `lineExtrasForSellLines`, the
+  // read the nightly check makes, which gives each line the same answer
+  // as `lineExtras`.
+  const setCache = new Map<string, LineRequirements | null>()
+  const setsFor = async (ids: string[]): Promise<Map<string, LineRequirements | null>> => {
+    const missing = [...new Set(ids)].filter((id) => !setCache.has(id))
+    if (missing.length) for (const [id, set] of await requirementsForSellLines(missing)) setCache.set(id, set)
+    return setCache
+  }
+
+  const owes = await whatThisFirmOwes(clientCompany.id, now, setsFor)
 
   // ── Starts the paperwork is holding up ──────────────────────────────
   //
@@ -561,41 +623,110 @@ export async function GET(request: NextRequest) {
     type: true, status: true, issuedAt: true, validFrom: true, expiresAt: true,
     verifiedAt: true, provider: true, result: true,
   } as const
-  const starts = await Promise.all(
-    notStarted.slice(0, 25).map(async (c) => {
-      const [personRows, firmRows] = await Promise.all([
-        prisma.verification.findMany({ where: { personId: c.personId }, select: { ...verificationShape, ...ADVERSE_STEPS } }),
-        prisma.verification.findMany({ where: { companyId: c.companyId, personId: null }, select: verificationShape }),
-      ])
-      const firmName = shown(c.companyId, c.company.name)
-      const papers = contractClearance({
-        personName: c.person.name,
-        personVerifications: personRows,
-        supplierName: firmName.phrase,
-        supplierCertificates: firmRows,
-        clientName: clientCompany.name,
-        on: c.startDate > now ? c.startDate : now,
-        role: c.requirement?.title ?? null,
-        through: c.endDate,
-        ...(await lineExtras({ sellContractId: c.id })),
-      })
-      return {
-        contractId: c.id,
-        personId: c.personId,
-        name: c.person.name,
-        supplier: firmName.name,
-        startDate: c.startDate.toISOString(),
-        outcome: papers.outcome,
-        says: papers.says,
-        fix: papers.fix,
-        /** What stops the start, by name. */
-        blocking: papers.blocking.map(i => i.label),
-        /** What is owed and does not stop it — warned, with a reason on the record. */
-        chasing: papers.chasing.map(i => i.label),
-      }
+  const startLines = notStarted.slice(0, 25)
+  const startPeople = [...new Set([...startLines, ...ownStarts].map((c) => c.personId))]
+  const startFirms = [...new Set([...startLines.map((c) => c.companyId), ...(ownStarts.length ? [clientCompany.id] : [])])]
+  const startIds = [...startLines, ...ownStarts].map((c) => c.id)
+  // Each read answers empty for no ids.
+  const [startPersonRows, startFirmRows, startExtras] = await Promise.all([
+    // The edition and what each form was completed from, read the way the
+    // start reads them (`contracts/[id]/activate`): without them every I-9
+    // here read "on file with nothing behind it" (the screen walk, 2026-11-03).
+    prisma.verification.findMany({
+      where: { personId: { in: startPeople } },
+      select: {
+        personId: true, ...verificationShape, ...ADVERSE_STEPS, formEdition: true,
+        backedBy: { select: { evidence: { select: { type: true, validFrom: true, issuedAt: true, expiresAt: true, status: true } } } },
+      },
+    }).then((rows) => rows.map((v) => ({
+      ...v,
+      backedBy: v.backedBy.map((b) => {
+        const from = b.evidence.validFrom ?? b.evidence.issuedAt
+        return {
+          key: b.evidence.type,
+          inForce: CAME_BACK.includes(b.evidence.status) && !(from && from > now) && !(b.evidence.expiresAt && b.evidence.expiresAt < now),
+        }
+      }),
+    }))),
+    prisma.verification.findMany({ where: { companyId: { in: startFirms }, personId: null }, select: { companyId: true, ...verificationShape } }),
+    setsFor(startIds).then((known) => lineExtrasForSellLines(startIds, prisma, now, known)),
+  ])
+  const checksOf = (personId: string) => startPersonRows.filter((v) => v.personId === personId)
+  const firmChecksOf = (companyId: string) => startFirmRows.filter((v) => v.companyId === companyId)
+
+  const starts = startLines.map((c) => {
+    const firmName = shown(c.companyId, c.company.name)
+    // Whether the firm on this row employs the person, or buys their
+    // time from the firm that does — so the sentence never says a prime
+    // employs a sub-vendor's W2.
+    const below = [...notStartedRungs, ...activeContracts].some(
+      r => r.personId === c.personId && r.clientCompanyId === c.companyId
+    )
+    const employs: WhoEmploys = employed.has(`${c.companyId}:${c.personId}`) ? 'THIS_FIRM' : below ? 'BELOW' : 'UNKNOWN'
+    const papers = contractClearance({
+      personName: c.person.name,
+      personVerifications: checksOf(c.personId),
+      supplierName: firmName.phrase,
+      supplierCertificates: firmChecksOf(c.companyId),
+      clientName: clientCompany.name,
+      on: c.startDate > now ? c.startDate : now,
+      role: c.requirement?.title ?? null,
+      through: c.endDate,
+      ...(startExtras.get(c.id) ?? {}),
     })
-  )
-  const startsHeld = starts.filter(s => s.outcome !== 'PASS')
+    return {
+      contractId: c.id,
+      personId: c.personId,
+      name: c.person.name,
+      supplier: firmName.name,
+      startDate: c.startDate.toISOString(),
+      outcome: papers.outcome,
+      says: papers.says,
+      fix: papers.fix,
+      /** What stops the start, by name. */
+      blocking: papers.blocking.map(i => i.label),
+      /** What is owed and does not stop it — warned, with a reason on the record. */
+      chasing: papers.chasing.map(i => i.label),
+      /** False here: a start at this client's sites, through a supplier. */
+      own: false,
+      client: null as string | null,
+      /** Whose these papers are, in a sentence to this reader. */
+      whoFiles: whoPutsItOnFile({ supplier: firmName.name, personName: c.person.name, employs, own: false }),
+    }
+  })
+  // The employer's own people, through the same check with the same
+  // arguments, the employer's own standing as the supplier's.
+  const own = ownStarts.map((c) => {
+    const client = c.endClientCompany?.name ?? c.clientCompany.name
+    const papers = contractClearance({
+      personName: c.person.name,
+      personVerifications: checksOf(c.personId),
+      supplierName: c.company.name,
+      supplierCertificates: firmChecksOf(clientCompany.id),
+      clientName: client,
+      on: c.startDate > now ? c.startDate : now,
+      role: c.requirement?.title ?? null,
+      through: c.endDate,
+      ...(startExtras.get(c.id) ?? {}),
+    })
+    return {
+      contractId: c.id,
+      personId: c.personId,
+      name: c.person.name,
+      supplier: c.company.name,
+      startDate: c.startDate.toISOString(),
+      outcome: papers.outcome,
+      says: papers.says,
+      fix: papers.fix,
+      blocking: papers.blocking.map(i => i.label),
+      chasing: papers.chasing.map(i => i.label),
+      /** True: this firm employs the person and completes their papers. */
+      own: true,
+      client: client as string | null,
+      whoFiles: whoPutsItOnFile({ supplier: c.company.name, personName: c.person.name, employs: 'THIS_FIRM', own: true }),
+    }
+  })
+  const startsHeld = [...starts, ...own].filter(s => s.outcome !== 'PASS')
 
   // ── Suppliers with people on site and no agreement on file ──────────
   //
@@ -628,7 +759,7 @@ export async function GET(request: NextRequest) {
   // Everybody about to start is on the person list, whether or not a
   // single check has ever been recorded on them. A person with nothing on
   // file is the one this page most needs to show.
-  for (const s of starts) {
+  for (const s of [...starts, ...own]) {
     if (!personVerifMap.has(s.personId)) {
       personVerifMap.set(s.personId, { name: s.name, checks: [], license: null })
     }
@@ -798,12 +929,26 @@ interface Owed {
   word: string
   asked: string
   waivedSays: string | null
+  /** The person the line is for, where the worker owes it. */
+  personId: string | null
+  /**
+   * Whether this firm records it from this row: an I-9 it owes as the
+   * person's employer (an employee seat, or a line of its own paying them
+   * by payroll). Found by the screen walk of 2026-11-01: Record the I-9
+   * was offered only while a start was listed as held, so Pinnacle could
+   * not record Nikhil Fairweather's at all.
+   */
+  recordI9: boolean
 }
 
 /** A check that actually came back. Anything still running holds nothing. */
 const CAME_BACK = ['CLEAR', 'CONDITIONAL']
 
-async function whatThisFirmOwes(companyId: string, on: Date): Promise<Owed[]> {
+async function whatThisFirmOwes(
+  companyId: string,
+  on: Date,
+  setsFor: (ids: string[]) => Promise<Map<string, LineRequirements | null>>
+): Promise<Owed[]> {
   // The lines this firm bills from. A buy line's supplier items are what
   // somebody owes THIS firm, which is the suppliers table above, not this
   // list — the reader is asking what is outstanding on them.
@@ -862,8 +1007,9 @@ async function whatThisFirmOwes(companyId: string, on: Date): Promise<Owed[]> {
   const out: Owed[] = []
   const seen = new Set<string>()
 
+  const sets = await setsFor(lines.map((l) => l.id))
   for (const line of lines) {
-    const set = await requirementsFor({ sellContractId: line.id })
+    const set = sets.get(line.id) ?? null
     if (!set) continue
 
     const held: HeldKeyRecord[] = [
@@ -915,8 +1061,19 @@ async function whatThisFirmOwes(companyId: string, on: Date): Promise<Owed[]> {
         word: item.word,
         asked: item.asked,
         waivedSays: item.waivedSays,
+        personId: item.owedBy === 'WORKER' ? (line.personId ?? null) : null,
+        recordI9: false,
       })
     }
+  }
+
+  // An I-9 the worker owes is recorded by the employer, so the row offers
+  // Record the I-9 only where this firm employs the person; anybody else
+  // reads whose it is. One read for every such person.
+  const i9Owed = out.filter((o) => o.key === 'I9_EVERIFY' && o.owedBy === 'WORKER' && o.state !== 'WAIVED' && o.personId)
+  if (i9Owed.length) {
+    const employs = await employedPairs(i9Owed.map((o) => o.personId!))
+    for (const o of i9Owed) o.recordI9 = employs.has(`${companyId}:${o.personId}`)
   }
 
   return out.sort(

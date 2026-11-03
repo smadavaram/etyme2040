@@ -1,5 +1,15 @@
 import { prisma } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 import type { CheckRow } from '@/lib/attestation'
+import {
+  EMPLOYED_ON,
+  employerOnChain,
+  type ChainLine,
+  type Employer,
+  type EmploymentFact,
+} from '@/lib/document-stages/employer'
+
+type Tx = Prisma.TransactionClient
 
 /**
  * Put one recorded check on file, with the documents behind it.
@@ -27,6 +37,28 @@ export async function writeCheck(input: {
   now: Date
 }): Promise<{ id: string; already: boolean }> {
   const { row, subject, recordedById, now } = input
+  const writeEvidence = async (tx: Tx, formId: string, evidence: CheckRow['evidence']) => {
+    for (const e of evidence) {
+      const seen = await tx.verification.create({
+        data: {
+          personId: input.personId,
+          type: e.type as never,
+          status: 'CLEAR',
+          provider: e.provider,
+          referenceId: e.referenceId,
+          expiresAt: e.expiresAt,
+          uploadedById: recordedById,
+          verifiedById: recordedById,
+          verifiedAt: now,
+        },
+        select: { id: true },
+      })
+      await tx.documentBacking.create({
+        data: { formId, evidenceId: seen.id, satisfiedKey: e.type, recordedById },
+      })
+    }
+  }
+
   const already = await prisma.verification.findFirst({
     where: {
       ...subject,
@@ -39,7 +71,21 @@ export async function writeCheck(input: {
     },
     select: { id: true },
   })
-  if (already) return { id: already.id, already: true }
+  // The form is the same paper, and what was shown this time may not be:
+  // a passport typed now stands behind it, never dropped (the screen walk,
+  // 2026-11-03, where Casimir Kestrel's number and expiry went nowhere).
+  // A document already behind it, the same as printed, is not written twice.
+  if (already) {
+    const behind = await prisma.documentBacking.findMany({
+      where: { formId: already.id },
+      select: { evidence: { select: { type: true, referenceId: true, expiresAt: true } } },
+    })
+    const fresh = row.evidence.filter((e) => !behind.some((b) =>
+      b.evidence.type === e.type && b.evidence.referenceId === e.referenceId &&
+      (b.evidence.expiresAt?.getTime() ?? null) === (e.expiresAt?.getTime() ?? null)))
+    if (fresh.length) await prisma.$transaction((tx) => writeEvidence(tx, already.id, fresh))
+    return { id: already.id, already: true }
+  }
 
   const id = await prisma.$transaction(async (tx) => {
     const made = await tx.verification.create({
@@ -62,26 +108,84 @@ export async function writeCheck(input: {
       },
       select: { id: true },
     })
-    for (const e of row.evidence) {
-      const seen = await tx.verification.create({
-        data: {
-          personId: input.personId,
-          type: e.type as never,
-          status: 'CLEAR',
-          provider: e.provider,
-          referenceId: e.referenceId,
-          expiresAt: e.expiresAt,
-          uploadedById: recordedById,
-          verifiedById: recordedById,
-          verifiedAt: now,
-        },
-        select: { id: true },
-      })
-      await tx.documentBacking.create({
-        data: { formId: made.id, evidenceId: seen.id, satisfiedKey: e.type, recordedById },
-      })
-    }
+    await writeEvidence(tx, made.id, row.evidence)
     return made.id
   })
   return { id, already: false }
+}
+
+/**
+ * What the record says about who employs a person: their live lines,
+ * and every fact that a firm employs them (an employee seat, or a buy
+ * line of the firm's own that pays them by payroll with nobody in
+ * between). Read once and handed to `lib/document-stages/employer`.
+ */
+export async function employmentOf(personId: string): Promise<{ lines: ChainLine[]; facts: EmploymentFact[] }> {
+  const [lines, seats, payroll] = await Promise.all([
+    prisma.sellContract.findMany({
+      where: { personId, state: { notIn: ['CANCELLED', 'ENDED'] } },
+      select: { id: true, companyId: true, clientCompanyId: true },
+      orderBy: { id: 'asc' },
+      take: 40,
+    }),
+    prisma.context.findMany({
+      where: { personId, type: 'EMPLOYEE', revokedAt: null, companyId: { not: null } },
+      select: { companyId: true },
+    }),
+    prisma.buyContractCandidate.findMany({
+      where: {
+        personId,
+        state: 'ACTIVE',
+        buyContract: { vendorCompanyId: null, contractType: { in: [...EMPLOYED_ON] as never[] }, state: { notIn: ['CANCELLED', 'ENDED'] as never[] } },
+      },
+      select: { buyContract: { select: { companyId: true } } },
+    }),
+  ])
+  return {
+    lines,
+    facts: [
+      ...seats.map((s) => ({ companyId: s.companyId!, how: 'EMPLOYEE' as const })),
+      ...payroll.map((p) => ({ companyId: p.buyContract.companyId, how: 'PAYROLL' as const })),
+    ],
+  }
+}
+
+/**
+ * The firm that employs the person on the chain under this line, with
+ * its name, or null where the line is not one of theirs.
+ */
+export async function employerOfRecord(personId: string, fromLineId: string): Promise<(Employer & { name: string }) | null> {
+  const { lines, facts } = await employmentOf(personId)
+  const employer = employerOnChain({ fromLineId, lines, facts })
+  if (!employer) return null
+  const firm = await prisma.company.findUnique({ where: { id: employer.companyId }, select: { name: true } })
+  return { ...employer, name: firm?.name ?? 'the firm that employs them' }
+}
+
+/**
+ * Which firms employ each of these people, as the record says it: an
+ * employee seat, or a buy line of the firm's own paying them by payroll.
+ * Keyed `companyId:personId`, for a page that asks of many rows at once.
+ */
+export async function employedPairs(personIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(personIds.filter(Boolean))]
+  if (ids.length === 0) return new Set()
+  const [seats, payroll] = await Promise.all([
+    prisma.context.findMany({
+      where: { personId: { in: ids }, type: 'EMPLOYEE', revokedAt: null, companyId: { not: null } },
+      select: { companyId: true, personId: true },
+    }),
+    prisma.buyContractCandidate.findMany({
+      where: {
+        personId: { in: ids },
+        state: 'ACTIVE',
+        buyContract: { vendorCompanyId: null, contractType: { in: [...EMPLOYED_ON] as never[] }, state: { notIn: ['CANCELLED', 'ENDED'] as never[] } },
+      },
+      select: { personId: true, buyContract: { select: { companyId: true } } },
+    }),
+  ])
+  return new Set([
+    ...seats.map((s) => `${s.companyId}:${s.personId}`),
+    ...payroll.map((p) => `${p.buyContract.companyId}:${p.personId}`),
+  ])
 }

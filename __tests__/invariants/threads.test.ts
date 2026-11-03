@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   whoMayOpen, canRead, sideOf, whoHears, withAuthor, messageNotice, suppliersOnRole,
-  hearsForTopic, whoAtTheFirmHears,
+  hearsForTopic, whoAtTheFirmHears, mayMessageSupplier, seatWritesFor, writesFor, PROGRAM_WRITES,
   type RoleFacts, type CandidateFacts,
 } from '@/lib/threads'
 import { rolesFor } from '@/lib/company-defaults'
@@ -92,6 +94,66 @@ describe('who may open a conversation about a candidate', () => {
     const v = whoMayOpen(candidate, nike, techpeple)
     expect(v).toMatchObject({ ok: false, code: 'NOT_ON_THE_ROLE' })
     if (!v.ok) expect(v.message).toBe('Mei-Lin Chao came from Pinnacle, not Techpeple.')
+  })
+})
+
+describe('a firm seated in a client’s program writes to the client’s suppliers as the program does', () => {
+  const aptiva = { id: 'c-aptiva', name: 'Aptiva Workforce' }
+  const pmSeat = { clientCompanyId: nike.id, permissions: ['requirements.read', 'requirements.write', 'submissions.read'] }
+  const apSeat = { clientCompanyId: nike.id, permissions: ['timesheets.read', 'payments.record'] }
+
+  it('“Message <supplier>” is drawn for the firm the candidate was submitted to and for a seat in its program that writes for it, exactly where the route lets it open', () => {
+    expect(mayMessageSupplier(candidate, nike.id)).toBe(true)
+    expect(mayMessageSupplier(candidate, aptiva.id, pmSeat)).toBe(true)
+    expect(whoMayOpen(candidate, aptiva, pinnacle, { seatedAt: nike, seatWrites: true })).toEqual({ ok: true, title: 'Mei-Lin Chao · Kinaxis planners' })
+    // The same seat on a role: it writes to a supplier on the job as the client does.
+    expect(whoMayOpen(role, aptiva, techpeple, { seatedAt: nike, seatWrites: true })).toEqual({ ok: true, title: 'Kinaxis planners' })
+    // And never past the client's own rule: a supplier the candidate did not come from is still refused.
+    expect(whoMayOpen(candidate, aptiva, techpeple, { seatedAt: nike, seatWrites: true })).toMatchObject({ ok: false, code: 'NOT_ON_THE_ROLE' })
+  })
+
+  it('a seat writes under the permission the client’s own program manager holds for it, and a seat whose role does not hold it is told, by name, that the client writes', () => {
+    expect(PROGRAM_WRITES).toBe('requirements.write')
+    expect(seatWritesFor(pmSeat, nike.id)).toBe(true)
+    expect(seatWritesFor(apSeat, nike.id)).toBe(false)
+    expect(seatWritesFor(pmSeat, 'c-another-client')).toBe(false)
+    expect(mayMessageSupplier(candidate, aptiva.id, apSeat)).toBe(false)
+    const v = whoMayOpen(candidate, aptiva, pinnacle, { seatedAt: nike, seatWrites: false })
+    expect(v).toEqual({ ok: false, code: 'NOT_YOURS', message: 'Mei-Lin Chao was put forward to Northbend Athletic, so only Northbend Athletic writes to Pinnacle about them.' })
+    const r = whoMayOpen(role, aptiva, techpeple, { seatedAt: nike, seatWrites: false })
+    expect(r).toEqual({ ok: false, code: 'NOT_YOURS', message: 'Kinaxis planners is Northbend Athletic’s job, so only Northbend Athletic writes to Techpeple about it.' })
+  })
+
+  it('a firm with no seat there is never told whose candidate it is, and never offered the button', () => {
+    for (const firm of [pinnacle, techpeple, aptiva, stranger]) {
+      expect(mayMessageSupplier(candidate, firm.id), firm.name).toBe(whoMayOpen(candidate, firm, pinnacle).ok)
+    }
+    expect(whoMayOpen(candidate, stranger, pinnacle)).toMatchObject({ ok: false, message: 'Mei-Lin Chao was not submitted to or by you.' })
+    expect(mayMessageSupplier(candidate, null)).toBe(false)
+    // A seat at another client writes for that client only.
+    expect(mayMessageSupplier(candidate, aptiva.id, { ...pmSeat, clientCompanyId: 'c-another-client' })).toBe(false)
+  })
+
+  it('the supplier always reads who wrote: a seat’s note says its own firm beside the client’s', () => {
+    const sides = { company: nike, withCompany: pinnacle }
+    expect(writesFor({ companyId: nike.id, asOffice: 'Aptiva Workforce' }, sides)).toBe('Aptiva Workforce, for Northbend Athletic')
+    expect(writesFor({ companyId: nike.id }, sides)).toBe('Northbend Athletic')
+    expect(writesFor({ companyId: pinnacle.id }, sides)).toBe('Pinnacle')
+    expect(writesFor({ companyId: stranger.id }, sides)).toBeNull()
+  })
+
+  it('the thread a seat opens is the client’s, the seat is on it, every read of it is logged with the seat named, and the client’s own notes stay the client’s', () => {
+    const route = readFileSync(join(process.cwd(), 'src/app/api/conversations/route.ts'), 'utf8')
+    expect(route).toContain('program = await programSideFor(caller, demandSideOf(facts))')
+    expect(route).toContain('where: { companyId: side.id, withCompanyId: other.id, topic, topicId }')
+    expect(route).toContain("companyName: asOffice ? `${asOffice}, for ${side.name}` : me.name, asOffice,")
+    expect(route).toContain('noteSeatThreadRead(caller, [program.seat]')
+    expect(route).toContain('{ companyId: { in: [...programIds] }, withCompanyId: { not: null } }')
+    const messages = readFileSync(join(process.cwd(), 'src/app/api/conversations/messages/route.ts'), 'utf8')
+    expect(messages).toMatch(/if \(!conversation\.withCompanyId \|\| caller\.region \|\| isConsultantSeat\(caller\)\) return notHere\s*const program = await programSideFor\(caller, conversation\.companyId\)\s*if \(!program\?\.writes\) return notHere\s*void noteSeatThreadRead/)
+    const side = readFileSync(join(process.cwd(), 'src/app/api/conversations/program-side.ts'), 'utf8')
+    expect(side).toContain("action: 'PROGRAM_READ'")
+    expect(side).toContain('reason: seatTrail(seat,')
   })
 })
 

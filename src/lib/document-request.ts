@@ -23,6 +23,7 @@ import { plainDate } from '@/lib/plain-date'
 import { calendarDaysBetween } from '@/lib/document-stages'
 import { humanKey } from '@/lib/document-type'
 import { orderedBySays, orderedNotCollected, readVerdict } from '@/lib/attestation'
+import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
 // The bench answer is read through one door — `lib/bench-filter` — so two
 // screens on one menu cannot disagree about the same firm's people.
 import { readBench, type BenchReading } from '@/lib/bench-filter'
@@ -667,6 +668,27 @@ export function booksSays(reading: BooksReading): string | null {
  * (release walk, 2026-10-27; `lib/document-stages/own-papers`).
  */
 export const KEPT_BY_HOLDER = 'KEPT'
+
+/**
+ * Who a document in the library is asked of, as the trade says it.
+ *
+ * The library printed the stored audience title-cased — "Vendor",
+ * "Client" — the machine's words for the firm's role, read by a supplier
+ * on its own Paperwork screen (the second Tapin walk, 2026-10-30). A
+ * screen says who the person or the firm is to the reader, never the
+ * enum.
+ */
+export const AUDIENCE_WORDS: Record<string, string> = {
+  CANDIDATE: 'A worker',
+  VENDOR: 'A supplier',
+  CLIENT: 'A client',
+  EMPLOYEE: 'Your own staff',
+  GENERAL: 'Anybody',
+}
+
+export function audienceWord(audience: string): string {
+  return AUDIENCE_WORDS[audience.toUpperCase()] ?? 'Anybody'
+}
 
 /** The word a row shows: what is true, not the enum. */
 export function statusWord(status: string): string {
@@ -1531,6 +1553,33 @@ const NAMED_BY: { key: string; names: RegExp }[] = [
 ]
 
 /**
+ * Government forms read by the number the issuer prints on them, even
+ * where nothing else may be guessed: a form's number is its name, not a
+ * reading of the words around it. Found by the screen walk of 2026-11-01:
+ * Techpeple asked Ifeoma Balogun for "I-9, with the document it is
+ * completed from", and because that is not the I-9's label word for word,
+ * Accept on Paperwork drew no fields, stamped the paper examined, said
+ * "examined by Bhavesh Nair" and recorded no I-9, so nothing the start
+ * reads was written; and the same name could be asked for before any
+ * offer, because the ask did not know it was an I-9.
+ *
+ * The I-94 is a different record (an arrival record, not the employer's
+ * form), and `\b` after the 9 keeps it out. Counting a paper read this
+ * way is still the employer's examination and nothing else
+ * (`EXAMINED_NOT_SENT`): reading the name routes the paper to the
+ * examination that asks for the document shown; it never clears a start.
+ */
+const NAMED_BY_FORM_NUMBER: { key: string; names: RegExp }[] = [
+  { key: 'I9_EVERIFY', names: /(^|[^\w-])i-?9\b(?!-)|\bemployment eligibility verification\b/i },
+]
+
+/** The type a government form's own number names, or null. Pure. */
+export function formNumberKey(templateName: string): string | null {
+  const name = templateName.trim()
+  return NAMED_BY_FORM_NUMBER.find((row) => row.names.test(name))?.key ?? null
+}
+
+/**
  * Which type of document a signed paper is, read off its own name.
  *
  * Null is a real answer and the honest failure: a non-disclosure
@@ -1569,6 +1618,9 @@ export function typeKeyForTemplate(
     (t) => t.label.trim().toLowerCase() === name.toLowerCase() || t.key.toLowerCase() === name.toLowerCase()
   )
   if (exact) return exact.key
+  // A form named by its number is that form, guessing or not.
+  const form = formNumberKey(name)
+  if (form) return form
   if (opts.guess === false) return null
   for (const row of NAMED_BY) {
     if (row.names.test(name)) return row.key
@@ -2440,7 +2492,10 @@ export function mayExamine(
       message: `Give the day ${name} starts, as printed on it. A paper that begins after somebody starts covers nobody on their first day.`,
     }
   }
-  if (t && t.validityShape !== 'NONE' && !expiresAt) {
+  // A paper completed from a document the person shows (an I-9) has no
+  // end of its own: its end is the document's, asked for with the document
+  // and recorded on the check (lib/document-stages/examine-form).
+  if (t && t.validityShape !== 'NONE' && !expiresAt && !COMPLETED_FROM_SHOWN.includes(t.key)) {
     return {
       ok: false, code: 'NO_EXPIRY', field: 'expiresAt',
       message: `${name} runs out, so it cannot be accepted without the date printed on it. A paper with no end recorded looks current on every screen until somebody audits it.`,

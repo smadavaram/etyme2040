@@ -308,7 +308,10 @@ describe('Who is interviewing', () => {
     // Asked on both forms, and the answer is sent both times.
     expect(CHAIN).toContain('export function PanelField(')
     expect(CHAIN).toContain('Who is interviewing')
-    expect((code(LIST_PAGE).match(/interviewers: panel/g)?.length ?? 0) + (code(CHAIN).match(/interviewers: panel/g)?.length ?? 0)).toBe(2)
+    // The raise form's body is its pure builder (`jobBody`), which carries the panel the form drew.
+    expect(code(LIST_PAGE)).toMatch(/jobBody\(\{[\s\S]*?\bpanel,/)
+    expect(read('src/app/dashboard/requisitions/job-body.ts')).toContain('interviewers: t.panel,')
+    expect(code(CHAIN).match(/interviewers: panel/g)?.length ?? 0).toBe(1)
     // Once on the raise form (the list page), once on the edit form (the shared module).
     expect((code(LIST_PAGE).match(/<PanelField names=\{panel\}/g)?.length ?? 0) + (code(CHAIN).match(/<PanelField names=\{panel\}/g)?.length ?? 0)).toBe(2)
 
@@ -352,8 +355,16 @@ describe('The discussion on a requisition', () => {
   it('the client’s own people are the participants, and the API decides that, not the screen', () => {
     const c = code(CONVERSATIONS)
     // Mine, and the ones opened with me — never a thread between two
-    // other firms.
-    expect(c).toContain('where.OR = [{ companyId: me }, { withCompanyId: me }]')
+    // other firms. A firm seated in a client's program reads that client's
+    // threads with its suppliers too, and only through the seat's own
+    // programs (programsWrittenFor), never the client's own notes.
+    const or = c.match(/where\.OR\s*=\s*\[([\s\S]*?)\n\s*\]/)
+    expect(or).not.toBeNull()
+    expect(or![1]).toMatch(/\{\s*companyId:\s*me\s*\}/)
+    expect(or![1]).toMatch(/\{\s*withCompanyId:\s*me\s*\}/)
+    expect(or![1]).toMatch(/programIds\.size\s*\?\s*\[\{\s*companyId:\s*\{\s*in:\s*\[\.\.\.programIds\]\s*\},\s*withCompanyId:\s*\{\s*not:\s*null\s*\}\s*\}\]\s*:\s*\[\]/)
+    expect(c).toMatch(/const programIds = new Set\(programs\.map\(/)
+    expect(c).toMatch(/await programsWrittenFor\(caller\)/)
     // One own thread per requirement, so two people posting at once do
     // not make two threads.
     expect(c).toContain('where: { companyId: me.id, withCompanyId: null, topic, topicId }')

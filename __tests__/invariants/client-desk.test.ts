@@ -19,7 +19,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 
 describe('what the client desk is told', () => {
   const decisions = read('src/app/api/decisions/route.ts')
-  const program = read('src/app/api/program/view.ts')
+  // The page's read, and the headline arithmetic it shares with Ask Etyme's greeting (`./figures`).
+  const program = read('src/app/api/program/view.ts') + read('src/app/api/program/figures.ts')
   const page = read('src/app/dashboard/program/page.tsx')
   const needsYou = read('src/app/dashboard/program/needs-you.ts')
   const volume = read('src/lib/demo-volume.ts')
@@ -125,7 +126,9 @@ describe('what the client desk is told', () => {
     expect(decisions).toContain("named: { whose: ts.person.name, what: 'week', whats: 'weeks' }")
     expect(page).toContain('Approve anyway')
     expect(page).toContain("if (reason.trim()) { onApprove(d, reason.trim()); setReasonFor(null) }")
-    expect(page).toContain('body: JSON.stringify(note ? { note } : {})')
+    // The reason travels as `note`, beside any answer the route asked for
+    // on the Approvals tab (the screen walk, 2026-11-02).
+    expect(page).toContain('body: JSON.stringify({ ...(note ? { note } : {}), ...(answers ?? {}) })')
   })
 
   it('a clear desk is not an empty page: what was done today is listed under the queue', () => {
@@ -152,14 +155,17 @@ describe('what the client desk is told', () => {
     // agreement nobody ever signed; before this the desk read the default
     // packet for the role and saw nothing until the start date.
     // The verdict is read in one place, by the page and the queue alike.
-    expect(program).toContain("import { startPaperwork, agreementsOnFile } from './desk-findings'")
-    expect(findings).toContain("import { ADVERSE_STEPS, contractClearance, lineExtras, sentencePhrases } from '@/lib/contract-clearance'")
-    expect(findings).toContain('...(await lineExtras({ sellContractId: c.id })),')
+    expect(program).toContain("import { startPaperworkFor, agreementsOnFile } from './desk-findings'")
+    // Every line's own set and extras read at once, through regulatory's many-lines read.
+    expect(findings).toContain("import { ADVERSE_STEPS, contractClearance, lineExtrasForSellLines, sentencePhrases } from '@/lib/contract-clearance'")
+    expect(findings).toContain('lineExtrasForSellLines(lines.map((c) => c.id)),')
+    expect(findings).toContain('...(extras.get(c.id) ?? {}),')
     // Last inside the call, not first: the order's answer must not be
     // overwritten by the shape it was merged into.
     const call = findings.slice(findings.indexOf('const papers = contractClearance({'))
-    expect(call.indexOf('lineExtras')).toBeLessThan(call.indexOf('})'))
-    expect(call.indexOf('through: c.endDate')).toBeLessThan(call.indexOf('lineExtras'))
+    expect(call.indexOf('extras.get(c.id)')).toBeGreaterThan(-1)
+    expect(call.indexOf('extras.get(c.id)')).toBeLessThan(call.indexOf('})'))
+    expect(call.indexOf('through: c.endDate')).toBeLessThan(call.indexOf('extras.get(c.id)'))
   })
 
   it('the client\u2019s page reads the steps taken after a flagged background report, so a decision not to act on it is seen there', () => {
@@ -176,7 +182,7 @@ describe('what the client desk is told', () => {
     // every caller that named keys beginning INSURANCE_ went on reading
     // past it. `supplierCoverGate` decides for itself which kinds it has
     // an opinion about, so nobody else needs a list.
-    expect(findings).toContain('{ where: { companyId: c.companyId, personId: null }, select: VERIFICATION_SHAPE }')
+    expect(findings).toContain('{ where: { companyId: { in: companyIds }, personId: null }, select: { ...VERIFICATION_SHAPE, companyId: true } }')
     expect(program).not.toContain("const CERTS = ['INSURANCE_GL'")
   })
 

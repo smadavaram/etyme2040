@@ -362,3 +362,100 @@ export function mayFileOwnPaper(input: OwnPaperInput, on: Date): OwnPaperVerdict
     },
   }
 }
+
+// ── What a paper kept on file reads, to its holder and to its examiner ──
+
+/**
+ * One state for a paper its holder kept on file, read from one record:
+ * the examination written on the paper itself (`DocInstance.examinedAt`,
+ * who and when), which is what the examiner's own Paperwork screen reads
+ * too. A recorded check behind it (CLEAR or CONDITIONAL) is the same
+ * answer reached through the standing.
+ *
+ * Found by the second Tapin walk, 2026-10-30: Brightmoor accepted
+ * Tapin's insurance, the award cleared on it, and Tapin's own Company
+ * paperwork still read "On file, not examined", because it read only the
+ * self-filed row Tapin wrote and never the examination Brightmoor wrote.
+ *
+ * Pure: the screen and its test read the same sentence.
+ */
+export function keptPaperSays(p: {
+  examinedAt: Date | null
+  /** Who examined it, by name. */
+  examinedBy?: string | null
+  /** The firm they examined it for, by name. */
+  examinedFor?: string | null
+  /** The status of a check recorded about it, where one is linked. */
+  checkStatus?: string | null
+}): { examined: boolean; says: string } {
+  if (p.examinedAt) {
+    const by = p.examinedFor && p.examinedBy
+      ? `${p.examinedFor} (${p.examinedBy})`
+      : p.examinedFor ?? p.examinedBy ?? null
+    return { examined: true, says: by ? `Accepted by ${by} on ${plainDate(p.examinedAt.toISOString())}` : `Accepted on ${plainDate(p.examinedAt.toISOString())}` }
+  }
+  if (p.checkStatus === 'CLEAR' || p.checkStatus === 'CONDITIONAL') return { examined: true, says: 'On file and examined' }
+  return { examined: false, says: 'On file, not examined' }
+}
+
+// ── The "Put on file" form, as data ───────────────────────────────────
+//
+// What the form draws, what it posts beside the file, and how the route
+// reads what was posted, in one place, so the test that every question
+// the route asks has a field on its screen reads the form's real body
+// (`__tests__/invariants/every-question-has-a-field.test.ts`). Pure.
+
+export type OwnPaperField = 'file' | 'number' | 'issuer' | 'year' | 'edition' | 'validFrom' | 'validUntil'
+
+export interface OwnPaperTyped {
+  number?: string
+  issuer?: string
+  year?: string
+  edition?: string
+  validFrom?: string
+  validUntil?: string
+}
+
+/** The fields the form draws, in order, each required. The file only where the record can keep a copy for this caller. */
+export function ownPaperFields(needs: OwnPaperNeeds, canKeepCopy: boolean): OwnPaperField[] {
+  return [
+    ...(canKeepCopy ? ['file' as const] : []),
+    ...(needs.number ? ['number' as const] : []),
+    ...(needs.issuer ? ['issuer' as const] : []),
+    ...(needs.year ? ['year' as const] : []),
+    ...(needs.edition ? ['edition' as const] : []),
+    ...(needs.validFrom ? ['validFrom' as const] : []),
+    ...(needs.validUntil ? ['validUntil' as const] : []),
+  ]
+}
+
+/** What the form posts beside the file: the paper, whose it is, and every field typed. */
+export function ownPaperPost(needs: OwnPaperNeeds, typed: OwnPaperTyped): Record<string, string> {
+  const out: Record<string, string> = { key: needs.key, about: needs.about }
+  for (const [k, v] of Object.entries(typed)) if (typeof v === 'string' && v.trim()) out[k] = v.trim()
+  return out
+}
+
+/** The names the route reads from the form, and nothing else. */
+export const OWN_PAPER_POSTED = ['key', 'about', 'number', 'issuer', 'validFrom', 'validUntil', 'edition', 'year'] as const
+
+/** The route's reading of what was posted, as the rule takes it. */
+export function ownPaperInput(
+  fields: Record<string, string | null>,
+  ctx: { isOnePersonFirm: boolean; filesForFirm: boolean; canKeepCopy: boolean; fileName: string | null }
+): OwnPaperInput {
+  return {
+    key: fields.key ?? '',
+    about: fields.about === 'MY_FIRM' ? 'MY_FIRM' : 'ME',
+    isOnePersonFirm: ctx.isOnePersonFirm,
+    filesForFirm: ctx.filesForFirm,
+    canKeepCopy: ctx.canKeepCopy,
+    fileName: ctx.fileName,
+    number: fields.number ?? null,
+    issuer: fields.issuer ?? null,
+    validFrom: fields.validFrom ?? null,
+    validUntil: fields.validUntil ?? null,
+    edition: fields.edition ?? null,
+    year: fields.year ?? null,
+  }
+}

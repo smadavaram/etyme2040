@@ -2,16 +2,18 @@ import { prisma } from '@/lib/db'
 import { logAccess, recordRefusal, accessActor } from '@/lib/access-log'
 import {
   RECORDABLE_ABOUT_A_FIRM,
+  checkInputFrom,
   checkToRecord,
   examinedFromAPacket,
   mayRecordCheck,
   orderedNotCollected,
   recordLabel,
   withArticle,
-  type ExaminedEvidence,
 } from '@/lib/attestation'
 import { buysFrom as buysOn } from '@/lib/document-stages/firm-papers'
-import { writeCheck } from '@/app/api/compliance/verifications/record'
+import { writeCheck, employerOfRecord } from '@/app/api/compliance/verifications/record'
+import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
+import { employedElsewhere } from '@/lib/document-stages/employer'
 
 /**
  * What a firm's look at a paper that arrived puts on the record: one
@@ -99,13 +101,94 @@ export async function recordSupplierPaper(input: {
     row: check.row, subject: { companyId: supplier.id }, personId: null,
     recordedById: buyer.personId, recordingCompanyId: buyer.companyId, now,
   })
+  await answerOpenAsks({
+    buyerId: buyer.companyId, supplierId: supplier.id, key,
+    verificationId: written.id, reviewerId: buyer.personId, validUntil: check.row.expiresAt ?? null, now,
+  })
   return { verificationId: written.id, says: check.says }
+}
+
+/**
+ * A paper the buyer accepted answers the buyer's own open asks for it.
+ *
+ * The second Tapin walk, 2026-10-30: Brightmoor accepted Tapin's
+ * insurance from the copy Tapin keeps on file, and Brightmoor's request
+ * to Tapin for the same certificate went on asking. One acceptance, one
+ * answer: every open item from this buyer, about this supplier, for this
+ * paper, reads accepted and points at the check it became, and a request
+ * with nothing left outstanding closes. Only the buyer's own requests,
+ * never another firm's: what Brightmoor accepted is not what Northbend
+ * asked.
+ */
+export async function answerOpenAsks(input: {
+  buyerId: string
+  supplierId: string
+  key: string
+  verificationId: string | null
+  reviewerId: string
+  validUntil: Date | null
+  now: Date
+}): Promise<number> {
+  const open = await prisma.packetItem.findMany({
+    where: {
+      key: input.key,
+      state: { in: ['PENDING', 'RECEIVED'] },
+      packet: { companyId: input.buyerId, subjectCompanyId: input.supplierId, cancelledAt: null },
+    },
+    select: { id: true, packetId: true },
+  })
+  if (open.length === 0) return 0
+  await prisma.packetItem.updateMany({
+    where: { id: { in: open.map((i) => i.id) } },
+    data: {
+      state: 'ACCEPTED',
+      reviewedById: input.reviewerId,
+      reviewedAt: input.now,
+      reviewNote: 'Accepted from the copy the firm keeps on file.',
+      validUntil: input.validUntil,
+      ...(input.verificationId ? { verificationId: input.verificationId } : {}),
+    },
+  })
+  for (const packetId of new Set(open.map((i) => i.packetId))) {
+    const items = await prisma.packetItem.findMany({ where: { packetId }, select: { required: true, state: true } })
+    const done = items.every((i) => !i.required || i.state === 'RECEIVED' || i.state === 'ACCEPTED')
+    if (done) await prisma.documentPacket.updateMany({ where: { id: packetId, completedAt: null }, data: { completedAt: input.now } })
+  }
+  return open.length
 }
 
 // ── The examination, recorded through the one rule ───────────────────
 
+/**
+ * The examine route's body as the record reads it: the dialog posts the
+ * form's edition as `edition` (what the paper's own examination reads),
+ * and the record reads `formEdition`. Pure.
+ */
+export function examinationBody(body: Record<string, unknown>): Record<string, unknown> {
+  return { ...body, formEdition: body.formEdition ?? body.edition }
+}
+
 /** The fields a recorded check takes, beyond the date a packet already asks for. */
 export const EXAMINATION_FIELDS = ['formEdition', 'evidence', 'issuer', 'licenseNumber', 'licenseState', 'issuedOn', 'validFrom', 'reference', 'expiresAt'] as const
+
+/** A screen that can take what this one could not, and where it is. */
+export interface Door {
+  says: string
+  href: string
+}
+
+/**
+ * Where an I-9 is recorded when the paper's own dialog could not record
+ * it: Record the I-9 on Compliance, opened for the person. Found by the
+ * screen walk of 2026-11-01: a refusal on Document requests named no
+ * screen that could answer it, so the person read a rule and no way to
+ * meet it. Only for a firm that may record it; anybody else is told whose
+ * it is instead. Null for any other paper.
+ */
+export function recordDoorFor(key: string, personId: string): Door | null {
+  if (!COMPLETED_FROM_SHOWN.includes(key)) return null
+  return { says: 'Record the I-9 on Compliance', href: `/dashboard/compliance?record=I9&person=${encodeURIComponent(personId)}` }
+}
 
 export interface Examined {
   /** The recorded check the item became. */
@@ -113,7 +196,9 @@ export interface Examined {
   /** What the answer adds, in a sentence. */
   says?: string
   /** Nothing changes, and why. */
-  refused?: { status: number; code: string; message: string; field?: string }
+  refused?: { status: number; code: string; message: string; field?: string; door?: Door }
+  /** Where it can be recorded instead, where this look could not record it. */
+  door?: Door
 }
 
 export async function examinationOf(input: {
@@ -196,6 +281,9 @@ export async function examinationOf(input: {
   ])
   const subjectName = person?.name ?? 'this person'
   const buyerName = line ? (line.endClientCompany?.name ?? line.clientCompany.name) : 'the client'
+  // A seller above the employer does not complete the employer's I-9
+  // (the second Tapin walk, 2026-10-30): the same rule as Record a check.
+  const employer = line ? await employerOfRecord(personId, line.id) : null
 
   const may = mayRecordCheck({
     about: 'PERSON',
@@ -206,6 +294,7 @@ export async function examinationOf(input: {
     employerName: line ? caller.companyName : 'the firm that employs or places them',
     buyerName,
     type: item.key,
+    employedBy: employedElsewhere(employer, caller.companyId) ? employer!.name : null,
   })
   if (!may.ok) {
     if (given) {
@@ -218,47 +307,33 @@ export async function examinationOf(input: {
     return refuse(403, may.code, may.message)
   }
 
-  // ── Dates and evidence, as the paper prints them ──
-  const dateOf = (v: unknown): Date | null | 'BAD' => {
-    if (v == null || v === '') return null
-    const d = new Date(String(v))
-    return Number.isNaN(d.getTime()) ? 'BAD' : d
+  // This firm may record it. Where the look did not post what the record
+  // needs (a screen that drew no field for it, or nothing posted at all),
+  // the sentence names the screen that has the field, with its link. A
+  // refusal of what was posted (a document that has run out) is answered
+  // with a different document, not a different screen, and names none.
+  const blank = (v: unknown) => v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === '')
+  const doorFor = (field?: string) => (!given || (!!field && blank(body[field])) ? recordDoorFor(item.key, personId) : null)
+  const orThere = (message: string, door: Door | null) => (door ? `${message} Or ${door.says.charAt(0).toLowerCase()}${door.says.slice(1)}.` : message)
+  const cannot = (status: number, code: string, message: string, field?: string): Examined => {
+    const door = doorFor(field)
+    return given
+      ? { refused: { status, code, message: orThere(message, door), field, ...(door ? { door } : {}) } }
+      : { says: `It does not count toward the start yet. ${orThere(message, door)}`, ...(door ? { door } : {}) }
   }
-  const dates: Record<string, Date | null> = {}
-  for (const [f, words] of [['issuedOn', 'the day it was issued'], ['validFrom', 'the day it starts'], ['expiresAt', 'the day it runs out']] as const) {
-    const d = dateOf(body[f])
-    if (d === 'BAD') return { refused: { status: 422, code: 'VALIDATION', message: `Give ${words} as a date, like 2027-06-30.`, field: f } }
-    dates[f] = d
-  }
-  const evidence: ExaminedEvidence[] = []
-  if (Array.isArray(body.evidence)) {
-    for (const e of body.evidence as Record<string, unknown>[]) {
-      const at = e?.expiresAt ? new Date(String(e.expiresAt)) : null
-      if (at && Number.isNaN(at.getTime())) {
-        return { refused: { status: 422, code: 'VALIDATION', message: 'Give each document’s expiry as a date, like 2031-04-30.', field: 'evidence' } }
-      }
-      evidence.push({
-        type: String(e?.type ?? '').toUpperCase(),
-        issuer: typeof e?.issuer === 'string' ? e.issuer : null,
-        reference: typeof e?.reference === 'string' ? e.reference : null,
-        expiresAt: at,
-      })
-    }
-  }
-  const str = (k: string): string | null => (typeof body[k] === 'string' ? (body[k] as string) : null)
 
-  const verdict = checkToRecord(
-    {
-      about: 'PERSON', type: item.key, subjectName, recordedBy: caller.personName,
-      issuer: str('issuer'), issuedOn: dates.issuedOn, validFrom: dates.validFrom,
-      // The packet's own date is the paper's expiry where nothing else names one.
-      expiresAt: dates.expiresAt ?? input.validUntil,
-      formEdition: str('formEdition'), evidence, reference: str('reference'),
-      licenseNumber: str('licenseNumber'), licenseState: str('licenseState'),
-    },
-    now
-  )
-  if (!verdict.ok) return refuse(422, verdict.code, verdict.message, verdict.field)
+  // ── What was examined, read the way Record a check reads it ──
+  const read = checkInputFrom(body, {
+    about: 'PERSON', type: item.key, subjectName, recordedBy: caller.personName,
+    // The request's own date is the paper's end where nothing else names one.
+    expiresAtFallback: input.validUntil,
+  })
+  if (!read.ok) {
+    const door = doorFor(read.field)
+    return { refused: { status: 422, code: 'VALIDATION', message: orThere(read.message, door), field: read.field, ...(door ? { door } : {}) } }
+  }
+  const verdict = checkToRecord(read.input, now)
+  if (!verdict.ok) return cannot(422, verdict.code, verdict.message, verdict.field)
 
   const written = await writeCheck({
     row: verdict.row,

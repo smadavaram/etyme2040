@@ -9,10 +9,11 @@ import { ORDER_HEADER_PERIOD_SELECT, SELL_LINE_PERIOD_TERMS_SELECT, periodTermsF
 import { receiptFor } from '@/lib/money/rung-billing'
 import type { Carried } from '@/lib/money/client-overtime'
 import { carriedForLines } from '@/lib/money/client-overtime-read'
-import { drawnOnOrder } from '@/lib/money/order-drawn'
+import { receiptsDrawnOnOrders } from '@/lib/money/order-drawn'
 import { payersOwn } from '@/lib/money/expense-acceptance'
 import { acceptancesOn } from '@/lib/money/expense-acceptance-read'
 import { payeeBankGate } from '@/lib/money/payee-bank'
+import { DRAWS_NOTHING } from '@/lib/money/bill-state'
 
 /**
  * A line as this file needs to read it: the money on it, and the records
@@ -223,35 +224,43 @@ export type MatchWithLines = MatchResult & {
   voidedWaiver?: string | null
 }
 
-/** Everything the check reads off an invoice, in one load. */
+/**
+ * The contract a line bills, and the one its week is filed on, as the
+ * check reads them: one read for both and for every line, where the two
+ * were nested under each line and each week, each read on its own.
+ *
+ * In a chain the hours are filed once, on the rung that employs the
+ * person, and every rung above bills them at its own rate — so the
+ * week's contract is the wrong place to read what a line should cost. It
+ * carried the sub's rate: Helena Marsh's $145 line to Northbend Athletic
+ * was held to Techpeple's $118 wherever no opening rate-history row
+ * happened to mask it. The line's own contract is read for the rate; the
+ * week's, for who the hours are filed with.
+ */
+const MATCH_CONTRACT_SELECT = {
+  id: true,
+  billRate: true, startDate: true,
+  // The job the line bills, and the request behind it — what a payer
+  // reads a line by and where it asks about one.
+  requirementId: true,
+  requirement: { select: { title: true, hoursPerWeek: true } },
+  // Who the hours are filed with and for, and who pays the line — whose
+  // signature on the week is its receipt.
+  companyId: true, clientCompanyId: true, endClientCompanyId: true,
+  overtimeAfterHours: true, overtimeMultiplierBps: true,
+  billFrequency: true, billAnchor: true, billStraddle: true,
+  workOrder: { select: ORDER_HEADER_PERIOD_SELECT },
+  // The agreement first, as the bill was priced (2026-10-18).
+  ...SELL_LINE_PERIOD_TERMS_SELECT,
+} as const satisfies Prisma.SellContractSelect
+
+/** Everything the check reads off an invoice, but its contracts, in one load. */
 const MATCH_INCLUDE = {
       invoiceLines: {
         include: {
           person: { select: { name: true } },
-          // The contract the line bills. In a chain the hours are filed
-          // once, on the rung that employs the person, and every rung
-          // above bills them at its own rate — so the timesheet's
-          // contract is the wrong place to read what this line should
-          // cost. It carried the sub's rate: Helena Marsh's $145 line to
-          // Northbend Athletic was held to Techpeple's $118 wherever no
-          // opening rate-history row happened to mask it.
-          sellContract: {
-            select: {
-              billRate: true, startDate: true,
-              // The job the line bills, and the request behind it — what
-              // a payer reads a line by and where it asks about one.
-              requirementId: true,
-              requirement: { select: { title: true, hoursPerWeek: true } },
-              // Who pays this line — whose signature on the week is its
-              // receipt.
-              clientCompanyId: true,
-              overtimeAfterHours: true, overtimeMultiplierBps: true,
-              billFrequency: true, billAnchor: true, billStraddle: true,
-              workOrder: { select: ORDER_HEADER_PERIOD_SELECT },
-              // The agreement first, as the bill was priced (2026-10-18).
-              ...SELL_LINE_PERIOD_TERMS_SELECT,
-            },
-          },
+          // The contract the line bills, and the one its week is filed on,
+          // are read once for both after this read (`MATCH_CONTRACT_SELECT`).
           expense: { select: { id: true, status: true, total: true } },
           milestone: { select: { id: true, status: true, amountCents: true } },
           timesheet: {
@@ -273,17 +282,6 @@ const MATCH_INCLUDE = {
                 where: { state: 'LIVE' },
                 select: { companyId: true, role: true, hours: true, coversFrom: true, coversTo: true },
               },
-              sellContract: {
-                select: {
-                  billRate: true, startDate: true,
-                  requirement: { select: { hoursPerWeek: true } },
-                  companyId: true, clientCompanyId: true, endClientCompanyId: true,
-                  overtimeAfterHours: true, overtimeMultiplierBps: true,
-                  billFrequency: true, billAnchor: true, billStraddle: true,
-                  workOrder: { select: ORDER_HEADER_PERIOD_SELECT },
-                  ...SELL_LINE_PERIOD_TERMS_SELECT,
-                },
-              },
             },
           },
         },
@@ -295,7 +293,48 @@ const MATCH_INCLUDE = {
       },
     } satisfies Prisma.InvoiceInclude
 
-type LoadedInvoice = Prisma.InvoiceGetPayload<{ include: typeof MATCH_INCLUDE }>
+type ReadInvoice = Prisma.InvoiceGetPayload<{ include: typeof MATCH_INCLUDE }>
+type ReadLine = ReadInvoice['invoiceLines'][number]
+type MatchContract = Prisma.SellContractGetPayload<{ select: typeof MATCH_CONTRACT_SELECT }>
+
+/** An invoice as the check reads it: each line with its own contract, and its week with the week's. */
+export type LoadedInvoice = Omit<ReadInvoice, 'invoiceLines'> & {
+  invoiceLines: (Omit<ReadLine, 'timesheet'> & {
+    sellContract: MatchContract | null
+    timesheet: (NonNullable<ReadLine['timesheet']> & { sellContract: MatchContract }) | null
+  })[]
+}
+
+/**
+ * The invoices these conditions find, read as the check reads them: the
+ * invoice and its lines in one read, then every contract its lines bill
+ * and its weeks are filed on in one more. A caller that must find the
+ * invoice by more than its id (the firm sending it raised it) reads it
+ * here once and hands it to `matchLoaded`.
+ */
+export async function loadForMatch(where: Prisma.InvoiceWhereInput): Promise<LoadedInvoice[]> {
+  const read = await prisma.invoice.findMany({ where, include: MATCH_INCLUDE })
+  const ids = new Set<string>()
+  for (const inv of read) {
+    for (const l of inv.invoiceLines) {
+      if (l.sellContractId) ids.add(l.sellContractId)
+      if (l.timesheet) ids.add(l.timesheet.sellContractId)
+    }
+  }
+  const contracts = ids.size === 0
+    ? new Map<string, MatchContract>()
+    : new Map((await prisma.sellContract.findMany({ where: { id: { in: [...ids] } }, select: MATCH_CONTRACT_SELECT })).map((c) => [c.id, c]))
+  return read.map((inv) => ({
+    ...inv,
+    invoiceLines: inv.invoiceLines.map((l) => ({
+      ...l,
+      sellContract: l.sellContractId ? contracts.get(l.sellContractId) ?? null : null,
+      // A week is always filed on a contract (the column is required and
+      // the row cascades with it), so the read finds it.
+      timesheet: l.timesheet ? { ...l.timesheet, sellContract: contracts.get(l.timesheet.sellContractId)! } : null,
+    })),
+  }))
+}
 
 /** What several invoices share and is read once for all of them. */
 interface SharedFacts {
@@ -308,8 +347,18 @@ interface SharedFacts {
   expenseDecisions: Awaited<ReturnType<typeof acceptancesOn>>
 }
 
-export async function matchInvoice(invoiceId: string): Promise<MatchWithLines | null> {
-  return (await matchInvoices([invoiceId])).get(invoiceId) ?? null
+/**
+ * Who the check is read for. The firm sending a bill reads its order's
+ * window as a sentence (`orderWindow: 'SAY'`); everybody else — the firm
+ * paying, the twin asking it to pay, a queue of receipts — reads it as the
+ * check it has always been. See `MatchInput.orderWindow`.
+ */
+export interface MatchFor {
+  orderWindow?: 'CHECK' | 'SAY'
+}
+
+export async function matchInvoice(invoiceId: string, opts: MatchFor = {}): Promise<MatchWithLines | null> {
+  return (await matchInvoices([invoiceId], opts)).get(invoiceId) ?? null
 }
 
 /**
@@ -321,11 +370,15 @@ export async function matchInvoice(invoiceId: string): Promise<MatchWithLines | 
  * receipt and a dozen statements behind the first (regulatory's profile,
  * 2026-10-20). An invoice that does not exist is absent from the map.
  */
-export async function matchInvoices(invoiceIds: readonly string[]): Promise<Map<string, MatchWithLines>> {
-  const out = new Map<string, MatchWithLines>()
+export async function matchInvoices(invoiceIds: readonly string[], opts: MatchFor = {}): Promise<Map<string, MatchWithLines>> {
   const ids = [...new Set(invoiceIds)]
-  if (ids.length === 0) return out
-  const invoices = await prisma.invoice.findMany({ where: { id: { in: ids } }, include: MATCH_INCLUDE })
+  if (ids.length === 0) return new Map()
+  return matchLoaded(await loadForMatch({ id: { in: ids } }), opts)
+}
+
+/** The three-way check on invoices already read by `loadForMatch`. */
+export async function matchLoaded(invoices: readonly LoadedInvoice[], opts: MatchFor = {}): Promise<Map<string, MatchWithLines>> {
+  const out = new Map<string, MatchWithLines>()
   if (invoices.length === 0) return out
 
   const allLines = invoices.flatMap((i) => i.invoiceLines)
@@ -335,7 +388,10 @@ export async function matchInvoices(invoiceIds: readonly string[]): Promise<Map<
   const [onOrders, drawn, rateRows, carried, expenseDecisions] = await Promise.all([
     orderIds.length
       ? prisma.invoice.findMany({
-          where: { workOrderId: { in: orderIds }, status: { notIn: ['VOID', 'CANCELLED', 'DRAFT'] } },
+          // Only bills sent draw on an order (`drawsOnOrder` in
+          // lib/money/bill-state): a raised bill nobody was sent is the
+          // seller's working paper, like a draft.
+          where: { workOrderId: { in: orderIds }, status: { notIn: [...DRAWS_NOTHING] } },
           select: { id: true, workOrderId: true, total: true, currency: true },
         })
       : Promise.resolve([]),
@@ -343,7 +399,9 @@ export async function matchInvoices(invoiceIds: readonly string[]): Promise<Map<
     // (lib/money/order-drawn): one order filled once by each path was
     // paid twice past its ceiling, because each check counted only its
     // own kind. Only those in the order's currency are added.
-    Promise.all(orders.map(async (o) => [o.id, (await drawnOnOrder(o, { only: 'RECEIPTS' })).cents] as const)),
+    // Read once for every order (`receiptsDrawnOnOrders`), the same answer
+    // drawnOnOrder gives one order at a time.
+    receiptsDrawnOnOrders(orders).then((m) => [...m].map(([id, d]) => [id, d.cents] as const)),
     contractIds.length
       ? prisma.rateHistory.findMany({
           where: { contractType: 'SELL', contractId: { in: contractIds } },
@@ -357,12 +415,12 @@ export async function matchInvoices(invoiceIds: readonly string[]): Promise<Map<
     acceptancesOn(allLines.flatMap((l) => (l.expenseId ? [l.expenseId] : []))),
   ])
   const facts: SharedFacts = { onOrders, receiptsDrawn: new Map(drawn), rateRows, carried, expenseDecisions }
-  for (const inv of invoices) out.set(inv.id, matchFrom(inv, facts))
+  for (const inv of invoices) out.set(inv.id, matchFrom(inv, facts, opts))
   return out
 }
 
 /** The check on one loaded invoice. No database: everything it reads was read above. */
-function matchFrom(invoice: LoadedInvoice, facts: SharedFacts): MatchWithLines {
+function matchFrom(invoice: LoadedInvoice, facts: SharedFacts, opts: MatchFor = {}): MatchWithLines {
 
   const inv = invoice
 
@@ -594,6 +652,7 @@ function matchFrom(invoice: LoadedInvoice, facts: SharedFacts): MatchWithLines {
         return says ? [[l.id, says]] : []
       })
     ),
+    orderWindow: opts.orderWindow ?? 'CHECK',
   }
 
   const result = threeWayMatch(input)

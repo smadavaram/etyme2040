@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { minorFromWhole } from '@/lib/money'
+import { minorFromWhole, minorPerUnit } from '@/lib/money'
+import { DRAWS_NOTHING, drawsOnOrder, BILL_NOT_SENT } from '@/lib/money/bill-state'
 import { fromUnits } from '@/lib/money-display'
 import type { Prisma } from '@prisma/client'
 import { getCallerContext } from '@/lib/api-context'
@@ -12,7 +13,7 @@ import { linesForReader } from '@/lib/money/order-lines-read'
 import { emit } from '@/lib/events'
 import { poBalance } from '@/lib/purchase-order'
 import { mayWriteOrder, shellNotice } from '@/lib/off-system'
-import { orderIsTheirsSays } from '@/lib/money/order-raiser'
+import { orderIsTheirsSays, RAISES_AN_ORDER } from '@/lib/money/order-raiser'
 import { suppliersOf } from '@/lib/suppliers-of'
 import { supplierStanding } from '@/lib/counterparty'
 import { nounFor, referenceFor, sideOf } from '@/lib/order-naming'
@@ -31,8 +32,10 @@ import { isAnchor, ANCHORS } from '@/lib/billing-cascade'
  *
  * A PO is not a contract. A contract carries a rate — what one person costs
  * per hour. A PO carries a ceiling — how much the payer has authorized in
- * total, across however many people. Raising one is an accounts-payable act
- * and needs invoices.issue rather than assignments.write.
+ * total, across however many people. Raising one needs orders.raise
+ * (`RAISES_AN_ORDER` in lib/money/order-raiser), held apart from billing
+ * on an order and from awarding against it; until 2026-11-02 it needed
+ * invoices.issue, so the firm's Accounts Receivable raised its orders.
  *
  * ── One row, read from whichever end you stand at ────────────────────
  *
@@ -179,9 +182,10 @@ export async function GET(request: NextRequest) {
       by: ['sellContractId'],
       where: {
         sellContractId: { in: sellIds },
-        // Void and cancelled invoices never consumed anything, on the
-        // line or on the header. Same rule as the ceiling above.
-        invoice: { status: { notIn: ['VOID', 'CANCELLED'] } },
+        // Only a bill that was sent has billed anything, on the line or
+        // on the header (`drawsOnOrder` in lib/money/bill-state): a draft
+        // or a raised bill nobody was sent is the seller's working paper.
+        invoice: { status: { notIn: [...DRAWS_NOTHING] } },
       },
       _sum: { amountCents: true },
     })
@@ -191,11 +195,24 @@ export async function GET(request: NextRequest) {
   }
 
   const rows = pos.map((po) => {
-    // Void and cancelled invoices never consumed anything. Counting them
-    // would show a PO as exhausted while money remained authorized on it.
-    const invoicedCents = po.invoices
-      .filter((i) => !['VOID', 'CANCELLED'].includes(i.status))
-      .reduce((sum, i) => sum + minorFromWhole(i.total, i.currency ?? po.currency), 0)
+    // What has drawn on the order: bills sent, in the order's own currency
+    // (`drawsOnOrder`, the rule the three-way check counts the ceiling by,
+    // lib/money/order-drawn). Void and cancelled bills never consumed
+    // anything, and a bill drafted or raised and never sent has asked
+    // nobody for money: the second Tapin walk read $4,000 drawn on
+    // Brightmoor's order for a bill Tapin could not send. Those are said
+    // apart, as not sent. A bill in another currency is never added to
+    // this one's figure: rupees and dollars are not added.
+    const ccy = po.currency.toUpperCase()
+    const sameCurrency = po.invoices.filter((i) => (i.currency ?? po.currency).toUpperCase() === ccy)
+    const invoicedCents = sameCurrency
+      .filter((i) => drawsOnOrder(i.status))
+      .reduce((sum, i) => sum + minorFromWhole(i.total, po.currency), 0)
+    const notSentCents = sameCurrency
+      .filter((i) => BILL_NOT_SENT.includes(i.status))
+      .reduce((sum, i) => sum + minorFromWhole(i.total, po.currency), 0)
+    // Minor units per whole unit of the order's currency: 100 for dollars, 1 for the dong.
+    const per = minorPerUnit(po.currency)
 
     const balance = poBalance({
       amountCents: minorFromWhole(po.amount, po.currency),
@@ -237,8 +254,10 @@ export async function GET(request: NextRequest) {
       milestones: po._count.milestones,
       currency: po.currency,
       amount: Number(po.amount),
-      invoiced: invoicedCents / 100,
-      remaining: balance.remainingCents / 100,
+      invoiced: invoicedCents / per,
+      /** Bills drafted or raised against it and not sent yet: drawing nothing, said apart. */
+      notSent: notSentCents / per,
+      remaining: balance.remainingCents / per,
       consumedPercent: balance.consumedPercent,
       overdrawn: balance.overdrawn,
       expired: balance.expired,
@@ -304,7 +323,7 @@ export async function GET(request: NextRequest) {
       orders: rows,
       reading: { company: reading.companyName, inASeat: reading.seated, says: reading.says },
       // In a seat, what may be raised is the client's desk's to say.
-      canRaise: hasPermission(reading.caller.permissions, 'invoices.issue'),
+      canRaise: hasPermission(reading.caller.permissions, RAISES_AN_ORDER),
       // What actually needs somebody's attention. A PO quietly running out
       // stops invoices from matching, and the first anybody hears is a
       // supplier chasing payment.
@@ -337,8 +356,9 @@ export async function POST(request: NextRequest) {
   // book, where the client's role on the seat may raise one — and the
   // office's own only where the screen asked for its own books.
   const desk = (await writingDesk(caller, request))!
-  // Authorizing spend is an accounts-payable act, not a contracting one.
-  if (!hasPermission(desk.permissions, 'invoices.issue')) {
+  // Authorizing spend is the buyer's own act (orders.raise), never the
+  // seat that bills on the order.
+  if (!hasPermission(desk.permissions, RAISES_AN_ORDER)) {
     return NextResponse.json(
       {
         error: {
@@ -347,7 +367,7 @@ export async function POST(request: NextRequest) {
             ? seatedRefusal(desk.seat, 'Raising a purchase order')
             : askTheDesk({
                 doing: 'Raising a purchase order',
-                needs: 'invoices.issue',
+                needs: RAISES_AN_ORDER,
                 kind: caller.company.kind,
                 companyName: caller.company.name,
               }),
@@ -823,7 +843,7 @@ export async function PATCH(request: NextRequest) {
   // The same desk the list was read from: the client's order, under the
   // client's role, in a seat; the office's own with `?books=own`.
   const desk = (await writingDesk(caller, request))!
-  if (!hasPermission(desk.permissions, 'invoices.issue')) {
+  if (!hasPermission(desk.permissions, RAISES_AN_ORDER)) {
     return NextResponse.json(
       {
         error: {
@@ -832,7 +852,7 @@ export async function PATCH(request: NextRequest) {
             ? seatedRefusal(desk.seat, 'Changing a purchase order')
             : askTheDesk({
                 doing: 'Changing a purchase order',
-                needs: 'invoices.issue',
+                needs: RAISES_AN_ORDER,
                 kind: caller.company.kind,
                 companyName: caller.company.name,
               }),

@@ -10,6 +10,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { isSent } from '@/lib/money/bill-state'
 import type { CallerContext } from '@/lib/api-context'
 import { feedWhere, ledgerFeed, waitingQuestions, ownerOnlyException } from '@/lib/twin/ledger'
 import { TWIN_ACTS } from '@/lib/autonomy'
@@ -35,6 +36,8 @@ import { ENDING_SOON_READERS } from '@/lib/releasing-soon'
 import { firmBilling } from './billing'
 import { firmTuesday } from '@/lib/money/firm-today'
 import { benchAt } from '@/app/api/today/reads'
+import { jobApart } from '@/app/api/requisitions/words'
+import { placeOf } from '@/lib/job-site'
 import { todayReads } from '@/lib/today-page'
 import { GET as benchRoute } from '@/app/api/bench/route'
 import { GET as ourBenchRoute } from '@/app/api/bench/ours/route'
@@ -45,6 +48,7 @@ import { maySendBills } from '@/lib/money/bill-send'
 import { billsDueToday } from './bill-due'
 import { NEEDS_RATE, PUT_FORWARD_SIGNED_IN } from '@/lib/twin/supplier-performers'
 import { mayChasePaper } from '@/lib/setup-gates'
+import { asksChecklist, checklistOf } from '@/lib/setup-checklist-state'
 import { workerPartyAt } from '@/lib/document-stages/chase-gate'
 
 /** The route's own sentences, carried on the put-forward card so it never retypes them. */
@@ -64,11 +68,11 @@ function suppliersOnly(action: string): boolean {
 const PAPERS_GATE_DAYS = 7
 import {
   hrefFor, WEEKS_SHOWN, deskRefusal, LIMIT_IS_THE_CLIENTS, SMALL_MODEL,
-  type Readers, type VarianceReceipt, type WaitingItem, type LedgerLine,
+  type Readers, type SubmissionJob, type VarianceReceipt, type WaitingItem, type LedgerLine,
   matchPerson, billFromPayload, billItemTitle, BILL_SEND, RECEIPT_APPROVE, RECEIPT_PAY,
   putForwardFromPayload, putForwardItemTitle, PUT_FORWARD, START_PAPERS, PAPERS_STEP_TEXT,
   type HeldBill, type Billing, type RollRow, type BenchRow, type UnbilledRow, type UnpaidRow, type AppliedRow, type PaperHeld, type PaperRun,
-  type OtherWaiting, type LimitEntry, type SpendReceipt, type WeekRow, type ToldReceipt, type Named, type Verdict,
+  type OtherWaiting, type LimitEntry, type SpendReceipt, type WeekRow, type ToldReceipt, type Named, type Verdict, type SetupRead,
 } from './ask'
 
 /** An invoice that was never sent, or was withdrawn, is nobody's spend. */
@@ -165,8 +169,18 @@ async function peopleAtDesk(companyId: string, permission: string, take = 3): Pr
   return [...new Set(rows.map((r) => r.person.name))]
 }
 
-/** Invoices a firm sent that are not paid in full: sent, part paid, or held by the firm paying them. */
-const OWED_TO_US = ['SUBMITTED', 'ISSUED', 'PARTIALLY_PAID', 'HELD']
+/**
+ * Invoices a firm sent that are not paid in full: sent, part paid, or held
+ * by the firm paying them. A bill raised and never sent (ISSUED) is owed by
+ * nobody (money's one reader, `isSent` in lib/money/bill-state, 2026-11-02):
+ * it is listed apart on Accounts receivable as to send, never as owed.
+ */
+export const OWED_TO_US: readonly string[] = ['SUBMITTED', 'PARTIALLY_PAID', 'HELD']
+
+/** Whether a bill in this status is owed to the firm that sent it, by the one sent rule. */
+export function owedToUs(status: string): boolean {
+  return OWED_TO_US.includes(status.toUpperCase()) && isSent(status)
+}
 
 /** At most this many checks at once, so one question never takes the whole connection pool. */
 async function inBatches<T, R>(xs: readonly T[], size: number, f: (x: T) => Promise<R>): Promise<R[]> {
@@ -200,6 +214,25 @@ export function readersFor(
     })
 
   return {
+    /**
+     * Where this company stands on the setup checklist, read the way the
+     * setup page and the greeting's line read it (lib/setup-checklist-state).
+     * Only the Owner or an Admin of the reader's own company runs setup; a
+     * seat in another company's program never runs that company's.
+     */
+    async setup(): Promise<SetupRead> {
+      if (!ownCompany || seat) return { kind: 'NOT_YOURS' }
+      if (!hasPermission(caller.permissions, 'settings.manage')) return { kind: 'NOT_YOURS' }
+      if (!(await asksChecklist(companyId))) return { kind: 'NOT_ASKED' }
+      const { checklist } = await checklistOf(companyId)
+      const items = checklist.rows.map((r) => r.key)
+      if (checklist.owed.length === 0) return { kind: 'DONE', items }
+      // Never answered before skipped: the next item is one nobody has looked at yet.
+      const skipped = checklist.rows.filter((r) => r.state === 'SKIPPED').map((r) => r.key)
+      const todo = checklist.rows.filter((r) => r.state !== 'DONE' && r.state !== 'SKIPPED').map((r) => r.key)
+      return { kind: 'OPEN', owed: [...todo, ...skipped], skipped, items }
+    },
+
     async waiting(): Promise<WaitingItem[]> {
       // The twin asks people at its own company only.
       if (!ownCompany) return []
@@ -841,6 +874,40 @@ export function readersFor(
       return ownCompany ? firmBilling(caller) : null
     },
 
+    /**
+     * The job each candidate to review was put forward to, told apart from
+     * the same company's other live jobs of that title by demand's own rule
+     * (`jobApart`: the place, then the day it starts, then the day it was
+     * posted; never the job's id). Only candidates put forward to this
+     * company are read, so no other firm's submission is named here.
+     */
+    async submissionJobs(submissionIds: readonly string[]) {
+      const out = new Map<string, SubmissionJob>()
+      if (submissionIds.length === 0) return out
+      const subs = await prisma.submission.findMany({
+        where: { id: { in: [...submissionIds] }, toCompanyId: companyId },
+        select: {
+          id: true,
+          requirement: { select: { id: true, companyId: true, title: true, location: true, startDate: true, createdAt: true, site: { select: { name: true } } } },
+        },
+      })
+      if (subs.length === 0) return out
+      const titles = [...new Set(subs.map((s) => s.requirement.title))]
+      const owners = [...new Set(subs.map((s) => s.requirement.companyId))]
+      const alike = await prisma.requirement.findMany({
+        where: { companyId: { in: owners }, title: { in: titles }, status: { in: ['OPEN', 'DRAFT'] }, archivedAt: null, mirroredFromId: null },
+        select: { id: true, companyId: true, title: true, location: true, startDate: true, createdAt: true, site: { select: { name: true } } },
+      })
+      const facts = (r: { id: string; location: string | null; startDate: Date | null; createdAt: Date; site: { name: string } | null }) =>
+        ({ id: r.id, location: placeOf(r), startDate: r.startDate, postedAt: r.createdAt })
+      for (const s of subs) {
+        const job = s.requirement
+        const others = alike.filter((r) => r.companyId === job.companyId && r.title === job.title && r.id !== job.id)
+        out.set(s.id, { requirementId: job.id, apart: jobApart(facts(job), others.map(facts)) })
+      }
+      return out
+    },
+
     async rollingOff(days: number) {
       const company = caller.company
       if (!ownCompany || !company) return { ok: false as const, says: 'Roll-offs are read at your own company; switch to it first.' }
@@ -876,7 +943,7 @@ export function readersFor(
           personId: l.person.id, person: l.person.name,
           site: l.endClientCompany?.name ?? l.clientCompany?.name ?? null,
           endsOn, daysLeft: Math.round((l.endDate!.getTime() - today.getTime()) / 86_400_000),
-          href: `/dashboard/contracts/${l.id}`,
+          href: `/dashboard/placements/${l.id}`,
         }
         const had = byPerson.get(l.person.id)
         if (!had || had.endsOn < endsOn) byPerson.set(l.person.id, row)
@@ -1013,7 +1080,7 @@ export function readersFor(
         return { ok: false as const, says: deskRefusal('reads which bills are unpaid', 'invoices.read', company.kind) }
       }
       const found = await prisma.invoice.findMany({
-        where: { AND: [invoiceBetween(company.id), { status: { in: OWED_TO_US } }] },
+        where: { AND: [invoiceBetween(company.id), { status: { in: [...OWED_TO_US] } }] },
         orderBy: { dueAt: 'asc' },
         take: 200,
         select: {
@@ -1035,6 +1102,7 @@ export function readersFor(
         })
         // Only what this firm billed; what it was billed is an invoice receipt.
         if (directionFrom(parties, company.id) !== 'RECEIVABLE') continue
+        if (!owedToUs(r.status)) continue
         const due = fromPrismaDecimal(r.total, r.currency).minor - fromPrismaDecimal(r.paid, r.currency).minor
         if (due <= 0) continue
         rows.push({
@@ -1112,7 +1180,7 @@ export function readersFor(
       const d = body?.data ?? {}
       const held: PaperHeld[] = (d.startsHeld ?? []).map((x: any) => ({
         personId: String(x.personId), name: String(x.name), startsOn: typeof x.startDate === 'string' ? x.startDate.slice(0, 10) : null,
-        missing: [...(x.blocking ?? []), ...(x.chasing ?? [])].map(String), href: `/dashboard/contracts/${x.contractId}`,
+        missing: [...(x.blocking ?? []), ...(x.chasing ?? [])].map(String), href: `/dashboard/placements/${x.contractId}`,
       }))
       const runs: PaperRun[] = []
       for (const p of d.verifications?.persons ?? []) {

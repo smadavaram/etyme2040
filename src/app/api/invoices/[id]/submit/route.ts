@@ -3,7 +3,7 @@ import { reportError } from '@/lib/alerts'
 import { getCallerContext } from '@/lib/api-context'
 import { hasPermission, askTheDesk } from '@/lib/permissions'
 import { prisma } from '@/lib/db'
-import { announceRaised, mayBeSent, maySendBill, markSent } from '@/lib/money/bill-send'
+import { announceRaised, mayBeSent, maySendBill, markSent, planSend, tellPayerAfterSending } from '@/lib/money/bill-send'
 import { sendBillToCustomer } from '@/lib/notify/bill-delivery'
 
 /**
@@ -65,7 +65,8 @@ export async function POST(
       ? NextResponse.json({ error: { code: who.code, message: who.says, step: who.step } }, { status: 409 })
       : NextResponse.json({ error: { code: who.code, message: who.says } }, { status: 403 })
   }
-  const check = await mayBeSent(id, companyId, ['ISSUED', 'DRAFT'])
+  // The billing address was asked by `maySendBill` a moment ago, which refuses a firm with none.
+  const check = await mayBeSent(id, companyId, ['ISSUED', 'DRAFT'], { addressRead: true })
   if (!check.ok) {
     return NextResponse.json(
       { error: { code: check.code, message: check.says, ...(check.checks ? { checks: check.checks } : {}), ...(check.step ? { step: check.step } : {}) } },
@@ -74,16 +75,25 @@ export async function POST(
   }
 
   try {
+    // Read first, write short: everything the sending reads is read before
+    // its transaction (`planSend`), so the transaction holds a connection
+    // only for the writes (the founder-scale simulation, 2026-11-01: sends
+    // ran out of time inside it under load).
+    const plan = await planSend(id)
     const sent = await prisma.$transaction((tx) =>
-      markSent(tx, { invoiceId: id, companyId, by: { personId: caller.person.id, name: caller.person.name } })
+      markSent(tx, { invoiceId: id, companyId, by: { personId: caller.person.id, name: caller.person.name }, plan })
     )
-    if (sent.raised) await announceRaised(id, companyId, { personId: caller.person.id })
+    // The payer's people told in the app, before the letter goes.
+    const told = await tellPayerAfterSending(id, companyId)
+    // What the sending read is handed on, so the event reads nothing again.
+    if (sent.raised) await announceRaised(id, companyId, { personId: caller.person.id }, sent)
     // Now that the bill is sent, it goes to the firm that pays it: a
     // letter off Etyme, a notice on it (lib/notify/bill-delivery). Outside
     // the transaction, because a letter cannot be called back; and a
     // failure here never unsends the bill — it says it was not delivered,
     // and Send again is the way it goes.
-    const delivered = await sendBillToCustomer({ invoiceId: id, byPersonId: caller.person.id }).catch((err) => {
+    // The bill as the notice read it is handed on, so the letter does not read it again.
+    const delivered = await sendBillToCustomer({ invoiceId: id, byPersonId: caller.person.id, read: told.read }).catch((err) => {
       void reportError('bill-delivery', err, { companyId }).catch(() => {})
       return null
     })
@@ -100,12 +110,15 @@ export async function POST(
           dueAt: result.dueAt.toISOString(),
         },
         message: sent.raised ? `Bill ${result.number} raised and sent for client review` : `Bill ${result.number} submitted for client review`,
+        // Said beside the bill, never a reason it was held: work outside
+        // the window of the order it is on (`orderWindowSays`).
+        notes: check.notes,
         // Whom it reached, in the Bills page's own sentence: "Sent to
         // dana@acme.com on Oct 19", or why it was not. Null where the
         // delivery itself failed and staff were told.
         delivery: delivered?.says ?? null,
         // Where nobody at the payer can record a payment yet, the sender reads it.
-        ...(sent.payerNotice.why ? { payerNotice: sent.payerNotice.why } : {}),
+        ...(told.why ? { payerNotice: told.why } : {}),
       },
     })
   } catch (err: any) {

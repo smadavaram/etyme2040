@@ -1,8 +1,12 @@
 'use client'
 
 import { readJson } from '@/lib/read-response'
+import { AwardDialog } from './award-dialog'
+import { sendOnRefusalSays } from './send-on-words'
+import { centsTyped, typedFromCents } from '@/app/dashboard/requisitions/facts'
 import { bandHint, rateHelp, CURRENCY_SAYS } from './rate-words'
 import Link from 'next/link'
+import { whoAppliedSays, EVERY_JOB_SAYS } from '@/app/api/submissions/job-heading'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -18,7 +22,7 @@ import { listHead } from './list-head'
 import { recall, remember } from '@/lib/remember'
 import { ProposeInterviewDialog } from '@/components/propose-interview'
 import { Thread, toSupplierAboutCandidate, answeringDemand } from '@/components/thread'
-import { submissionStatusWord, submissionKindWord, submittedOn, jobsToSubmitTo, KIND_HEADING, refusalSays } from './words'
+import { submissionStatusWord, submissionKindWord, submittedOn, jobsToSubmitTo, KIND_HEADING, firmOption } from './words'
 import { jobListWord } from '../requirements/words'
 import { onePerJob } from '@/lib/internal-moves'
 
@@ -74,6 +78,14 @@ interface Submission {
    * with the same function the award refuses on (`awardDoor`).
    */
   award?: { open: boolean; says: string }
+  /**
+   * Whether "Send on" and "Message <supplier>" are drawn, computed by the
+   * route with the rules the forward and conversations routes refuse on
+   * (`row-doors`). Absent means not offered: a button the route would
+   * turn away is never drawn.
+   */
+  sendOn?: { open: boolean; says: string | null }
+  message?: { open: boolean; says: string | null }
 }
 
 type StatusFilter = 'ALL' | 'SUBMITTED' | 'SHORTLISTED' | 'INTERVIEW' | 'OFFERED' | 'PLACED' | 'REJECTED' | 'WITHDRAWN'
@@ -392,14 +404,15 @@ function SubmitToRequirementModal({
     setSubmitting(true)
     setError(null)
 
-    const rateNum = parseFloat(form.rate)
-    if (isNaN(rateNum) || rateNum <= 0) {
+    // Typed in dollars, sent in cents, through the one reader (`centsTyped`).
+    const rateCents = centsTyped(form.rate)
+    if (rateCents == null || rateCents <= 0) {
       setError('Rate must be a positive number')
       setSubmitting(false)
       return
     }
-    const payNum = parseFloat(form.payRate)
-    if (selectedOffer && (isNaN(payNum) || payNum <= 0)) {
+    const payCents = centsTyped(form.payRate)
+    if (selectedOffer && (payCents == null || payCents <= 0)) {
       setError(`Say what ${selectedOffer.supplierName} charges you for ${selectedOffer.name}, an hour.`)
       setSubmitting(false)
       return
@@ -412,12 +425,12 @@ function SubmitToRequirementModal({
         body: JSON.stringify({
           requirementId: form.requirementId,
           personIds: [form.personId],
-          rate: Math.round(rateNum * 100),
+          rate: rateCents,
           fromCompanyId: companyId,
           coverNote: form.coverNote || undefined,
           ...(needsReason && form.reason.trim() ? { reason: form.reason.trim() } : {}),
           ...(selectedOffer
-            ? { offeredBy: selectedOffer.supplierId, payRate: Math.round(payNum * 100) }
+            ? { offeredBy: selectedOffer.supplierId, payRate: payCents }
             : {}),
         }),
       })
@@ -717,7 +730,9 @@ function SubmitToRequirementModal({
 }
 
 // ── Place (the award) ────────────────────────────────
-
+//
+// One dialog, `./award-dialog`, shared with the job request's own page,
+// so the two places a buyer places somebody ask and hear the same.
 
 // ── Send on ────────────────────────────────────────────────
 
@@ -749,8 +764,9 @@ function SendOnModal({
   const [companies, setCompanies] = useState<{ id: string; name: string; kind: string }[]>([])
   const [toCompanyId, setToCompanyId] = useState('')
   const [email, setEmail] = useState('')
-  // Shown and typed in dollars; sent in cents.
-  const [rate, setRate] = useState(String((submission.rate ?? 0) / 100))
+  // Shown and typed in dollars; sent in cents, both ways through the one
+  // reader (`typedFromCents`, `centsTyped`).
+  const [rate, setRate] = useState(() => typedFromCents(submission.rate))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Where the company chosen sent us more than one role and nothing on
@@ -758,9 +774,14 @@ function SendOnModal({
   const [roles, setRoles] = useState<{ requirementId: string; title: string }[]>([])
   const [roleId, setRoleId] = useState('')
 
+  // The companies it can go to. A refusal of that list is said in the
+  // dialog in the route's own words, never an empty picker with nothing
+  // under it (the screen walk, 2026-11-02: at Avonleigh nothing reached
+  // the screen).
+  const [companiesSay, setCompaniesSay] = useState<string | null>(null)
   useEffect(() => {
     fetch('/api/companies')
-      .then((r) => r.json())
+      .then((r) => readJson(r))
       .then((b) => {
         const all = b.data?.companies ?? []
         setCompanies(
@@ -770,11 +791,12 @@ function SendOnModal({
           )
         )
       })
-      .catch(() => {})
+      .catch((e: Error) => setCompaniesSay(e.message))
   }, [submission.toCompany.id, submission.fromCompany.id])
 
-  const onwardCents = Math.round(Number(rate) * 100)
-  const marginCents = onwardCents - (submission.rate ?? 0)
+  // Null where the box holds no rate: no margin is said about nothing.
+  const onwardCents = centsTyped(rate)
+  const marginCents = onwardCents == null ? null : onwardCents - (submission.rate ?? 0)
 
   async function send() {
     setBusy(true)
@@ -797,9 +819,12 @@ function SendOnModal({
       const copy = res.clone()
       const body = await res.json().catch(() => ({}) as any)
       if (!res.ok || !body?.data) {
-        if (body.error?.code === 'WHICH_ROLE') setRoles(body.error.options ?? [])
-        if (body.error?.message) throw new Error(body.error.message)
+        if (body?.error?.code === 'WHICH_ROLE') setRoles(body.error.options ?? [])
+        // The route's own sentence, whatever shape the refusal came in.
+        const says = sendOnRefusalSays(body)
+        if (says) throw new Error(says)
         await readJson(copy)
+        throw new Error('That could not be sent on.')
       }
       onSent(
         body.data?.message ??
@@ -811,7 +836,8 @@ function SendOnModal({
     }
   }
 
-  const ready = via === 'ONWARD' ? toCompanyId !== '' && (roles.length === 0 || roleId !== '') : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  const rated = onwardCents != null && onwardCents > 0
+  const ready = rated && (via === 'ONWARD' ? toCompanyId !== '' && (roles.length === 0 || roleId !== '') : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
@@ -848,10 +874,15 @@ function SendOnModal({
                 <option value="">Pick a company…</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} · {c.kind.toLowerCase()}
+                    {firmOption(c)}
                   </option>
                 ))}
               </select>
+              {companiesSay ? (
+                <p className="mt-1 text-[11px] text-etyme-attention" role="alert">{companiesSay}</p>
+              ) : companies.length === 0 ? (
+                <p className="mt-1 text-[11px] text-etyme-faint">No other company on Etyme to send this to yet. Send it by email instead.</p>
+              ) : null}
               {roles.length > 0 && (
                 <>
                   <label className="eyebrow mb-1 mt-3 block">For which of their jobs</label>
@@ -888,8 +919,7 @@ function SendOnModal({
           <div>
             <label className="eyebrow mb-1 block">Rate you send it on at ($/hr)</label>
             <input
-              type="number"
-              step="0.01"
+              inputMode="decimal"
               value={rate}
               onChange={(e) => setRate(e.target.value)}
               className="w-full rounded-md border border-etyme-rule px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-etyme-action/20"
@@ -898,7 +928,9 @@ function SendOnModal({
                 down the chain and the person who sent it to you will never
                 see this number. */}
             <p className="mt-1 text-[11px] text-etyme-faint">
-              {marginCents > 0
+              {marginCents == null
+                ? 'Type the rate you send it on at, in dollars an hour.'
+                : marginCents > 0
                 ? `${showRate(marginCents)} yours. ${submission.fromCompany.name} does not see this.`
                 : marginCents === 0
                   ? 'Passed on at the same rate — nothing in it for you.'
@@ -907,7 +939,7 @@ function SendOnModal({
           </div>
         </div>
 
-        {error && <p className="mt-3 text-[12px] text-etyme-attention">{error}</p>}
+        {error && <p className="mt-3 text-[12px] text-etyme-attention" role="alert">{error}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 text-[13px] text-etyme-muted hover:text-etyme-ink">
@@ -919,128 +951,6 @@ function SendOnModal({
             className="rounded-md bg-etyme-action px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50"
           >
             {busy ? 'Sending…' : 'Send on'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Placing somebody, from their row.
- *
- * This is the award — `POST /api/submissions/:id/award` — and nothing
- * else. It used to be a two-step: flip the row to PLACED, then "→
- * Contract" as a separate act, and the flip wrote nothing behind it. The
- * award writes the contract, the order and the billing dates in one
- * transaction and closes the seat, so there is one button and one road.
- * What the supplier pays its person is the supplier's business and is not
- * asked here.
- */
-function AwardModal({
-  submission,
-  placing,
-  onClose,
-  onPlace,
-}: {
-  submission: Submission
-  placing: boolean
-  onClose: () => void
-  onPlace: (rateDollars: number, startDate: string, underWay: { reason: string } | null) => void
-}) {
-  // Dollars, because that is what the field says and what onPlace
-  // multiplies back up. Seeded from cents, one click made a $130/hr
-  // submission into a $13,000/hr contract.
-  const [rate, setRate] = useState((submission.rate ?? 0) / 100)
-  const [startDate, setStartDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  )
-  // A start before today is refused unless the work is already under way,
-  // and why is kept with the placement (audit, 2026-10-05).
-  const before = !!startDate && startDate < new Date().toISOString().slice(0, 10)
-  const [underWay, setUnderWay] = useState(false)
-  const [why, setWhy] = useState('')
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 mx-4">
-        <h3 className="headline-serif text-[18px] text-etyme-ink mb-1">
-          Place {submission.person.name}
-        </h3>
-        <p className="text-[12px] text-etyme-muted mb-4">
-          {submission.award?.says ?? 'This writes the contract, the order and the billing dates in one step.'}
-        </p>
-
-        <div className="mb-4 px-3 py-2 bg-etyme-canvas rounded-lg">
-          <p className="text-[12px] text-etyme-muted">
-            <span className="font-medium text-etyme-ink">{submission.requirement.title}</span>
-            {' · via '}
-            {submission.kind === 'INTERNAL' ? 'their own employer' : submission.fromCompany.name}
-            {' · asked '}
-            {showRate(submission.rate)}
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="eyebrow mb-1 block">Bill rate ($/hr) *</label>
-            <input
-              type="number"
-              step="0.01"
-              value={rate}
-              onChange={(e) => setRate(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-etyme-rule rounded-md text-sm
-                         focus:outline-none focus:ring-2 focus:ring-etyme-action/20"
-            />
-          </div>
-
-          <div>
-            <label className="eyebrow mb-1 block">Start date *</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 border border-etyme-rule rounded-md text-sm
-                         focus:outline-none focus:ring-2 focus:ring-etyme-action/20"
-            />
-          </div>
-          {before && (
-            <div className="rounded-md bg-etyme-canvas px-3 py-2">
-              <label className="flex items-center gap-2 text-[12px] text-etyme-ink">
-                <input type="checkbox" checked={underWay} onChange={(e) => setUnderWay(e.target.checked)} />
-                The work is already under way
-              </label>
-              {underWay && (
-                <input
-                  value={why}
-                  onChange={(e) => setWhy(e.target.value)}
-                  placeholder="Why it started before the award"
-                  className="mt-2 w-full px-3 py-2 border border-etyme-rule rounded-md text-sm"
-                />
-              )}
-              {!underWay && (
-                <p className="mt-1 text-[12px] text-etyme-muted">
-                  That date is before today. Pick today or later, or tick this and say why.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2 mt-6">
-          <button
-            onClick={onClose}
-            disabled={placing}
-            className="btn-secondary flex-1 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onPlace(rate, startDate, before && underWay ? { reason: why.trim() } : null)}
-            disabled={placing || !(rate > 0) || !startDate || (before && (!underWay || why.trim().length === 0))}
-            className="btn-primary flex-1 disabled:opacity-50"
-          >
-            {placing ? 'Placing…' : 'Place'}
           </button>
         </div>
       </div>
@@ -1088,7 +998,6 @@ export default function SubmissionsPage() {
   // side, the client's question and the box to answer it in.
   const [talk, setTalk] = useState<Submission | null>(null)
   const [said, setSaid] = useState<string | null>(null)
-  const [placing, setPlacing] = useState(false)
 
   const [companyId, setCompanyId] = useState<string | null>(null)
   // Whose pipeline the server answered about. Null until the first read.
@@ -1100,6 +1009,9 @@ export default function SubmissionsPage() {
   // no rate, and the page says so rather than presenting them as the
   // firm's whole list (round five, problem 4).
   const [ownSays, setOwnSays] = useState<string | null>(null)
+  // The one job this list was opened on (Ask Etyme's "Open who applied"),
+  // named by the route only where this seat may open it.
+  const [job, setJob] = useState<{ id: string; named: string | null } | null>(null)
 
   // The words on the page follow the book being read, not the firm the
   // reader is employed by: a program office at a client's desk reads the
@@ -1203,6 +1115,7 @@ export default function SubmissionsPage() {
       setSubmissions(body.data?.submissions ?? [])
       setAtDesk(body.data?.desk?.seated ? body.data.desk : null)
       setOwnSays(body.data?.desk?.ownOnly ? body.data.desk.ownSays ?? null : null)
+      setJob(urlRequirementId ? body.data?.job ?? { id: urlRequirementId, named: null } : null)
     } catch (err: any) {
       setError(err.message)
       setSubmissions([])
@@ -1379,9 +1292,7 @@ export default function SubmissionsPage() {
               and sending one twice puts the same name in front of the
               client twice. Never for a client: they are the end of the
               chain and have nobody to send anybody on to. */}
-          {!isClient && direction === 'received' &&
-            row.forwardedAt === null &&
-            !['PLACED', 'REJECTED', 'WITHDRAWN'].includes(row.status) && (
+          {!isClient && direction === 'received' && row.sendOn?.open === true && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -1396,9 +1307,10 @@ export default function SubmissionsPage() {
             )}
 
           {/* A word with the other firm about this candidate. The desk
-              that received them opens it; the firm that sent them
+              that received them opens it, where the threads rule lets it
+              (`row.message`, from the route); the firm that sent them
               answers. Not for an internal move: there is no other firm. */}
-          {row.kind !== 'INTERNAL' && (
+          {row.kind !== 'INTERNAL' && (direction === 'received' ? row.message?.open === true : true) && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -1558,7 +1470,10 @@ export default function SubmissionsPage() {
             </button>
           )}
 
-          {/* Direction toggle — prototype segmented control */}
+          {/* Direction toggle — prototype segmented control. Not on one
+              job's list, which reads that job's candidates whichever way
+              they came. */}
+          {!urlRequirementId && (
           <div role="group" aria-label="Which way" className="flex bg-etyme-canvas rounded-md p-0.5">
             <button
               onClick={() => { faceThisWay('sent'); setStatusFilter('ALL') }}
@@ -1583,9 +1498,20 @@ export default function SubmissionsPage() {
               Received
             </button>
           </div>
+          )}
         </>
         ) : undefined}
       />
+
+      {/* One job's candidates, named, with the way back to every job. */}
+      {urlRequirementId && (
+        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-etyme-rule bg-etyme-surface px-4 py-3">
+          <p className="text-[14px] font-medium text-etyme-ink">{whoAppliedSays(job?.named ?? null)}</p>
+          <Link href="/dashboard/submissions" className="text-[13px] text-etyme-action hover:underline">
+            {EVERY_JOB_SAYS}
+          </Link>
+        </div>
+      )}
 
       {/* Whose desk this is, where it is not the reader's own firm. */}
       {atDesk?.says && (
@@ -1628,7 +1554,7 @@ export default function SubmissionsPage() {
             options={statusOptions}
           />
         }
-        emptyMessage={statusFilter !== 'ALL' ? `No ${statusFilter.toLowerCase()} submissions.` : own ? 'You have not been put forward yet.' : 'No submissions yet.'}
+        emptyMessage={statusFilter !== 'ALL' ? `No ${statusFilter.toLowerCase()} submissions.` : own ? 'You have not been put forward yet.' : urlRequirementId ? 'Nobody has applied for this job yet.' : 'No submissions yet.'}
         emptyDetail={
           own
             ? undefined
@@ -1764,45 +1690,18 @@ export default function SubmissionsPage() {
       )}
 
       {placeSubmission && (
-        <AwardModal
-          submission={placeSubmission}
-          placing={placing}
-          onClose={() => setPlaceSubmission(null)}
-          onPlace={async (rateDollars, startDate, underWay) => {
-            setPlacing(true)
-            try {
-              // The one road to a placement: the award.
-              const res = await fetch(`/api/submissions/${placeSubmission.id}/award`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  rate: Math.round(rateDollars * 100), // dollars → cents
-                  startDate,
-                  ...(underWay ? { workUnderWay: true, underWayReason: underWay.reason } : {}),
-                }),
-              })
-              // Read here rather than with readJson: a blocked award lists
-              // the checks that failed, and those are the sentence.
-              // Anything without a message of its own goes through
-              // readJson for its words.
-              const copy = res.clone()
-              const body = await res.json().catch(() => ({}) as any)
-              if (!res.ok || !body?.data) {
-                // Each reason once: one already in the message is not said again.
-                if (body.error?.message) throw new Error(refusalSays(body.error.message, (body.error?.checks ?? []).map((x: any) => x.reason)))
-                await readJson(copy)
-              }
-              // One paragraph, each thing once: the notes are already
-              // inside the award's own sentence (`awardSaid`).
-              setSaid(body.data?.message ?? null)
-              setPlaceSubmission(null)
-              fetchSubmissions()
-            } catch (err: any) {
-              setToast({ message: err.message, type: 'error' })
-              setTimeout(() => setToast(null), 6000)
-            } finally {
-              setPlacing(false)
-            }
+        <AwardDialog
+          submissionId={placeSubmission.id}
+          candidate={placeSubmission.person.name}
+          role={placeSubmission.requirement.title}
+          via={placeSubmission.kind === 'INTERNAL' ? 'their own employer' : placeSubmission.fromCompany.name}
+          askedCents={placeSubmission.rate ?? null}
+          says={placeSubmission.award?.says ?? null}
+          onCancel={() => setPlaceSubmission(null)}
+          onDone={(says) => {
+            setSaid(says)
+            setPlaceSubmission(null)
+            fetchSubmissions()
           }}
         />
       )}

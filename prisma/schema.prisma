@@ -565,15 +565,24 @@ model TradeLinkRequest {
 
 // Every read of a person's data, including refusals. The subject can see this.
 model AccessLog {
-  id             String   @id @default(cuid())
-  subjectId      String
-  subject        Person   @relation("subject", fields: [subjectId], references: [id], onDelete: Cascade)
-  actorPersonId  String?
-  actorPerson    Person?  @relation("actor", fields: [actorPersonId], references: [id])
-  actorCompanyId String?
-  actorCompany   Company? @relation(fields: [actorCompanyId], references: [id])
-  action         String // PROFILE_VIEW · TALENT_VIEW_ANON · SUBMIT · MARKETING_REQUEST
-  allowed        Boolean  @default(true)
+  id               String   @id @default(cuid())
+  /// Whose data was read: a person (`subjectId`) or a firm
+  /// (`subjectCompanyId`), exactly one where a subject is named
+  /// (2026-11-01). A firm's own papers — its insurance, its W-9 — are
+  /// about the firm, and filing the firm's id as a person failed the
+  /// foreign key, so 98 reads and a refusal in the simulation were never
+  /// in the trail. The one writer, lib/access-log (`subjectColumns`),
+  /// refuses a row naming both or neither; Prisma cannot say it here.
+  subjectId        String?
+  subject          Person?  @relation("subject", fields: [subjectId], references: [id], onDelete: Cascade)
+  subjectCompanyId String?
+  subjectCompany   Company? @relation("accessSubjectCompany", fields: [subjectCompanyId], references: [id], onDelete: Cascade)
+  actorPersonId    String?
+  actorPerson      Person?  @relation("actor", fields: [actorPersonId], references: [id])
+  actorCompanyId   String?
+  actorCompany     Company? @relation("accessActorCompany", fields: [actorCompanyId], references: [id])
+  action           String // PROFILE_VIEW · TALENT_VIEW_ANON · SUBMIT · MARKETING_REQUEST
+  allowed          Boolean  @default(true)
   /// PERSON · TWIN · SAMPLE. TWIN where a twin made the read on the
   /// authority of `actorPersonId`'s seat, so the row carries both names:
   /// the person whose authority it was, and the twin that used it
@@ -582,13 +591,14 @@ model AccessLog {
   /// sample seat the home page frames (2026-10-14); that seat is a seeded
   /// person of its own ("Shared sample"), never a program manager who
   /// works there, and `reason` names its Context.
-  actorKind      String   @default("PERSON")
+  actorKind        String   @default("PERSON")
   /// Which twin, where `actorKind` is TWIN — PROGRAM_MANAGER first.
-  actorTwinKind  String?
-  reason         String? // why it was refused
-  at             DateTime @default(now())
+  actorTwinKind    String?
+  reason           String? // why it was refused
+  at               DateTime @default(now())
 
   @@index([subjectId, at])
+  @@index([subjectCompanyId, at])
   @@index([actorPersonId])
   @@index([actorCompanyId])
 }
@@ -799,6 +809,12 @@ model Company {
   // three firms in the same week — so this shapes the first screens and can
   // be changed without migrating anything. Null for clients and MSPs.
   supplierPosture     String?
+  /// Who last changed the company's type (kind and posture) after sign-up,
+  /// and when: only its Owner, from Settings → Company (the founder's
+  /// Tapin, 2026-11-02). Null until anybody does. A record of a person,
+  /// never followed, like reportingCurrencySetById.
+  kindSetById         String?
+  kindSetAt           DateTime?
   currency            String    @default("USD")
   // Where this company's people are already looking. When it is set,
   // business notifications post there; when it is not, they fall back to
@@ -863,7 +879,9 @@ model Company {
   submissionsOut        Submission[]            @relation("from")
   submissionsIn         Submission[]            @relation("to")
   automationLog         AutomationLog[]
-  accessLogs            AccessLog[]
+  accessLogs            AccessLog[]             @relation("accessActorCompany")
+  /// Reads of this firm's own data (its papers), each logged with the firm as its subject.
+  accessedBy            AccessLog[]             @relation("accessSubjectCompany")
   programSeatsGranted   ProgramSeat[]           @relation("seatClient")
   programSeatsHeld      ProgramSeat[]           @relation("seatOffice")
   seatAsksMade          ProgramSeatRequest[]    @relation("seatAskOffice")
@@ -4695,6 +4713,13 @@ model Expense {
   periodEnd       DateTime
   items           Json // [{ description, quantity, unitPrice, expenseType }]
   total           Decimal             @db.Decimal(12, 2)
+  /// The currency `items` and `total` are in: the pay currency of the line
+  /// that pays the worker for this placement (`expenseCurrencyFor` in
+  /// lib/expense-currency), written where the expense is raised. The
+  /// Approvals row printed every expense in dollars, which is wrong at a
+  /// non-dollar site such as Corvane's (2026-11-02). Null on an expense
+  /// raised before then: read the line's own currency, never a default.
+  currency        String?
   receiptUrl      String?
   status          String              @default("DRAFT") // DRAFT · SUBMITTED · APPROVED · INVOICED · PAID · REJECTED
   submittedAt     DateTime?
@@ -6144,6 +6169,11 @@ model Notification {
   createdAt DateTime  @default(now())
 
   @@index([personId, status])
+  // A person's notices, newest first: the greeting's "Since you last looked"
+  // and the list behind it (conversation, 2026-11-02). On the scale world the
+  // person with 1,512 notices read their list in 433 ms cold without it and
+  // 0.33 ms with it; the greeting's newest five from 7.6 ms to 0.07 ms.
+  @@index([personId, createdAt])
   @@index([companyId, createdAt])
   @@index([deliveryState, createdAt])
 }

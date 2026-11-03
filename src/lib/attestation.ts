@@ -55,6 +55,8 @@
  */
 
 import { plainDate } from '@/lib/plain-date'
+import { EMPLOYER_COMPLETES } from '@/lib/document-stages/employer'
+import { editionToRecord } from '@/lib/document-stages/editions'
 
 
 export type CheckKind =
@@ -909,6 +911,14 @@ export function mayRecordCheck(input: {
   employerName: string
   buyerName: string
   type: string
+  /**
+   * The firm that employs the person, where the record says it is a
+   * firm below the caller on the chain (lib/document-stages/employer).
+   * Only the employer completes an I-9 or a right to work check: a prime
+   * that buys a sub-vendor's W2 is a seller on the line and not the
+   * employer (the second Tapin walk, 2026-10-30).
+   */
+  employedBy?: string | null
 }): { ok: true } | { ok: false; code: 'NOT_A_PARTY' | 'NOT_YOURS_TO_RECORD' | 'FORBIDDEN'; message: string } {
   const what = recordLabel(input.type)
   if (!input.side) {
@@ -927,6 +937,18 @@ export function mayRecordCheck(input: {
       message:
         `The ${what} for ${input.subjectName} is recorded by ${input.employerName}, the firm that employs or places them. ` +
         `${input.buyerName} reads it on the placement; it does not complete it.`,
+    }
+  }
+  if (
+    input.about === 'PERSON' && input.employedBy &&
+    (EMPLOYER_COMPLETES as readonly string[]).includes(input.type.toUpperCase())
+  ) {
+    return {
+      ok: false,
+      code: 'NOT_YOURS_TO_RECORD',
+      message:
+        `${input.employedBy} employs ${input.subjectName}, so ${input.employedBy} completes the ${what} with ` +
+        `${input.subjectName} and records it. ${input.callerFirm} reads it on the placement once it is on file.`,
     }
   }
   if (input.about === 'FIRM' && input.side !== 'BUYER') {
@@ -1024,6 +1046,74 @@ export type CheckRecordVerdict =
 
 function no(code: string, message: string, field?: string): CheckRecordVerdict {
   return { ok: false, code, message, ...(field ? { field } : {}) }
+}
+
+/** Each date a check takes, as the paper names it. */
+const DATE_WORDS: Record<string, string> = {
+  renderedOn: 'the day the provider reported',
+  issuedOn: 'the day it was issued',
+  validFrom: 'the day it starts',
+  expiresAt: 'the day it runs out',
+}
+
+/**
+ * A posted body read into the check the rules judge: the dates parsed,
+ * the documents behind an I-9 read, every text field trimmed. One reading
+ * for every door that records a check (Record a check on the Compliance
+ * page, and a paper accepted on Paperwork or Document requests), so a
+ * screen's field and the rule's question are one name
+ * (`__tests__/invariants/every-question-has-a-field.test.ts`). Pure.
+ *
+ * A date that is not a date is refused here, naming its field; a missing
+ * one is left for `checkToRecord` to ask for in its own words.
+ */
+export function checkInputFrom(
+  body: Record<string, unknown>,
+  base: {
+    about: 'PERSON' | 'FIRM'
+    type: string
+    subjectName: string
+    recordedBy: string
+    consentOn?: Date | null
+    /** The day it runs out where the body names none: a request item's own date. */
+    expiresAtFallback?: Date | null
+  }
+): { ok: true; input: CheckToRecord } | { ok: false; message: string; field: string } {
+  const dates: Record<string, Date | null> = {}
+  for (const f of ['renderedOn', 'issuedOn', 'validFrom', 'expiresAt']) {
+    const v = body[f]
+    if (v == null || v === '') { dates[f] = null; continue }
+    const d = new Date(String(v))
+    if (Number.isNaN(d.getTime())) return { ok: false, message: `Give ${DATE_WORDS[f]} as a date, like 2027-06-30.`, field: f }
+    dates[f] = d
+  }
+  const evidence: ExaminedEvidence[] = []
+  if (Array.isArray(body.evidence)) {
+    for (const e of body.evidence as Record<string, unknown>[]) {
+      const at = e?.expiresAt ? new Date(String(e.expiresAt)) : null
+      if (at && Number.isNaN(at.getTime())) {
+        return { ok: false, message: 'Give each document’s expiry as a date, like 2031-04-30.', field: 'evidence' }
+      }
+      evidence.push({
+        type: String(e?.type ?? '').toUpperCase(),
+        issuer: typeof e?.issuer === 'string' ? e.issuer : null,
+        reference: typeof e?.reference === 'string' ? e.reference : null,
+        expiresAt: at,
+      })
+    }
+  }
+  const str = (k: string): string | null => (typeof body[k] === 'string' ? (body[k] as string) : null)
+  return {
+    ok: true,
+    input: {
+      about: base.about, type: base.type, subjectName: base.subjectName, recordedBy: base.recordedBy,
+      provider: str('provider'), reference: str('reference'), renderedOn: dates.renderedOn,
+      outcome: str('outcome'), providerSays: str('providerSays'), consentOn: base.consentOn ?? null,
+      issuer: str('issuer'), issuedOn: dates.issuedOn, validFrom: dates.validFrom,
+      expiresAt: dates.expiresAt ?? base.expiresAtFallback ?? null,
+      formEdition: str('formEdition'), evidence, licenseNumber: str('licenseNumber'), licenseState: str('licenseState'),
+    },
+  }
 }
 
 /**
@@ -1195,8 +1285,8 @@ export function checkToRecord(input: CheckToRecord, on: Date): CheckRecordVerdic
   }
 
   if (key === 'I9_EVERIFY') {
-    const edition = text(input.formEdition)
-    if (!edition) {
+    const typed = text(input.formEdition)
+    if (!typed) {
       return no(
         'NO_EDITION',
         `Say which edition of the I-9 it was completed on. The edition date is printed at the foot of every page, ` +
@@ -1204,6 +1294,13 @@ export function checkToRecord(input: CheckToRecord, on: Date): CheckRecordVerdic
         'formEdition'
       )
     }
+    // The one edition rule (lib/document-stages/editions): read the way
+    // the issuer prints it, printed by the issuer, and still accepted on
+    // the day the form was completed (the screen walks of 2026-11-01 and
+    // 2026-11-03).
+    const printed = editionToRecord(key, typed, input.issuedOn ?? on)
+    if (!printed.ok) return no(printed.code, printed.message, 'formEdition')
+    const edition = printed.edition
     const evidence = input.evidence ?? []
     if (evidence.length === 0) {
       return no(

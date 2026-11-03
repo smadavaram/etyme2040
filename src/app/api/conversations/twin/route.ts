@@ -1,27 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { reportError } from '@/lib/alerts'
-import { respond, today, modelState, boundarySays, cardIdsOf, partyOf, queueFrom, readAsk, withOwnPapers, withoutOwnWeek, questionsFor, type Picture, type Answer, type Party, type QueueRead, type RichLine } from './ask'
+import { respond, today, modelState, boundarySays, cardIdsOf, partyOf, queueFrom, readAsk, withOwnPapers, withoutOwnWeek, questionsFor, pictureOf, readsPicture, monthOf, type Readers, type Picture, type Answer, type Party, type QueueRead, type RichLine } from './ask'
 import { mapSeatOf, mapView, mapNeeds, mapOwed, mapChips, mapAnswer, mapHelp, siteLine, REGION_BOUNDARY, type MapSeat } from './regions'
 import { fromPrismaDecimal } from '@/lib/money'
 import { readThread, appendTurn, markCard, clearThread, type SavedThread, type SavedTurn, type CardState } from '@/lib/ask-etyme-thread'
 import { prisma } from '@/lib/db'
 import { modelSwitchFor } from '@/lib/model-boundary'
-import { GET as programPicture } from '@/app/api/program/route'
+import { programView } from '@/app/api/program/view'
+import { programSummary } from '@/app/api/program/summary'
 import { GET as decisionQueue } from '@/app/api/decisions/route'
 import { readersFor } from './read'
 import { unreadNotices, unreadThreads, markNoticesSeen } from './notices'
-import { isWorkerSeat, workerToday, respondWorker, readWorkerAsk, latestWeekLine, cardsFor, type WorkerFacts } from './worker'
+import { isWorkerSeat, workerToday, respondWorker, readWorkerAsk, latestWeekLine, paperCards, type WorkerFacts, type PaperAsk } from './worker'
 import { seatFor, permissionsToJudgeBy, type LiveSeat } from '@/lib/program-seat'
-import { programQueue } from '@/app/api/program/queue'
-import { workerFacts } from './worker-read'
+import { workerFacts, workerPapers } from './worker-read'
 import { owedTotal } from './owed'
 import { firstActFor, welcomeFor, setupLineFor } from './first-act'
 import { setupReminderFor } from '@/lib/setup-checklist-state'
 import { hasPermission } from '@/lib/permissions'
 import { firstActFacts } from './first-act-read'
 import { linkAsksFor, joinAsksFor, firmAskItems, withFirmAsks } from './firm-asks'
-import { emailSender } from '@/lib/senders'
+import { mailLeaves } from '@/lib/notify/mail-leaves'
 
 /**
  * GET    /api/conversations/twin[?take=n][&only=thread]   the greeting, and the seat's saved thread
@@ -86,35 +86,45 @@ import { emailSender } from '@/lib/senders'
  * its plant from the same read.
  */
 /**
- * People on site today and the suppliers they come through, as the
- * program dashboard counts them: `/api/program`'s own answer, read for
- * this caller, never counted a second way here. Null for a seat that is
- * not at a client's program, or where the dashboard refuses it.
+ * The program page's own read, once per request (2026-11-01: the greeting
+ * read it twice for a firm seated in a client's program, once for the
+ * queue and once for the picture, and a client's went through
+ * GET /api/program and back through JSON to read four figures). The
+ * page's `programView`, for this caller, the same call GET /api/program
+ * makes, for the program a seated firm's seat is in: its queue is the
+ * page's own. Null for any other seat (a client reads the page's figures
+ * alone, `programSummary`), and where it refuses.
  */
-async function pictureFor(request: NextRequest): Promise<Picture | null> {
-  try {
-    const res = await programPicture(request)
-    if (!res?.ok) return null
-    const body = await res.json()
-    const summary = body?.data?.summary
-    if (typeof summary?.activeContractors !== 'number') return null
-    const contractors: Array<{ state?: string; vendor?: { id?: string } | null; currency?: string | null }> = Array.isArray(body.data.contractors) ? body.data.contractors : []
-    const suppliers = new Set(contractors.filter((c) => c.state === 'IN_PROGRESS' && c.vendor?.id).map((c) => c.vendor!.id))
-    // What current rates come to a month, the dashboard's own figure, said
-    // only where it priced every seat on site and in one currency: a total
-    // of some seats read as the total of all is the plausible wrong number.
-    const currencies = [...new Set(contractors.filter((c) => c.state === 'IN_PROGRESS').map((c) => (c.currency ?? 'USD').toUpperCase()))]
-    // The dashboard says in its own line where some seat has no rate ("…
-    // people have no rate and are not in it"); then the figure is partial.
-    const unpriced = [summary.monthlySpendSays, summary.monthlySpendBasis].some((x) => typeof x === 'string' && /\bno rate\b/.test(x))
-    const priced = typeof summary.monthlySpend === 'number' && Number.isInteger(summary.monthlySpend) && !unpriced && currencies.length <= 1
-    return {
-      onSite: summary.activeContractors, suppliers: suppliers.size,
-      monthlyMinor: priced ? summary.monthlySpend : null, currency: priced ? currencies[0] ?? 'USD' : null,
-    }
-  } catch {
-    return null
+const programs = new WeakMap<object, Promise<ProgramRead | null>>()
+type ProgramRead = NonNullable<Awaited<ReturnType<typeof programView>>['data']>
+function programOf(caller: Caller): Promise<ProgramRead | null> {
+  let got = programs.get(caller)
+  if (!got) {
+    got = (async () => {
+      const seat = await seatOf(caller)
+      if (!seat) return null
+      const view = await programView(caller, seat.clientCompany.id, { trail: 'Ask Etyme' })
+      return view.error || !view.data ? null : view.data
+    })().catch(() => null)
+    programs.set(caller, got)
   }
+  return got
+}
+
+/**
+ * People on site today and the suppliers they come through, as the
+ * program dashboard counts them (`pictureOf` over the page's own read),
+ * never counted a second way here. Read only for a greeting that says it
+ * (`readsPicture`): a client's, and a seated firm's.
+ */
+async function pictureFor(caller: Caller, party: Party): Promise<Picture | null> {
+  if (!readsPicture(party)) return null
+  // A seated firm reads the page anyway, for its queue; a client reads the
+  // page's four figures alone (demand's `programSummary`, 2026-11-02), which
+  // works out no paperwork, names nobody and so logs nobody.
+  if (await seatOf(caller)) return pictureOf(await programOf(caller))
+  const summary = await programSummary(caller, null).catch(() => null)
+  return summary?.data ? pictureOf(summary.data) : null
 }
 
 /**
@@ -184,6 +194,28 @@ function ownFactsOf(caller: Caller, request: NextRequest): Promise<WorkerFacts |
   return got
 }
 
+/**
+ * The papers asked of a one-person firm's owner as the worker, read once
+ * per request: off her facts where the greeting already reads them for her
+ * week, and otherwise off her papers page alone (the mark, 2026-11-02: it
+ * read all four of her pages to count her papers). Null for anybody else,
+ * and where they could not be read.
+ */
+const soloPapers = new WeakMap<object, Promise<PaperAsk[] | null>>()
+function ownPapersOf(caller: Caller, request: NextRequest): Promise<PaperAsk[] | null> {
+  let got = soloPapers.get(caller)
+  if (!got) {
+    const facts = soloFacts.get(caller)
+    got = caller.company?.kind !== 'CONSULTANT_CORP'
+      ? Promise.resolve(null)
+      : facts
+        ? facts.then((f) => (f ? f.papers : null))
+        : workerPapers(caller, request).catch(() => null)
+    soloPapers.set(caller, got)
+  }
+  return got
+}
+
 function queueFor(request: NextRequest, caller: Caller): () => Promise<QueueRead | null> {
   let read: Promise<QueueRead | null> | null = null
   // Read once per request however often it is asked: the headline, the
@@ -192,11 +224,13 @@ function queueFor(request: NextRequest, caller: Caller): () => Promise<QueueRead
     try {
       const seat = await seatOf(caller)
       if (seat) {
-        const program = await programQueue(caller, seat.clientCompany.id, { trail: 'Ask Etyme' })
-        if (!program) return null
+        // `programQueue`'s rows, off the one read of the page this request
+        // makes (`programOf`), so the picture is not a second read of it.
+        const rows = (await programOf(caller))?.programQueue
+        if (!rows) return null
         // The page's rows, read through the same door as the decisions
         // queue's, so a card and a name are drawn one way.
-        return queueFrom({ data: { total: program.rows.length, decisions: program.rows } })
+        return queueFrom({ data: { total: rows.length, decisions: rows } })
       }
       const res = await decisionQueue(request)
       if (!res.ok) return null
@@ -205,16 +239,18 @@ function queueFor(request: NextRequest, caller: Caller): () => Promise<QueueRead
       const queue = queueFrom(await res.json())
       // A one-person firm is the worker too: what is asked of her on paper
       // is in her one queue, so her greeting and her mark count it.
-      const own = await ownFactsOf(caller, request)
-      // Nor is she asked to accept her own week: she is the firm (CLAUDE.md, shipped 2026-10-21).
-      const mine = own ? withOwnPapers(withoutOwnWeek(queue, caller.person.name), cardsFor(own).filter((c) => c.act === 'PAPER')) : queue
+      // Nor is she asked to accept her own week: she is the firm (CLAUDE.md,
+      // shipped 2026-10-21), whether or not her papers could be read.
+      const solo = caller.company?.kind === 'CONSULTANT_CORP'
+      const papers = solo ? await ownPapersOf(caller, request) : null
+      const mine = solo ? withOwnPapers(withoutOwnWeek(queue, caller.person.name), paperCards(papers ?? [])) : queue
       // What another party waits on this firm for (./firm-asks): a firm
       // asking to link, and, where no letter can leave, somebody who asked
       // from the page to join the bench. Rows of the one queue, counted.
       if (!mine || !caller.company) return mine
       const [links, joins] = await Promise.all([
         linkAsksFor(caller).catch(() => []),
-        joinAsksFor(caller, emailSender() !== null).catch(() => []),
+        joinAsksFor(caller, mailLeaves()).catch(() => []),
       ])
       return withFirmAsks(mine, firmAskItems(links, joins, caller.company.kind ?? ''))
     } catch {
@@ -371,41 +407,44 @@ export async function GET(request: NextRequest) {
     // first screen sat on "Reading the record…"). The program's picture and
     // the decisions queue were read one after the other, and the saved
     // thread after both; each is its own read and none waits on another.
+    // And the rules' own reads start here too (2026-11-01): they waited on
+    // the notices, the switch and the first act before, one after another.
     const company = caller.company
     const thread = threadFor(caller, take)
-    const picture = pictureFor(request)
+    // A one-person firm is the firm and the worker: her own week is read
+    // from her own pages beside the rest, and said in her greeting. Started
+    // before the queue, which then takes her papers off the same read.
+    const ownWeek = ownFactsOf(caller, request).then((f) => (f ? latestWeekLine(f) : null)).catch(() => null)
     const queue = queueFor(request, caller)
     void queue()
-    // A one-person firm is the firm and the worker: her own week is read
-    // from her own pages beside the rest, and said in her greeting.
-    const ownWeek = ownFactsOf(caller, request).then((f) => (f ? latestWeekLine(f) : null)).catch(() => null)
+    const who = partyFor(caller)
+    const picture = who.then((w) => pictureFor(caller, w.party)).catch(() => null)
     // The setup checklist's one line, read beside the rest.
     const setupLine = setupLineOf(caller)
-    const [notices, threads, modelSwitch, who, week] = await Promise.all([
-      seatOf(caller).then((seat) => unreadNotices(caller, { program: seat?.clientCompany.id ?? null })),
-      unreadThreads(caller), modelSwitchFor(company.id), partyFor(caller), ownWeek,
+    const seat = await seatOf(caller)
+    const readers = startedReaders(readersFor(caller, company.id, request, { seat }), who)
+    const [notices, threads, modelSwitch, party, week] = await Promise.all([
+      unreadNotices(caller, { program: seat?.clientCompany.id ?? null }),
+      unreadThreads(caller), modelSwitchFor(company.id), who, ownWeek,
     ])
     // The boundary line reads the company's own switch, so it says what is
     // true for this company; it is the greeting's last line.
     const model = modelState(modelSwitch.on, process.env)
-    // A new party's one next act, read off its own rows; a read that fails says nothing rather than a guess.
-    const firstAct = await firstActFacts(company.id, company.kind, who.party).then(firstActFor).catch(() => null)
-    const setup = await setupLine
-    const greeted = await today(readersFor(caller, company.id, request, { seat: await seatOf(caller) }), {
-      greeting: true, picture, needs: queue, notices, threads, model, party: who.party, client: who.client, ownWeek: week,
-      self: caller.person.name, firstAct, setup,
+    // A new party's one next act, read off its own rows, and only where the
+    // greeting has nothing else to recommend; a read that fails says nothing rather than a guess.
+    const firstAct = () => firstActFacts(company.id, company.kind, party.party).then(firstActFor).catch(() => null)
+    const greeted = await today(readers, {
+      greeting: true, picture, needs: queue, notices, threads, model, party: party.party, client: party.client, ownWeek: week,
+      self: caller.person.name, firstAct, setup: await setupLine,
     })
-    const answer = await withWelcome(caller, greeted, who.party, await thread)
-    // Said, so read: the section empties itself on the next greeting.
-    await Promise.all([
-      markNoticesSeen(caller, notices.shown.map((n) => n.id)),
-      markNoticesSeen(caller, threads.noticeIds),
-    ])
+    const answer = await withWelcome(caller, greeted, party.party, await thread)
+    // Said, so read: the section empties itself on the next greeting. One write for both.
+    await markNoticesSeen(caller, [...notices.shown.map((n) => n.id), ...threads.noticeIds])
     // The chips are the desk's own: only questions this seat gets an answer to.
     // A hiring manager on a plant asks about the time limit at the plant too.
-    const own = questionsFor(who.party, await judgedBy(caller), company.kind)
+    const own = questionsFor(party.party, await judgedBy(caller), company.kind)
     const chips = map?.reach === 'SITE' ? mapChips('SITE', own) : own
-    return NextResponse.json({ data: { answer: await onThePlant(caller, map, answer, queue), model, party: who.party, client: who.client, chips, thread: await thread } })
+    return NextResponse.json({ data: { answer: await onThePlant(caller, map, answer, queue), model, party: party.party, client: party.client, chips, thread: await thread } })
   } catch (err) {
     await reportError('Ask Etyme could not greet', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company.id })
     return NextResponse.json({ error: { code: 'NOT_ANSWERED', message: NOT_ANSWERED } }, { status: 500 })
@@ -413,17 +452,57 @@ export async function GET(request: NextRequest) {
 }
 
 /**
+ * The greeting's rule reads, started the moment the request arrives rather
+ * than once the notices, the switch and the first act were in, and each
+ * read once however often `today` asks. The month's receipts are asked for
+ * the month `today` itself reads (`monthOf`), and a firm's money only for
+ * a firm, as `today` asks; any other call goes to the reader as before.
+ */
+function startedReaders(r: Readers, who: Promise<{ party: Party }>): Readers {
+  const once = <T,>(f: () => Promise<T>): (() => Promise<T>) => {
+    let p: Promise<T> | null = null
+    return () => (p ??= f())
+  }
+  const month = monthOf(new Date())
+  const spend = once(() => r.spendIn(month.from, month.to))
+  const billing = r.billing ? once(() => r.billing!()) : undefined
+  const out: Readers = {
+    ...r,
+    waiting: once(() => r.waiting()),
+    othersWaiting: once(() => r.othersWaiting()),
+    limits: once(() => r.limits()),
+    told: once(() => r.told()),
+    spendIn: (from, to) => (from.getTime() === month.from.getTime() && to.getTime() === month.to.getTime() ? spend() : r.spendIn(from, to)),
+    ...(r.heldBills ? { heldBills: once(() => r.heldBills!()) } : {}),
+    ...(billing ? { billing } : {}),
+  }
+  // Started now; a read that fails here fails again where `today` asks, and is answered there.
+  for (const f of [out.waiting, out.othersWaiting, out.limits, out.told, spend, out.heldBills]) void f?.().catch(() => null)
+  // A firm's own money, only for a firm, as `today` asks.
+  void who.then((w) => (w.party === 'FIRM' && billing ? billing() : null)).catch(() => null)
+  return out
+}
+
+/**
  * The setup checklist's one line, for the reader's own company, only where
  * the reader's own seat may run setup (`settings.manage`: the Owner or
  * Admin). A seat in another company's program reads that program for the
  * whole session, and an outside firm never holds the client's settings, so
- * it reads no setup line there. A read that fails says nothing.
+ * it reads no setup line there. A one-person firm's Owner reads it like
+ * any Owner: her firm is set up the same way. A read that fails says
+ * nothing in the greeting, and staff are told, because a line that is
+ * missing in silence is how the founder's own greeting at Tapin showed no
+ * setup line with the checklist open (2026-11-02).
  */
 async function setupLineOf(caller: Caller): Promise<RichLine | null> {
   if (!caller.company || asWorker(caller) || (await seatOf(caller))) return null
   const mayRun = hasPermission(caller.permissions, 'settings.manage')
   if (!mayRun) return null
-  return setupReminderFor(caller.company.id, { mayRun }).then(setupLineFor).catch(() => null)
+  const companyId = caller.company.id
+  return setupReminderFor(companyId, { mayRun }).then(setupLineFor).catch(async (err) => {
+    await reportError('Ask Etyme could not read the setup checklist for the greeting', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId })
+    return null
+  })
 }
 
 /**
@@ -503,7 +582,8 @@ async function owedCount(caller: Caller, request: NextRequest) {
     return NextResponse.json({ error: { code: 'NO_COMPANY', message: NO_COMPANY } }, { status: 403 })
   }
   try {
-    const total = await owedTotal({ worker, facts: () => workerFacts(caller, request), needs: needsFor(request, caller) })
+    // Her facts in count-only mode: only what decides how many things need her.
+    const total = await owedTotal({ worker, facts: () => workerFacts(caller, request, undefined, { forCount: true }), needs: needsFor(request, caller) })
     return NextResponse.json({ data: { total } })
   } catch (err) {
     await reportError('Ask Etyme could not count what a seat owes', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
@@ -596,7 +676,8 @@ export async function POST(request: NextRequest) {
     // A one-person firm is the firm and the worker at once: her week, her
     // papers and her contract are answered from her own pages, as a
     // worker's are; what she billed and the rest, from the firm's book.
-    const solo = who.party === 'SOLO' && readAsk(text).kind !== 'UNPAID' &&
+    // Setting up her firm is the firm's book too (2026-11-02).
+    const solo = who.party === 'SOLO' && !['UNPAID', 'SETUP'].includes(readAsk(text).kind) &&
       ['SIGNED', 'PAPERS', 'CONTRACT_END', 'OWED', 'CHAIN', 'MY_RATE', 'INTERVIEWS', 'FILE', 'SIGN_WEEK', 'LAST_PAID', 'JOBS'].includes(readWorkerAsk(text))
     const seat = await seatOf(caller)
     answer = solo

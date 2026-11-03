@@ -45,6 +45,7 @@ import { kb, papers, pdf, photo, sendFile, type Move } from './paper-files'
 import { agreements, drugScreen, statusPapers, type I9Evidence } from './hiring-papers'
 import { expectAt, tally } from './stage-tally'
 import { standingLeftForTheStart } from './documents'
+import { hrBeingSeated, hrSeatAt, isHrRefusal } from './hr-seat'
 
 const DAY = 86_400_000
 
@@ -177,7 +178,8 @@ export default defineStage({
       of: placements.length,
       says:
         `${started.length} of ${placements.length} placements started. ` +
-        `${learned.length} were refused first and learned (filed the I-9, sent a current certificate), ` +
+        `${learned.length} were refused first and learned (filed the I-9, sent a current certificate, or had the firm’s Owner seat somebody in HR: ` +
+        `${walks.filter((w) => w.hit.includes('nobody seated in HR')).length} walks), ` +
         `${warned.length} started past a warning with the reason on the record.` +
         (stuck.length ? ` ${stuck.length} did not start: ${stuckWhy.slice(0, 3).join('; ')}.` : '') +
         ` Papers this run, both stations: ${papers.total.toLocaleString('en-US')} document moves, ${papers.files.toLocaleString('en-US')} files, ` +
@@ -421,14 +423,18 @@ async function walkOne(
   index = 0
 ): Promise<Walk> {
   const walk: Walk = { id: p.id, started: false, hit: [], warnedThrough: false }
-  const hr = paperworkSeat(ctx, p.supplier.slug)
+  const firstPaperSeat = paperworkSeat(ctx, p.supplier.slug)
   const compliance = verdictSeat(ctx, p.supplier.slug)
   const starter = startSeat(ctx, p.supplier.slug)
   const worker = workerOf(ctx, p)
-  if (!hr || !compliance || !starter) {
+  if (!firstPaperSeat || !compliance || !starter) {
     walk.stoppedBecause = `${p.supplier.name} seats nobody who can paper or start a placement`
     return walk
   }
+  // HR clears a start. Where this firm's HR is being seated this run, the
+  // walk waits for that seat rather than being refused again (hr-seat.ts).
+  let hr: Actor = firstPaperSeat
+  if (!ctx.cast.at(p.supplier.slug, 'hr') && hrBeingSeated(p.supplier.id)) hr = (await hrSeatAt(ctx, p.supplier)) ?? hr
 
   // Her terms first: nobody starts on terms nobody agreed, and it is her
   // move, from her own page, where the award left it waiting.
@@ -447,7 +453,18 @@ async function walkOne(
   }
 
   // What the line requires, and what blocks, said to HR before anybody presses start.
-  const asked = await hr.post('/api/compliance/clearance', { contractId: p.id })
+  let asked = await hr.post('/api/compliance/clearance', { contractId: p.id })
+  // Learned from the founder-scale run of 2026-11-01: a firm that seats
+  // nobody in HR is refused, rightly. Its Owner seats somebody in HR
+  // through Users & permissions, once per firm, and HR asks again.
+  if (isHrRefusal(asked)) {
+    const seated = await hrSeatAt(ctx, p.supplier)
+    if (seated) {
+      walk.hit.push('nobody seated in HR')
+      hr = seated
+      asked = await hr.post('/api/compliance/clearance', { contractId: p.id })
+    }
+  }
   const askedOfPerson = ((asked.json?.data?.askedOfPerson ?? []) as { label?: string }[]).map((a) => String(a.label ?? ''))
   // The firm's own cover, where the clearance says it is not in order:
   // HR reads it here and the certificate is sent before anybody presses start.
@@ -483,7 +500,7 @@ async function walkOne(
   // completed from what she showed.
   const shown = await statusPapers(ctx, hr, worker, p)
   // HR examines what she showed and completes the I-9.
-  if (!hasI9 && (await recordI9(hr, p, held, shown)).ok) count('I-9 and E-Verify', 'examined')
+  if (!hasI9 && (await recordI9(await i9Recorder(ctx, p, hr), p, held, shown)).ok) count('I-9 and E-Verify', 'examined')
   // The drug screen where the client is a hospital or a clinic, and on one placement in four elsewhere.
   if (/medical|health|hospital|clinic/i.test(p.client.name) || index % 4 === 0) await drugScreen(ctx, hr, compliance, worker, p)
   // The employment agreement and non-compete for a W2; the agreement with the sub-vendor below where there is one.
@@ -597,7 +614,7 @@ async function walkOne(
     if (code === 'DOCUMENTS_BLOCK' && /I-9|work authori/i.test(res.sentence ?? '')) {
       // Learn: the I-9 again, from the worker's documents.
       walk.hit.push('no I-9 on file')
-      await recordI9(hr, p, held, shown)
+      await recordI9(await i9Recorder(ctx, p, hr), p, held, shown)
       res = await press()
       continue
     }
@@ -686,8 +703,11 @@ async function workerSendsHerPapers(ctx: Ctx, worker: Actor, p: Placement, hr: A
         : o.key === 'NDA'
           ? { verdict: 'ACCEPT', validFrom: iso(new Date()), expiresAt: iso(plusDays(3 * 365)) }
           : { verdict: 'ACCEPT' }
-    await hr.get(`/api/documents/${o.askId}/file`)
-    const looked = await hr.post(`/api/documents/${o.askId}/examine`, body)
+    // Her paper goes to the firm that employs her (the second Tapin walk,
+    // 2026-10-30), so that firm's seat is the one that looks at it.
+    const examiner = await i9Recorder(ctx, p, hr)
+    await examiner.get(`/api/documents/${o.askId}/file`)
+    const looked = await examiner.post(`/api/documents/${o.askId}/examine`, body)
     if (looked.ok) count(kind, 'examined')
   }
 }
@@ -810,6 +830,29 @@ async function adverseSteps(ctx: Ctx, seat: Actor, p: Placement, verificationId:
   })
   if (decided.ok) count('Background check verdict', 'examined')
   return decided.ok ? 'NOT_TAKEN' : 'HELD'
+}
+
+/**
+ * Whose HR completes this person's I-9: the firm below the supplier on
+ * the line where that firm employs the person (an employee seat), else
+ * the supplier's own. A prime that buys a sub-vendor's W2 is refused the
+ * I-9 since the second Tapin walk (2026-10-30); the employer records it,
+ * from any line of the chain, onto the person's own record.
+ */
+async function i9Recorder(ctx: Ctx, p: Placement, hr: Actor): Promise<Actor> {
+  const below = await ctx.read.sellContract.findMany({
+    where: { personId: p.personId, clientCompanyId: p.supplier.id, state: { notIn: ['ENDED', 'CANCELLED'] } },
+    select: { company: { select: { id: true, slug: true } } },
+  })
+  for (const b of below) {
+    const employs = await ctx.read.context.findFirst({
+      where: { personId: p.personId, companyId: b.company.id, type: 'EMPLOYEE', revokedAt: null },
+      select: { id: true },
+    })
+    const seat = employs ? paperworkSeat(ctx, b.company.slug) : null
+    if (seat) return seat
+  }
+  return hr
 }
 
 /** HR records the I-9 it completed, from the passport the worker showed. */

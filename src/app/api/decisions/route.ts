@@ -36,12 +36,14 @@ import { ASK_ETYME_HREF } from '@/lib/nav-table'
 import { logBulkAccess } from '@/lib/access-log'
 import { accountFilterFor } from '@/lib/account-walls'
 import { andAll } from '@/lib/walls'
-import { startPaperwork, agreementsOnFile } from '@/app/api/program/desk-findings'
+import { startPaperworkFor, agreementsOnFile } from '@/app/api/program/desk-findings'
 import { deskItems, deskRows, deskHeadline } from '@/app/dashboard/program/needs-you'
+import { OVERDUE_BILL_STATUSES } from './overdue-bills'
 import { linkAsksFor, joinAsksFor, firmAskItems, LINK_REQUEST } from '@/app/api/conversations/twin/firm-asks'
 import { emailSender } from '@/lib/senders'
 import { readerScope } from '@/app/api/program/reader-scope'
 import { regionContracts } from '@/lib/region-scope'
+import { claimSays, currencyOfExpense, LINE_CURRENCY_SELECT } from '@/lib/expense-currency'
 
 /**
  * GET /api/decisions
@@ -426,6 +428,8 @@ export async function GET(request: NextRequest) {
         sellContract: {
           select: {
             clientCompany: { select: { name: true } },
+            // Its currency, for an expense raised before it carried one.
+            ...LINE_CURRENCY_SELECT,
           },
         },
       },
@@ -446,13 +450,15 @@ export async function GET(request: NextRequest) {
         // schema says so where InvoiceLine is defined. Dividing by a
         // hundred turned a $149.98 expense into "$1.50" on the founder's
         // main screen, and an $1,801 one into "$18.01".
-        subtitle: `$${Number(exp.total).toFixed(2)} · ${exp.category} · ${exp.billable ? 'Billable' : 'Internal'} · ${exp.sellContract?.clientCompany?.name ?? ''}`,
+        // In the currency it was raised in (lib/expense-currency), never dollars by default.
+        subtitle: `${claimSays(Number(exp.total), currencyOfExpense(exp))} · ${exp.category} · ${exp.billable ? 'Billable' : 'Internal'} · ${exp.sellContract?.clientCompany?.name ?? ''}`,
         urgency: daysSinceSubmit >= 5 ? 'HIGH' : 'MEDIUM',
         entityType: 'EXPENSE',
         entityId: exp.id,
         dueDate: null,
         actionUrl: '/dashboard/expenses',
-        amount: Number(exp.total),
+        // Whole dollars only, the unit the queue's Value adds; another currency is said in the subtitle.
+        amount: currencyOfExpense(exp) === 'USD' ? Number(exp.total) : null,
         createdAt: exp.submittedAt?.toISOString() ?? exp.createdAt.toISOString(),
       })
     }
@@ -731,7 +737,11 @@ export async function GET(request: NextRequest) {
         entityType: 'SELL_CONTRACT',
         entityId: c.id,
         dueDate: c.startDate?.toISOString() ?? null,
-        actionUrl: `/dashboard/contracts/${c.id}`,
+        // The placement's own page: the person, the papers that hold the
+        // start and the terms, top to bottom. There is no page at
+        // /dashboard/contracts/<id>; the card's Open landed on "page not
+        // found" (the second Tapin walk, 2026-10-30).
+        actionUrl: `/dashboard/placements/${c.id}`,
         // No amount. A draft contract has committed nothing, and adding
         // its rate to the "needs you" total would read as money waiting.
         amount: null,
@@ -870,10 +880,13 @@ export async function GET(request: NextRequest) {
   }
 
   // ── 5. Overdue invoices ───────────────────────────
+  //
+  // Sent and owed only (`OVERDUE_BILL_STATUSES`): a bill raised and never
+  // sent is owed by nobody.
   if (hasAnyPermission(caller.permissions, ['invoices.read'])) {
     const overdueInvoices = await prisma.invoice.findMany({
       where: {
-        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+        status: { in: [...OVERDUE_BILL_STATUSES] },
         dueAt: { lt: now },
         // Ours, whether or not there is an agreement behind it.
         //
@@ -978,20 +991,19 @@ export async function GET(request: NextRequest) {
     const top = chainTop(rungs)
     const clientName = caller.company!.name
 
-    const held = startsDesk
-      ? (await Promise.all(
-          top
-            .filter((c) => c.state !== 'IN_PROGRESS')
-            .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
-            .map(async (c) => ({
-              contractId: c.id,
-              person: { name: c.person.name },
-              vendor: { name: c.company.name },
-              startDate: c.startDate,
-              paperwork: await startPaperwork(c, { supplierPhrase: c.company.name, clientName, now }),
-            }))
-        ))
+    // Every start's paperwork read at once (`startPaperworkFor`), the
+    // verdict each start would get read alone.
+    const starting = startsDesk
+      ? top.filter((c) => c.state !== 'IN_PROGRESS').sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
       : []
+    const verdicts = await startPaperworkFor(starting, { supplierPhraseOf: (c) => c.company.name, clientName, now })
+    const held = starting.map((c) => ({
+      contractId: c.id,
+      person: { name: c.person.name },
+      vendor: { name: c.company.name },
+      startDate: c.startDate,
+      paperwork: verdicts.get(c.id)!,
+    }))
 
     const onSiteBy = new Map<string, { id: string; name: string; headcount: number }>()
     if (supplierDesk) {

@@ -34,6 +34,8 @@ import { formatDay, formatMonth, formatMonthLong } from '@/lib/format-date'
 import { format, fromMinor } from '@/lib/money'
 import { desksHolding, type Permission, hasPermission, hasAnyPermission } from '@/lib/permissions'
 import { newMasker, type MaskVocabulary } from './mask'
+import { ITEM_WORDS, itemHref, CHECKLIST_HREF, type ItemKey } from '@/lib/setup-checklist'
+import { WEEK_WORDS, weekActOf } from '@/lib/notify/week-words'
 import type { BillCardPayload } from '@/lib/money/supplier-bills'
 import { supplierToldSays } from '@/lib/money/invoice-hold'
 import { offRecord, asksAboutFirmMoney, anotherFirmsMoney, NOT_ANOTHER_BOOK } from './transaction'
@@ -65,6 +67,8 @@ export type Intent =
   | { kind: 'EXPIRING' }
   /** "When was I last paid?": the reader's own pay, answered from payroll or refused with who runs it (walk three, 2026-10-26). */
   | { kind: 'LAST_PAID' }
+  /** Setting up the company, getting started, what to do first (the founder's screen, 2026-11-02). */
+  | { kind: 'SETUP'; said: 'SETUP' | 'START'; item?: SetupItemAsked }
   | { kind: 'ASK'; text: string }
 
 /** "#3", "INV-1003.", "'abc'" — a reference as somebody types it, cleaned. */
@@ -80,6 +84,137 @@ function cleanRef(s: string): string | null {
   return r ? r : null
 }
 
+// ── Setting up the company ───────────────────────────────────────────
+//
+// The founder, as Tapin's Owner on production (2026-11-02): "I am ready to
+// setup company - can you guide from here" was refused as having no record
+// behind it. Setting up the company is the company's own record, so a
+// question about setup, getting started, what to do first or how it works
+// is answered with the checklist's next open item and its link.
+
+/** Words that name the company's own setup. */
+const SETUP_WORDS = /\b(set ?up|setting up|onboard (my|our|the) (company|firm|business|account)|(my|our|company|firm|account) onboarding|(complete|finish(ing)?) (my |our |the )?(setup|setting up|onboarding)|get(ting)? (my|our|the) (company|firm|account) (ready|set ?up|started))\b/
+/** The company named as what is set up. */
+const SETUP_OBJECT = /\b(compan(y|ies)|firm|account|business|organi[sz]ation|etyme|profile|checklist)\b/
+/** Asking where to begin, not naming setup: answered with setup while it is open, else with what needs the reader. */
+const GETTING_STARTED = /\b(get(ting)? started|where (do|should|can) (i|we) (start|begin)(?=\s*(?:[?.!]|$|here\b|from here\b))|what (do|should|can) (i|we) do first|first steps|guide (me|us)|walk (me|us) through|show (me|us) around|how (does|do) (this|it|etyme) work|ready to (start|begin)(?=\s*(?:[?.!]|$)))/
+/** A thing of the trade that a person sets up for somebody else: "set up an interview", "walk me through approving a timesheet". */
+const SET_UP_SOMETHING_ELSE = /\b(interviews?|calls?|meetings?|rounds?|jobs?|job requests?|requisitions?|placements?|contracts?|orders?|bills?|invoices?|invoice receipts?|timesheets?|weeks?|payroll|expenses?|consultants?|candidates?|workers?|people|person|suppliers?|vendors?|clients?|bench)\b/
+
+/** "How do I change…", "Where do I add…": asking where a thing is done. */
+const HOW_OR_WHERE = /\b(how|where) (do|can|should|would) (i|we) (add|change|set|enter|update|edit|put|give|record|verify|claim|turn on|connect|invite|fix|correct|find)\b|\bwhere (is|are)\b|\bhow (to|can i|can we)\b/
+/** The thing asked about, where it is one item of the checklist, or the company's type. */
+const ITEM_ASKED: ReadonlyArray<readonly [SetupItemAsked, RegExp]> = [
+  ['KIND', /\b(compan(y|ies)|firm|business|account) (type|kind)\b|\b(type|kind) of (company|firm|business|account)\b/],
+  ['BANK', /\bbank (details|account|info(rmation)?)\b|\brouting number\b/],
+  ['PEOPLE_IN_CHARGE', /\b(people|person) in charge\b|\bbilling contact\b|\baccounts email\b/],
+  ['ADDRESSES', /\b(billing|legal|company|business|our|my|mailing|registered) address(es)?\b|\baddresses\b/],
+  ['SITES', /\b(our|my|a|new) sites?\b|\bbranch(es| offices?)\b/],
+  ['HOW_YOU_WORK', /\bdays off\b|\bwork ?week\b|\bpay (period|day)s?\b|\bpayroll (settings?|schedule)\b|\bset ?up (my |our |the )?payroll\b|\b(public|company) holidays?\b/],
+  ['PAPERS', /\bpapers (you|we) require\b|\brequired (papers|documents)\b|\bpaper sets?\b/],
+  ['TEAM', /\b(invite|add) (a |my |our |the )?(colleague|teammate|team ?member|coworker|co-worker)s?\b|\binvite (my |our )?team\b/],
+  ['DOMAIN', /\b(our|my|the|company|email) domain\b|\bverify (a |the )?domain\b/],
+  ['INTEGRATIONS', /\bintegrations?\b|\bmicrosoft teams\b|\bteams (channel|webhook)\b|\baccounting export\b/],
+  ['COMPANY', /\b(legal name|company name|time ?zone|company phone|company profile|reporting currency)\b/],
+]
+
+/** A setup question about one item of the checklist, or about the company's type, which is changed in Settings. */
+export type SetupItemAsked = ItemKey | 'KIND'
+
+/** What a setup question asked: setup, or only where to begin, and the one item it named. */
+export interface SetupAsked {
+  said: 'SETUP' | 'START'
+  item?: SetupItemAsked
+}
+
+/**
+ * Whether a question is about setting up the company, getting started or
+ * what to do first: "SETUP" where it names setup or one of its items,
+ * "START" where it only asks where to begin, null for anything else. A
+ * sentence about a thing of the trade ("set up an interview with Helena")
+ * is not the company's setup unless it names the company too.
+ */
+export function setupAsked(text: string): SetupAsked | null {
+  const t = text.toLowerCase()
+  const setupWords = SETUP_WORDS.test(t)
+  // "Where do I add my bank details?", "How do I change my company type?"
+  const item = ITEM_ASKED.find(([, re]) => re.test(t))?.[0]
+  if (item && (setupWords || HOW_OR_WHERE.test(t) || GETTING_STARTED.test(t))) return { said: 'SETUP', item }
+  const said = setupWords ? 'SETUP' : GETTING_STARTED.test(t) ? 'START' : null
+  if (!said) return null
+  if (SET_UP_SOMETHING_ELSE.test(t) && !SETUP_OBJECT.test(t)) return null
+  return { said }
+}
+
+/** Whether a question is about setting up the company, getting started or what to do first. */
+export function asksAboutSetup(text: string): boolean {
+  return setupAsked(text) !== null
+}
+
+/** What the record says of this seat's setup, read by `Readers.setup` (./read). */
+export type SetupRead =
+  /**
+   * The checklist is open: the items still owed, the ones never answered
+   * first and the ones skipped after them, each in the checklist's order;
+   * the first one is next. `items` is this company's whole list.
+   */
+  | { kind: 'OPEN'; owed: readonly ItemKey[]; skipped?: readonly ItemKey[]; items?: readonly ItemKey[] }
+  /** Every item is done. */
+  | { kind: 'DONE'; items?: readonly ItemKey[] }
+  /** This seat does not run setup: the Owner or an Admin does. */
+  | { kind: 'NOT_YOURS' }
+  /** This company is not asked the checklist (nobody took possession of it, or it is a census sandbox). */
+  | { kind: 'NOT_ASKED' }
+
+/** Where the company's type is changed: Settings, the Owner's alone (lib/company-kind). */
+export const SETTINGS_HREF = '/dashboard/settings'
+export const KIND_SAYS = 'The Owner changes the type of company, under Settings.'
+
+/**
+ * "Next in setup: Your company. The name and number on every bill and
+ * agreement." and its one link; or, where the question named one item,
+ * where that item is and its link.
+ */
+export function setupSays(r: SetupRead, item?: SetupItemAsked): Answer {
+  if (item === 'KIND') return { kind: 'TEXT', says: KIND_SAYS, links: [{ label: 'Open Settings', href: SETTINGS_HREF }] }
+  if (item && (r.kind === 'OPEN' || r.kind === 'DONE') && r.items?.includes(item)) {
+    const w = ITEM_WORDS[item]
+    const owed = r.kind === 'OPEN' && r.owed.includes(item)
+    const sub = w.sub.charAt(0).toLowerCase() + w.sub.slice(1)
+    return {
+      kind: 'TEXT',
+      says: owed
+        ? `In setup, under ${w.label}: ${sub}`
+        : `In setup, under ${w.label}, already done. Open it to change an answer.`,
+      links: [{ label: `Open ${w.label}`, href: itemHref(item) }],
+    }
+  }
+  if (item && r.kind === 'NOT_ASKED') {
+    const w = ITEM_WORDS[item]
+    return { kind: 'TEXT', says: `${w.label} is under Settings, Setup.`, links: [{ label: 'Open setup', href: CHECKLIST_HREF }] }
+  }
+  switch (r.kind) {
+    case 'OPEN': {
+      const first = r.owed[0]
+      const w = ITEM_WORDS[first]
+      const more = r.owed.length - 1
+      const skippedIt = r.skipped?.includes(first) ? ', skipped earlier' : ''
+      return {
+        kind: 'TEXT',
+        says: `Next in setup: ${w.label}${skippedIt}. ${w.sub}` +
+          (more > 0 ? ` ${numberWord(more)} more after it, and you can skip any of them for now.` : ' It is the last one.'),
+        links: [{ label: `Open ${w.label}`, href: itemHref(first) }],
+      }
+    }
+    case 'DONE':
+      return { kind: 'TEXT', says: 'Setup is finished: every item is done. Ask “What needs me today?” to see what waits on you.', links: [{ label: 'Open setup', href: CHECKLIST_HREF }] }
+    case 'NOT_YOURS':
+      return { kind: 'TEXT', says: 'The Owner or an Admin sets up the company, under Settings, Setup. Ask “What needs me today?” to see what waits on you.' }
+    case 'NOT_ASKED':
+      return { kind: 'TEXT', says: 'Setup is under Settings, Setup: your company, addresses, papers and the rest, one at a time.', links: [{ label: 'Open setup', href: CHECKLIST_HREF }] }
+  }
+}
+
 /**
  * Read what a person typed into one of the five rule questions, or ASK.
  * Case and trailing punctuation do not matter; word order mostly does,
@@ -91,6 +226,8 @@ export function readAsk(raw: string): Intent {
   if (!text || /^(help|\?|what can you do\??|what do you answer\??)$/i.test(text)) return { kind: 'HELP' }
 
   const lower = text.toLowerCase()
+  const setup = setupAsked(lower)
+  if (setup) return { kind: 'SETUP', ...setup }
   if (/\b(mark-?up|margin)s?\b/.test(lower)) return { kind: 'MARGIN' }
   if (
     (/\bvariance\b/.test(lower) && /\bsuppliers?\b/.test(lower)) ||
@@ -459,7 +596,7 @@ export const SOLO_QUESTIONS: readonly string[] = [
  * 2026-10-22: a hiring manager was offered the time limit and spend, and
  * both refused her).
  */
-const CHIPS: ReadonlyArray<{ q: string; parties: readonly Party[]; may: (p: readonly string[], kind: string | null | undefined) => boolean }> = [
+export const CHIPS: ReadonlyArray<{ q: string; parties: readonly Party[]; may: (p: readonly string[], kind: string | null | undefined) => boolean }> = [
   { q: 'What needs me today?', parties: ['CLIENT', 'MSP', 'FIRM'], may: () => true },
   { q: 'Who applied for my jobs?', parties: ['CLIENT', 'MSP', 'FIRM'], may: (p) => hasAnyPermission(p, ['requirements.write', 'requirements.read', 'submissions.create']) },
   { q: 'Which timesheets are waiting?', parties: ['CLIENT', 'MSP'], may: (p) => hasAnyPermission(p, ['timesheets.read', 'timesheets.approve']) },
@@ -479,15 +616,42 @@ const CHIPS: ReadonlyArray<{ q: string; parties: readonly Party[]; may: (p: read
 export const CHIPS_SHOWN = 4
 
 /**
+ * A firm's own order (the second Tapin walk, 2026-10-30: Tapin's owner was
+ * offered "What needs me today?" and "Who applied for my jobs?" first,
+ * the client's questions in the client's order). The list above is in a
+ * client's order, and a seat that may ask everything read its first four.
+ * So a firm's own four lead, the ones a supplier asks on a Tuesday, and
+ * the shared questions follow only where a seat may not ask one of its
+ * own: an account manager who reads no bills is offered who applied in
+ * its place, never ahead of it.
+ */
+export const FIRM_ORDER: readonly string[] = [
+  ...FIRM_QUESTIONS,
+  'Which weeks do I need to accept?',
+  'Which invoice receipts can I pay?',
+  'Who applied for my jobs?',
+  'What needs me today?',
+]
+
+/**
  * The chips for a seat; a worker's are her own five (./worker), drawn by
  * the screen. With the seat's permissions, only questions its desk gets an
- * answer to, in the order above, four at most; without them, the party's
- * own four, as before.
+ * answer to, four at most: a client's and a seated program's in the order
+ * above, a firm's in its own order (`FIRM_ORDER`); without them, the
+ * party's own four, as before.
  */
 export function questionsFor(party: Party, permissions?: readonly string[] | null, companyKind?: string | null): readonly string[] {
   if (party === 'SOLO') return SOLO_QUESTIONS
   if (!permissions) return party === 'FIRM' ? FIRM_QUESTIONS : SUGGESTED_QUESTIONS
-  return CHIPS.filter((c) => c.parties.includes(party) && c.may(permissions, companyKind)).slice(0, CHIPS_SHOWN).map((c) => c.q)
+  const asked = CHIPS.filter((c) => c.parties.includes(party) && c.may(permissions, companyKind)).map((c) => c.q)
+  const ordered = party === 'FIRM' ? [...asked].sort((a, b) => rankIn(FIRM_ORDER, a) - rankIn(FIRM_ORDER, b)) : asked
+  return ordered.slice(0, CHIPS_SHOWN)
+}
+
+/** Where a question sits in an order; one the order does not name goes last, never first. */
+function rankIn(order: readonly string[], q: string): number {
+  const i = order.indexOf(q)
+  return i < 0 ? order.length : i
 }
 
 /** "Northbend Athletic’s", "Cavanaugh Glassworks’". */
@@ -1863,6 +2027,15 @@ export interface Readers {
   logPrompt(entry: PromptLog): Promise<void>
   /** A firm's own people billing today and what their rates come to a month; null for a seat that does not read money. */
   billing?(): Promise<Billing | null>
+  /** Where this seat's company stands on the setup checklist; optional so a reader that has none answers as not asked. */
+  setup?(): Promise<SetupRead>
+  /**
+   * The job each candidate to review was put forward to, and what tells it
+   * apart from the client's other jobs of that title (demand's `jobApart`):
+   * so two cards for one person on two jobs of one title never read alike,
+   * and each card's Open lands on that job's candidates.
+   */
+  submissionJobs?(submissionIds: readonly string[]): Promise<ReadonlyMap<string, SubmissionJob>>
   /** This firm's people whose last day falls in the next `days` days, soonest first. */
   rollingOff?(days: number): Promise<Refusable<{ rows: RollRow[] }>>
   /** Who is on this firm's bench: the people who agreed to be, or an integrator's own people between projects. */
@@ -1903,6 +2076,58 @@ export interface Picture {
    */
   monthlyMinor?: number | null
   currency?: string | null
+}
+
+/**
+ * Whose greeting says the program's picture: a client's, and a firm's
+ * seated in a client's program. "Seven contractors are on site today,
+ * through four suppliers" is a buyer's sentence; a supplier's greeting
+ * says what it bills instead, and a one-person firm's her own week. The
+ * program page was read for every seat and thrown away for those two
+ * (2026-11-01, the greeting over two seconds under load): a supplier's
+ * greeting paid for a client's dashboard it never said.
+ */
+export function readsPicture(party: Party): boolean {
+  return party === 'CLIENT' || party === 'MSP'
+}
+
+/**
+ * People on site today and the suppliers they come through, from the
+ * program page's own figures (`programSummary` in app/api/program/summary,
+ * or `programView` where the page is read anyway, which work them out with
+ * one arithmetic, app/api/program/figures), never counted a second way.
+ * Null where the answer carries no count.
+ *
+ * What current rates come to a month is the page's own figure, said only
+ * where it priced every seat on site and in one currency: a total of some
+ * seats read as the total of all is the plausible wrong number. The page
+ * says in its own line where some seat has no rate ("… people have no rate
+ * and are not in it"); then the figure is partial and is not said.
+ */
+export function pictureOf(data: unknown): Picture | null {
+  const d = (data ?? null) as { summary?: Record<string, unknown> | null; contractors?: unknown } | null
+  const summary = d?.summary
+  if (!summary || typeof summary.activeContractors !== 'number') return null
+  const contractors: Array<{ state?: string; vendor?: { id?: string } | null; currency?: string | null }> = Array.isArray(d.contractors) ? d.contractors : []
+  const live = contractors.filter((c) => c.state === 'IN_PROGRESS')
+  const suppliers = new Set(live.filter((c) => c.vendor?.id).map((c) => c.vendor!.id))
+  // The currencies the month is billed in: the page's own split where it
+  // gives one (`monthlySpendByCurrency`, demand's figures), else each live
+  // seat's. A figure in several currencies goes through the company's
+  // rates on the page, with a sentence saying so; the greeting has no room
+  // for that sentence, so it says the figure only in one currency.
+  const split = Array.isArray(summary.monthlySpendByCurrency)
+    ? (summary.monthlySpendByCurrency as Array<{ currency?: unknown }>).map((x) => String(x.currency ?? '').toUpperCase()).filter(Boolean)
+    : null
+  const currencies = split ?? [...new Set(live.map((c) => (c.currency ?? 'USD').toUpperCase()))]
+  const named = typeof summary.monthlySpendCurrency === 'string' ? summary.monthlySpendCurrency.toUpperCase() : null
+  const unpriced = [summary.monthlySpendSays, summary.monthlySpendBasis].some((x) => typeof x === 'string' && /\bno rate\b/.test(x))
+  const spend = summary.monthlySpend
+  const priced = typeof spend === 'number' && Number.isInteger(spend) && !unpriced && currencies.length <= 1
+  return {
+    onSite: summary.activeContractors, suppliers: suppliers.size,
+    monthlyMinor: priced ? spend : null, currency: priced ? named ?? currencies[0] ?? 'USD' : null,
+  }
 }
 
 /** What a firm bills today: the people on its live lines, and what their current rates come to a month. */
@@ -2290,15 +2515,19 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   // names the reader's own work only (walk three, 2026-10-26: compliance
   // and HR were told to "ask the AP clerk to approve IN-FMDSDT"); who else
   // is asked stays a fact line below.
-  const recommend =
+  let recommend: RichLine | undefined =
     itemsAskSays(items) ??
     (told.told.length ? toldAskSays(told.told[0]) : null) ??
     (held.length ? heldAskSays(held) : null) ??
     sendAskSays(sendable) ??
     (near.length ? { says: planSays(near[0]), links: [{ text: near[0].name, href: near[0].href }] } : null) ??
-    // A new party's one next act, where nothing else is (./first-act).
-    (opts.greeting && opts.firstAct ? opts.firstAct : null) ??
     undefined
+
+  // A new party's one next act, where nothing else is (./first-act). Read
+  // only then: a seat with a decision waiting never pays for the read.
+  if (!recommend && opts.greeting && opts.firstAct) {
+    recommend = (typeof opts.firstAct === 'function' ? await opts.firstAct().catch(() => null) : opts.firstAct) ?? undefined
+  }
 
   // Then the facts, each read at the moment of the question. A one-person
   // firm's own week first: money and the week before anything else.
@@ -2372,7 +2601,10 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   // The boundary, the greeting's last line: said on the first screen, once,
   // now that the phone draws no heading over the thread.
   if (opts.greeting && opts.model) more.push({ says: boundarySays(opts.model) })
-  const cards = [...queueCards(queue, items), ...sendCards(sendable)]
+  // The jobs behind the candidates to review, read only where there are any.
+  const reviewIds = (queue?.items ?? []).filter((d) => d.type === 'SUBMISSION_REVIEW').map((d) => d.entityId)
+  const jobs = reviewIds.length && read.submissionJobs ? await read.submissionJobs(reviewIds).catch(() => null) : null
+  const cards = [...queueCards(queue, items, jobs), ...sendCards(sendable)]
   return {
     kind: 'NEEDS', ...(recommend ? { recommend } : {}), says, ...(headline ? { saysLinks: headline.links } : {}),
     items, ...(held.length ? { held } : {}), ...(cards.length ? { queue: cards } : {}), more, ...(opts.greeting ? { greeting: true } : {}),
@@ -2413,9 +2645,9 @@ export interface TodayOptions {
   /**
    * A new party's first act (`firstActFor` in ./first-act): recommended in
    * the greeting only where nothing else is, so a decision waiting always
-   * comes first.
+   * comes first. Given as a read, it is read only then.
    */
-  firstAct?: RichLine | null
+  firstAct?: RichLine | null | (() => Promise<RichLine | null>)
   /**
    * The setup checklist's one line, "Finish setting up: … Complete setup"
    * (`setupLineFor` in ./first-act), for an Owner or Admin whose company
@@ -2484,7 +2716,7 @@ export async function respond(
   // refused by rule before any intent and before the model is considered.
   // Found by the walk of 2026-10-22: "What does Brightmoor Staffing pay
   // Helena Marsh?" was answered "needs the model".
-  if (!['HELP', 'WHY', 'DECIDE', 'NEEDS'].includes(intent.kind) && asksAboutFirmMoney(text, own)) {
+  if (!['HELP', 'WHY', 'DECIDE', 'NEEDS', 'SETUP'].includes(intent.kind) && asksAboutFirmMoney(text, own)) {
     if (anotherFirmsMoney(text, own, await read.vocabulary())) return { kind: 'TEXT', says: NOT_ANOTHER_BOOK }
   }
   // A firm's own book is answered only where this seat has the read; a
@@ -2502,6 +2734,15 @@ export async function respond(
 
     case 'NEEDS':
       return today(read, { now: opts.now, needs: opts.needs, party: opts.party })
+
+    // The company's own setup: its next open item, never the transaction refusal.
+    // "Where do I start?" with nothing left to set up, or setup that is not
+    // this seat's to run, is answered with what needs the reader instead.
+    case 'SETUP': {
+      const r: SetupRead = read.setup ? await read.setup() : { kind: 'NOT_ASKED' }
+      if (intent.said === 'START' && r.kind !== 'OPEN') return today(read, { now: opts.now, needs: opts.needs, party: opts.party })
+      return setupSays(r, intent.item)
+    }
 
     case 'ROLLOFF': {
       const got = await read.rollingOff!(ROLLOFF_DAYS)
@@ -2880,6 +3121,21 @@ export interface QueueItem {
   twinApprovalId?: string | null
 }
 
+/** The job a candidate to review was put forward to, and the words that tell it apart from the client's other jobs of its title. */
+export interface SubmissionJob {
+  requirementId: string
+  /** `jobApart`'s words, " in Dayton", ", starting Nov 3"; empty where no other job shares the title. */
+  apart: string
+}
+
+/** The button on a candidate-to-review card: no act kind decides a candidate in the chat, so it opens who applied. */
+export const OPEN_WHO_APPLIED = 'Open who applied'
+
+/** Where a candidate's card opens: that job's candidates, which the Candidates page reads by its id. */
+export function candidatesOfJobHref(requirementId: string): string {
+  return `/dashboard/submissions?requirementId=${encodeURIComponent(requirementId)}`
+}
+
 /**
  * The decisions queue as the route read it for this seat: its total, its
  * rows, and its own one-sentence headline with the names in it (`says`,
@@ -3060,6 +3316,13 @@ function lastSentence(x: string | null | undefined): string {
   return parts[parts.length - 1] ?? ''
 }
 
+/** A submission's subtitle with the job told apart: "Warehouse systems analyst in Dayton · from …". */
+function withJobApart(subtitle: string | null | undefined, apart: string): string {
+  const parts = (subtitle ?? '').split(' · ')
+  if (!apart || !parts[0]) return subtitle ?? ''
+  return [`${parts[0]}${apart}`, ...parts.slice(1)].join(' · ')
+}
+
 /** A subtitle's parts as one sentence: "40 hours, through Computer Systems Inc, Oct 11 – Oct 17." */
 function factOf(subtitle: string | null | undefined): string {
   const parts = (subtitle ?? '').split(' · ').map((p) => p.trim()).filter(Boolean).map((p) => {
@@ -3082,13 +3345,14 @@ function factOf(subtitle: string | null | undefined): string {
 export function queueAct(d: QueueItem): QueueAct | null {
   const id = encodeURIComponent(d.entityId)
   if (d.type === 'TIMESHEET_APPROVAL' && !d.flag) {
-    const accept = /^Accept\b/.test(d.title)
-    return {
-      label: accept ? 'Accept timesheet' : 'Approve timesheet',
-      url: `/api/timesheets/${id}/approve`, body: {},
-      done: accept ? 'Accepted, and recorded under your name.' : 'Approved, and recorded under your name.',
-    }
+    // A firm below the client accepts the week signed above it; the words
+    // are the Timesheets page's too (lib/notify/week-words).
+    const words = WEEK_WORDS[weekActOf({ signedAbove: /^Accept\b/.test(d.title) })]
+    return { label: words.button, url: `/api/timesheets/${id}/approve`, body: {}, done: words.done }
   }
+  // A candidate to review has no act in the chat: no act kind in the role
+  // contract shortlists or turns down a candidate, and a new act in the chat
+  // is a new act kind first, with its tier. The card opens who applied.
   // A link request is answered by the one route Companies presses; Not
   // now on the card changes nothing, so the ask stays for the next look.
   if (d.type === LINK_REQUEST) {
@@ -3142,7 +3406,11 @@ export function carriedByTwin(d: QueueItem, twin: readonly WaitingItem[]): boole
 }
 
 /** Every decision in the count that is not one of the twin's own questions, as a card. */
-export function queueCards(q: QueueRead | null | undefined, twin: readonly WaitingItem[] = []): QueueCard[] {
+export function queueCards(
+  q: QueueRead | null | undefined,
+  twin: readonly WaitingItem[] = [],
+  jobs: ReadonlyMap<string, SubmissionJob> | null = null,
+): QueueCard[] {
   if (!q) return []
   return q.items
     .filter((d) => d.type !== 'TWIN_QUESTION' && !carriedByTwin(d, twin))
@@ -3152,6 +3420,23 @@ export function queueCards(q: QueueRead | null | undefined, twin: readonly Waiti
       // "waits for you to pay it" — its button is Pay, to the receipt's own
       // page, where the payment and its bank reference are recorded.
       const pay = d.type === 'INVOICE_RECEIPT_TO_PAY'
+      // A candidate to review, on the job it was put forward to: told apart
+      // from the client's other jobs of that title, and opening that job's
+      // candidates (the screen walk, 2026-11-02: two identical cards, each
+      // opening the whole Candidates list).
+      // No act kind decides a candidate, so the card opens who applied.
+      if (d.type === 'SUBMISSION_REVIEW') {
+        const job = jobs?.get(d.entityId) ?? null
+        return {
+          key: `${d.type}:${d.entityId}`,
+          type: d.type,
+          title: `${queueName(d)}.`,
+          fact: factOf(job ? withJobApart(d.subtitle, job.apart) : d.subtitle),
+          href: job ? candidatesOfJobHref(job.requirementId) : d.actionUrl ?? DECISIONS_HREF,
+          act: null,
+          open: OPEN_WHO_APPLIED,
+        }
+      }
       return {
         key: `${d.type}:${d.entityId}`,
         type: d.type,

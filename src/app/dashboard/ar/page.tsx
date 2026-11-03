@@ -11,6 +11,7 @@ import { useSession } from '@/components/session-provider'
 import { refusalOf, refusedRead } from '@/lib/money/refused-read'
 import { usePageSection } from '@/components/page-section'
 import { payDesk } from '@/lib/money/pay-desk'
+import { WriteOffForm, writeOffBody } from './write-off'
 
 /**
  * Accounts receivable.
@@ -155,6 +156,28 @@ export default function ArPage() {
       {/* ── Empty ──────────────────────────────────────────────────── */}
       {!loading && !error && !denied && data?.source === 'NONE' && (
         <EmptyState says={data.note} />
+      )}
+
+      {/* ── To send: raised or drafted and never sent, so owed by nobody
+          yet. Never aged and never chased; listed apart (2026-11-02). ── */}
+      {!loading && !error && !denied && (data?.toSend?.length ?? 0) > 0 && (
+        <div className="panel">
+          <Lbl>To send</Lbl>
+          <p className="mt-1 text-[12px] text-etyme-muted">
+            Nobody owes a bill until it is sent, so these are not aged or chased. Send each from its page.
+          </p>
+          <ul className="mt-2 divide-y divide-etyme-rule">
+            {data.toSend.map((t: { id: string; number: string; word: string; customerName: string; currency: string; totalMinor: number }) => (
+              <li key={t.id} className="flex items-baseline justify-between gap-3 py-1.5">
+                <span className="text-[13px] text-etyme-ink">
+                  <a href={`/dashboard/invoices/${t.id}`} className="text-etyme-action hover:underline">Bill {t.number}</a>
+                  <span className="text-etyme-muted"> · {t.customerName} · {t.word}</span>
+                </span>
+                <span className="text-[13px] tabular-nums text-etyme-ink shrink-0">{amount(t.totalMinor, t.currency)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* ── Partial — what could not be counted ────────────────────── */}
@@ -1072,6 +1095,8 @@ function Collections() {
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  // The case whose write-off form is open, by customer.
+  const [writingOff, setWritingOff] = useState<string | null>(null)
   const [said, setSaid] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1085,8 +1110,14 @@ function Collections() {
   }, [])
 
   async function act(c: any, step: string, extra: Record<string, unknown> = {}) {
-    setBusy(`${c.customerId}:${step}`)
     setFailed(null)
+    const refused = await recordStep(c, step, extra)
+    if (refused) setFailed(refused)
+  }
+
+  /** Records a step; null on success, else the route's own sentence, for whoever drew the form. */
+  async function recordStep(c: any, step: string, extra: Record<string, unknown> = {}): Promise<string | null> {
+    setBusy(`${c.customerId}:${step}`)
     try {
       const res = await fetch('/api/ar/collections', {
         method: 'POST',
@@ -1100,8 +1131,9 @@ function Collections() {
       })
       const b = await readJson(res)
       setSaid(b.data.note)
+      return null
     } catch (e: any) {
-      setFailed(e.message)
+      return e.message
     } finally {
       setBusy(null)
     }
@@ -1216,26 +1248,27 @@ function Collections() {
                   Record it as sold to a factor
                 </button>
               )}
-              <button
-                className="text-[13px] underline text-etyme-muted"
-                disabled={busy != null}
-                onClick={() => {
-                  const reason = window.prompt(
-                    `Why are you writing off ${c.customerName}? One of: ` +
-                      (data?.writeOffReasons ?? []).map((r: any) => r.code).join(', ')
-                  )
-                  if (!reason) return
-                  const note = window.prompt('And a sentence somebody can read in six months')
-                  void act(c, 'WRITTEN_OFF', {
-                    reason,
-                    note,
-                    amountCents: c.overdueMinor,
-                  })
-                }}
-              >
-                Write it off
-              </button>
+              {writingOff !== c.customerId && (
+                <button
+                  className="text-[13px] underline text-etyme-muted"
+                  disabled={busy != null}
+                  onClick={() => setWritingOff(c.customerId)}
+                >
+                  Write it off
+                </button>
+              )}
             </div>
+            {/* The reason picked from the route's own list and the sentence
+                typed on the page, never in a browser prompt (the screen
+                walk, 2026-11-02); a refusal is said under the field. */}
+            {writingOff === c.customerId && (
+              <WriteOffForm
+                customerName={c.customerName}
+                reasons={(data?.writeOffReasons ?? []) as { code: string; label: string }[]}
+                onSend={(reason, note) => recordStep(c, 'WRITTEN_OFF', writeOffBody({ reason, note, amountCents: c.overdueMinor }))}
+                onCancel={() => setWritingOff(null)}
+              />
+            )}
           </article>
         )
       })}

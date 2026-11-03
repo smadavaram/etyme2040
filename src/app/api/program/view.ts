@@ -6,7 +6,7 @@ import { endClientFilter } from '@/lib/resolve-end-client'
 import { chainTop, viaPhrase } from '@/lib/chain-top'
 import { rateSpread, type Placement } from '@/lib/census-page'
 import { mayNameSubVendors, namesForClient, type SeenName } from '@/lib/chain-names'
-import { startPaperwork, agreementsOnFile } from './desk-findings'
+import { startPaperworkFor, agreementsOnFile } from './desk-findings'
 import { tierWord } from '@/lib/supplier-tier'
 import { resolveProgram, unitsReachedBy } from '@/lib/resolve-client-company'
 import { accountFilterFor } from '@/lib/account-walls'
@@ -14,15 +14,16 @@ import { andAll } from '@/lib/walls'
 import { logBulkAccess } from '@/lib/access-log'
 import { seatTrail, actingDesk } from '@/lib/program-seat'
 import { hasPermission, hasAnyPermission } from '@/lib/permissions'
-import { programMonthlySpend, spendLine } from '@/lib/program-spend'
+import { programMonthlySpend } from '@/lib/program-spend'
 import { deskItems, deskRows } from '@/app/dashboard/program/needs-you'
 import { waitingSince, daysWaiting } from '@/lib/auto-approval'
 import { formatDay } from '@/lib/format-date'
 import { oneLinePerAsk } from '@/app/api/requirements/[id]/matches/asked'
 import { regionContracts, regionRequirements } from '@/lib/region-scope'
 import { readerScope } from './reader-scope'
-import { spendOf } from './regions/rollup'
-import { reportingRatesFor, spendInReporting } from '@/lib/money/reporting-currency'
+import { reportingRatesFor } from '@/lib/money/reporting-currency'
+import { onSiteOf, headcount, needsReportingRates, spendFigures } from './figures'
+import { claimSays, currencyOfExpense, LINE_CURRENCY_SELECT } from '@/lib/expense-currency'
 
 /**
  * GET /api/program
@@ -109,10 +110,11 @@ export async function programView(
   })
   // One row per person: the contract this client pays, never the rungs
   // its suppliers arranged below it (`lib/chain-top`).
-  const contracts = chainTop(everyRung)
   // On site means working now. A drafted contract is somebody who has
   // not started; it is on the Contractors tab with that word on it.
-  const onSite = contracts.filter((c) => c.state === 'IN_PROGRESS')
+  // The same arithmetic the greeting's summary reads (`./figures`).
+  const contracts = chainTop(everyRung)
+  const onSite = onSiteOf(contracts)
 
   // ── Weeks and claims waiting on this desk ───────────────────────────
   //
@@ -148,6 +150,8 @@ export async function programView(
         include: {
           person: { select: { id: true, name: true } },
           company: { select: { id: true, name: true } },
+          // Its currency, for an expense raised before it carried one.
+          buyLinks: LINE_CURRENCY_SELECT.buyLinks,
         },
       },
     },
@@ -392,7 +396,17 @@ export async function programView(
   const notStarted = contracts
     .filter((c) => c.state !== 'IN_PROGRESS')
     .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
-  const termsFor = await termsOnRecordFor(notStarted.map((c) => c.id))
+  // Every start's paperwork read at once (`startPaperworkFor`), the
+  // verdict `GET /api/decisions` gives each of the same starts, beside
+  // the terms on record for the same lines.
+  const [termsFor, startVerdicts] = await Promise.all([
+    termsOnRecordFor(notStarted.map((c) => c.id)),
+    startPaperworkFor(notStarted, {
+      supplierPhraseOf: (c) => shown(c.company.id, c.company.name).phrase,
+      clientName: clientCompany.name,
+      now,
+    }),
+  ])
   const cleared = await Promise.all(
     notStarted.map(async (c) => {
       // The verdict is `startPaperwork`'s, the one `GET /api/decisions`
@@ -402,11 +416,7 @@ export async function programView(
       // current certificate". What THIS client's own order asked for is
       // read on the line, so a purchase order requiring an agreement
       // nobody signed reads as held a week early, not on the day.
-      const papers = await startPaperwork(c, {
-        supplierPhrase: shown(c.company.id, c.company.name).phrase,
-        clientName: clientCompany.name,
-        now,
-      })
+      const papers = startVerdicts.get(c.id)!
       return {
         contractId: c.id,
         person: { id: c.person.id, name: c.person.name },
@@ -438,7 +448,7 @@ export async function programView(
     }),
     prisma.expense.findMany({
       where: { sellContract: andAll(endClientFilter(clientCompany.id), reachWall), approvedAt: { gte: dayStart } },
-      select: { id: true, total: true, approvedAt: true, person: { select: { name: true } } },
+      select: { id: true, total: true, currency: true, approvedAt: true, person: { select: { name: true } }, sellContract: { select: LINE_CURRENCY_SELECT } },
       orderBy: { approvedAt: 'desc' }, take: 10,
     }),
     prisma.submission.findMany({
@@ -458,7 +468,7 @@ export async function programView(
   ])
   const today = [
     ...signedToday.map((t) => ({ id: `t-${t.id}`, what: 'Hours signed', who: `${t.person.name}, ${Number(t.totalHours)}h`, at: t.clientApprovedAt!.toISOString() })),
-    ...claimsToday.map((e) => ({ id: `e-${e.id}`, what: 'Expense approved', who: `${e.person.name}, $${Number(e.total).toFixed(2)}`, at: e.approvedAt!.toISOString() })),
+    ...claimsToday.map((e) => ({ id: `e-${e.id}`, what: 'Expense approved', who: `${e.person.name}, ${claimSays(Number(e.total), currencyOfExpense(e))}`, at: e.approvedAt!.toISOString() })),
     ...onSite.filter((c) => c.startDate >= dayStart).map((c) => ({ id: `s-${c.id}`, what: 'Started', who: `${c.person.name} through ${viaPhrase(shown(c.company.id, c.company.name))}`, at: c.startDate.toISOString() })),
     ...awardedToday.map((a) => ({ id: `a-${a.id}`, what: 'Awarded', who: `${a.person.name} — ${a.requirement.title}`, at: a.decidedAt!.toISOString() })),
     // One line per ask: the same person asked of the same supplier for
@@ -518,29 +528,14 @@ export async function programView(
     reason: seat ? seatTrail(seat, opts.trail ?? 'Program view') : `${opts.trail ?? 'Program view'} at ${clientCompany.name}`,
   })
 
-  // What the client pays a month, in minor units, at 160 hours: the top
-  // rung of every chain with somebody on site. Somebody with no rate on
-  // their top rung is a head and not a price, and `spend` counts them
-  // apart rather than as a zero.
-  const spend = programMonthlySpend(onSite.map((c) => ({ rateMinorPerHour: c.billRate ?? null })))
-  // Per currency. A program on sites in eight countries bills in eight
-  // currencies, and minor units of a rupee added to cents of a dollar is
-  // a figure nobody can stand behind: where there is more than one, the
-  // single figure is null and the currencies are carried apart (By region
-  // shows each). One currency for the whole is money's to compute.
-  const byCurrency = spendOf(onSite.map((c) => ({ rateMinor: (c.billRate ?? 0) > 0 ? c.billRate : null, currency: c.billCurrency })))
-  const oneCurrency = byCurrency.spend.length <= 1
-  // Several currencies roll up through money's one door, at the rates the
-  // company set or the labeled sample, and the sentence says which; a
-  // currency with no rate leaves the figure null rather than guessed.
-  const rates = oneCurrency ? null : await reportingRatesFor(clientCompany.id, now)
-  const inOne = rates ? spendInReporting(byCurrency.spend, rates.reportingCurrency, rates, now) : null
-  const totalMonthlySpend = oneCurrency ? spend.totalMinor : inOne?.total?.minor ?? null
-
-  // People, not rows: one person is one contractor however many lines
-  // they hold. Somebody on site with a later line signed is on site.
-  const onSitePeople = new Set(onSite.map((c) => c.personId))
-  const listedPeople = new Set(contracts.map((c) => c.personId))
+  // What the client pays a month, and who is on site, from the one
+  // arithmetic the greeting's summary reads too (`./figures`): the top
+  // rung of every chain with somebody on site, per currency, and through
+  // the company's rates where the program bills in several. People, not
+  // rows: one person is one contractor however many lines they hold.
+  const rates = needsReportingRates(onSite) ? await reportingRatesFor(clientCompany.id, now) : null
+  const money = spendFigures(onSite, rates, now)
+  const heads = headcount(contracts, onSite)
 
   // Build approval queue items
   const approvalQueue = [
@@ -567,6 +562,7 @@ export async function programView(
       detail: `${exp.category} · ${exp.billable ? 'Billable' : 'Internal'}`,
       // Whole currency, not cents. See decisions/route.ts.
       amount: exp.total ? Number(exp.total) : null,
+      currency: currencyOfExpense(exp),
       submittedAt: exp.submittedAt?.toISOString() ?? null,
       daysWaiting: exp.submittedAt
         ? Math.floor((now.getTime() - exp.submittedAt.getTime()) / (24 * 60 * 60 * 1000))
@@ -621,22 +617,20 @@ export async function programView(
       /** Under a seat, what in this program needs somebody; null for the client's own seats. */
       programQueue,
       summary: {
-        activeContractors: onSitePeople.size,
+        activeContractors: heads.activeContractors,
         // The Contractors tab lists everybody with a live line here —
         // on site, and signed but not started. The headline said "4 on
         // site" beside a tab reading 5 and neither said what it counted,
         // so both are counted in people and the difference is named:
         // on site plus not started is the tab.
-        contractors: listedPeople.size,
-        notStarted: listedPeople.size - onSitePeople.size,
+        contractors: heads.contractors,
+        notStarted: heads.notStarted,
         vendors: vendors.length,
-        monthlySpend: totalMonthlySpend,
+        monthlySpend: money.monthlySpend,
         /** The currency `monthlySpend` is in; null where it is null. */
-        monthlySpendCurrency: oneCurrency
-          ? (byCurrency.spend[0]?.currency ?? onSite[0]?.billCurrency ?? 'USD')
-          : inOne?.total ? inOne.reportingCurrency : null,
+        monthlySpendCurrency: money.monthlySpendCurrency,
         /** A month at current rates, per currency, for a program billed in several. */
-        monthlySpendByCurrency: byCurrency.spend,
+        monthlySpendByCurrency: money.monthlySpendByCurrency,
         // What the figure rests on, as the one line under the figure
         // (founder, 2026-10-19: the paragraph under the six figures
         // becomes one line under the figure it explains). 160 hours a
@@ -644,7 +638,7 @@ export async function programView(
         // seats with no rate on the rung this client pays are named, so
         // the total of some seats is never presented as the total of all
         // of them (`spendLine`).
-        monthlySpendSays: inOne ? `${spendLine(spend)}. ${inOne.says}` : spendLine(spend),
+        monthlySpendSays: money.monthlySpendSays,
         pendingApprovals: approvalQueue.length,
         openRoles: requirements.length,
         endingSoon: endingSoon.length,

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { employmentOf } from '@/app/api/compliance/verifications/record'
+import { linesForWorker } from '@/lib/document-stages/employer'
 import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import {
@@ -16,9 +18,9 @@ import { orderedNotCollected } from '@/lib/attestation'
 import { credentialChaseNow } from '@/lib/contract-clearance'
 import { CREDENTIAL_PACKET_KEY } from '@/lib/credential-chase'
 import { humanKey, labelFor, typeByKey } from '@/lib/document-type'
-import { mayFileOwnPaper, ownPaperMenu, type OwnPaperAbout } from '@/lib/document-stages/own-papers'
+import { OWN_PAPER_POSTED, keptPaperSays, mayFileOwnPaper, ownPaperInput, ownPaperMenu, type OwnPaperAbout } from '@/lib/document-stages/own-papers'
 import { mayFileFirmPapers } from '@/lib/document-stages/firm-papers'
-import { checkDocumentUpload, MAX_DOCUMENT_BYTES, sizeSaid, KEPT_BY_HOLDER, statusWord } from '@/lib/document-request'
+import { checkDocumentUpload, MAX_DOCUMENT_BYTES, sizeSaid, KEPT_BY_HOLDER } from '@/lib/document-request'
 import { plainDate } from '@/lib/plain-date'
 import { Prisma, VerificationType } from '@prisma/client'
 
@@ -648,7 +650,15 @@ async function lineOwing(
     })),
   ]
 
-  for (const c of candidates) {
+  // Her employer's lines first, and a paper only the employer examines —
+  // the I-9 — to the employer alone where the record names one. Until the
+  // second Tapin walk (2026-10-30) the first line read won, so Ravi's I-9
+  // went to Brightmoor, which sells his time, rather than to Tapin, which
+  // employs him and completes the form with him.
+  const { lines: chain, facts } = await employmentOf(personId)
+  const tried = linesForWorker({ candidates, sellLines: chain, facts, key })
+
+  for (const c of tried) {
     const set = await requirementsFor(c.side === 'SELL' ? { sellContractId: c.lineId } : { buyContractId: c.lineId })
     if (!set) continue
     const item = outstandingItems({
@@ -815,11 +825,44 @@ async function ownView(caller: Caller) {
       status: KEPT_BY_HOLDER,
       OR: [{ subjectType: 'PERSON', subjectId: me, signedById: me }, ...(firmId ? [{ subjectType: 'COMPANY', subjectId: firmId }] : [])],
     },
-    select: { id: true, subjectType: true, fileName: true, validFrom: true, expiresAt: true, edition: true, signedAt: true, note: true, template: { select: { name: true } } },
+    select: {
+      id: true, subjectType: true, fileName: true, validFrom: true, expiresAt: true, edition: true, signedAt: true, note: true,
+      examinedAt: true, examinedById: true, template: { select: { name: true } },
+    },
     orderBy: { signedAt: 'desc' },
   })
   // A kept file with a verification behind it is one paper, not two rows.
   const linked = new Set(rows.flatMap((r) => r.documents.map((d) => d.fileUrl)))
+
+  // ── Who examined it, read off the paper itself ──
+  //
+  // The second Tapin walk, 2026-10-30: Brightmoor accepted Tapin's
+  // insurance on its Paperwork, the award cleared, and this list still
+  // said "On file, not examined", because it read the row Tapin wrote and
+  // never the examination Brightmoor wrote on the paper. Both screens now
+  // read the one examination (`keptPaperSays`).
+  const keptByFile = new Map(kept.map((k) => [`/api/documents/${k.id}/file`, k]))
+  const examinerIds = [...new Set(kept.map((k) => k.examinedById).filter((v): v is string => !!v))]
+  const [examiners, examinerSeats] = examinerIds.length
+    ? await Promise.all([
+        prisma.person.findMany({ where: { id: { in: examinerIds } }, select: { id: true, name: true } }),
+        prisma.context.findMany({
+          where: { personId: { in: examinerIds }, revokedAt: null, companyId: { not: firmId ?? undefined }, type: { not: 'CONSULTANT' } },
+          select: { personId: true, company: { select: { name: true } } },
+          orderBy: { id: 'asc' },
+        }),
+      ])
+    : [[], []]
+  const examinerName = new Map(examiners.map((p) => [p.id, p.name]))
+  const examinerFirm = new Map<string, string>()
+  for (const c of examinerSeats) if (c.company && !examinerFirm.has(c.personId)) examinerFirm.set(c.personId, c.company.name)
+  const examinedSays = (k: (typeof kept)[number] | undefined, checkStatus: string | null) =>
+    keptPaperSays({
+      examinedAt: k?.examinedAt ?? null,
+      examinedBy: k?.examinedById ? examinerName.get(k.examinedById) ?? null : null,
+      examinedFor: k?.examinedById ? examinerFirm.get(k.examinedById) ?? null : null,
+      checkStatus,
+    })
 
   const onFile = [
     ...rows.map((r) => ({
@@ -834,8 +877,7 @@ async function ownView(caller: Caller) {
       edition: r.formEdition,
       fileName: r.documents[0]?.fileName ?? null,
       fileUrl: r.documents[0]?.fileUrl ?? null,
-      examined: r.status === 'CLEAR' || r.status === 'CONDITIONAL',
-      says: r.status === 'CLEAR' || r.status === 'CONDITIONAL' ? 'On file and examined' : statusWord(KEPT_BY_HOLDER),
+      ...examinedSays(keptByFile.get(r.documents[0]?.fileUrl ?? ''), r.status),
     })),
     ...kept
       .filter((k) => !linked.has(`/api/documents/${k.id}/file`))
@@ -850,8 +892,7 @@ async function ownView(caller: Caller) {
         edition: k.edition,
         fileName: k.fileName,
         fileUrl: `/api/documents/${k.id}/file`,
-        examined: false,
-        says: statusWord(KEPT_BY_HOLDER),
+        ...examinedSays(k, null),
       })),
   ]
 
@@ -889,7 +930,7 @@ export async function PUT(request: NextRequest) {
   if (isForm) {
     const form = await request.formData().catch(() => null)
     if (!form) return refuse('That did not arrive. Pick the file again and send it.', 422, 'FILE_REQUIRED')
-    for (const k of ['key', 'about', 'number', 'issuer', 'validFrom', 'validUntil', 'edition', 'year']) {
+    for (const k of OWN_PAPER_POSTED) {
       const v = form.get(k)
       fields[k] = typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null
     }
@@ -905,7 +946,7 @@ export async function PUT(request: NextRequest) {
     }
   } else {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
-    for (const k of ['key', 'about', 'number', 'issuer', 'validFrom', 'validUntil', 'edition', 'year']) {
+    for (const k of OWN_PAPER_POSTED) {
       const v = body[k]
       fields[k] = typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null
     }
@@ -913,20 +954,14 @@ export async function PUT(request: NextRequest) {
 
   const about: OwnPaperAbout = fields.about === 'MY_FIRM' ? 'MY_FIRM' : 'ME'
   const on = new Date()
-  const verdict = mayFileOwnPaper({
-    key: fields.key ?? '',
-    about,
+  // Read the way the form's own test reads it (ownPaperInput), so a field
+  // on the "Put on file" form and the rule's question are one name.
+  const verdict = mayFileOwnPaper(ownPaperInput(fields, {
     isOnePersonFirm: !!firm,
     filesForFirm: !!team,
     canKeepCopy: copyHome(fields.key ?? '', !!firm, about, !!team) !== null,
     fileName: file?.name ?? null,
-    number: fields.number,
-    issuer: fields.issuer,
-    validFrom: fields.validFrom,
-    validUntil: fields.validUntil,
-    edition: fields.edition,
-    year: fields.year,
-  }, on)
+  }), on)
   if (!verdict.ok) {
     return NextResponse.json({ error: { code: verdict.code, message: verdict.message, field: verdict.field ?? null } }, { status: 422 })
   }

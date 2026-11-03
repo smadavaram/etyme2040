@@ -3,13 +3,15 @@ import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { notify, notifyBulk } from '@/lib/notify'
 import { emit } from '@/lib/events'
-import { logAccess, recordRefusal, accessActor } from '@/lib/access-log'
+import { logAccess, recordAccess, recordRefusal, accessActor } from '@/lib/access-log'
+import { reportError } from '@/lib/alerts'
 import { hasPermission } from '@/lib/permissions'
 import { mayExamine, standingOn, typeKeyForTemplate } from '@/lib/document-request'
 import { BUILT_IN, typeByKey } from '@/lib/document-type'
-import { RECORDABLE_ABOUT_A_FIRM } from '@/lib/attestation'
+import { RECORDABLE_ABOUT_A_FIRM, examinedFromAPacket } from '@/lib/attestation'
 import { paperSubject } from '@/lib/document-stages/firm-papers'
-import { buyerMayExamineKept, examinationOf, itemFollowsPaper, recordSupplierPaper } from '@/app/api/packets/examination'
+import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
+import { answerOpenAsks, buyerMayExamineKept, examinationBody, examinationOf, itemFollowsPaper, recordSupplierPaper, type Door } from '@/app/api/packets/examination'
 
 /**
  * POST /api/documents/:id/examine
@@ -99,8 +101,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     companyName: caller.company?.name ?? null,
   })
   if (!standing.ok) {
-    if (subjectPersonId && caller.person.id !== subjectPersonId) {
-      await recordRefusal([subjectPersonId], {
+    // The person's or the firm's: a company's paper is the company's
+    // data, written with the company as the subject (2026-11-02).
+    const refusedOf = subjectPersonId && caller.person.id !== subjectPersonId
+      ? { personId: subjectPersonId }
+      : subjectCompanyId && caller.company?.id !== subjectCompanyId
+        ? { companyId: subjectCompanyId }
+        : null
+    if (refusedOf) {
+      await recordRefusal([refusedOf], {
         ...accessActor(caller),
         action: 'COMPLIANCE_CHECK',
         reason: `Refused examining ${doc.template.name}: the seat does not work this firm’s paperwork`,
@@ -162,6 +171,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // (`recordSupplierPaper`), and the request's own reading for an item.
   let verificationId: string | null = null
   let checkSays: string | null = null
+  // Where it can be recorded, where this look could not record it.
+  let door: Door | null = null
   if (verdict.verdict === 'ACCEPT' && caller.company) {
     const buyer = {
       companyId: caller.company.id, companyName: caller.company.name,
@@ -169,10 +180,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       actor: accessActor(caller),
     }
     const str = (k: string): string | null => (typeof body[k] === 'string' && (body[k] as string).trim() ? (body[k] as string).trim() : null)
-    const examined = item
+    // An I-9 records its examination whichever way it arrived: as a
+    // request's item, or as a paper the employer asked for on Paperwork.
+    // Until 2026-11-02 only the first did, so an I-9 accepted on Paperwork
+    // cleared nothing and the start stayed held.
+    const asItem = item ?? (subjectPersonId && key && COMPLETED_FROM_SHOWN.includes(key) && examinedFromAPacket(key)
+      ? { id: doc.id, key, label: doc.template.name, packet: { id: doc.id, subjectPersonId, subjectCompanyId: null } }
+      : null)
+    const examined = asItem
       ? await examinationOf({
-          packet: item.packet, item,
-          body: { ...body, formEdition: body.formEdition ?? body.edition },
+          packet: asItem.packet, item: asItem,
+          body: examinationBody(body),
           validUntil: verdict.expiresAt, now, caller: buyer,
         })
       : company && key && (RECORDABLE_ABOUT_A_FIRM as readonly string[]).includes(key)
@@ -182,9 +200,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             validFrom: verdict.validFrom, expiresAt: verdict.expiresAt, now,
           })
         : null
-    if (examined?.refused) return refuse(examined.refused.status, examined.refused.code, examined.refused.message, examined.refused.field)
+    if (examined?.refused) return refuse(examined.refused.status, examined.refused.code, examined.refused.message, examined.refused.field, examined.refused.door)
     verificationId = examined?.verificationId ?? null
     checkSays = examined?.says ?? null
+    door = examined?.door ?? null
   }
 
   const note = [doc.note, verdict.note].filter(Boolean).join('\n').slice(-2000)
@@ -203,9 +222,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       })
     } else if (keptForBuyer) {
-      // The supplier's own copy stays on its record; the client's look is
-      // written on it, and the supplier is told to file a current one.
-      await tx.docInstance.update({ where: { id }, data: { note, examinedById: caller.person.id, examinedAt: now } })
+      // The supplier's own copy stays on its record with the reason on it,
+      // and the supplier is told to file a current one. Not stamped as
+      // examined: on every screen, the examiner's and the holder's, an
+      // examination on a paper reads as accepted (the second Tapin walk,
+      // 2026-10-30, where one stamp meant two things).
+      await tx.docInstance.update({ where: { id }, data: { note } })
     } else {
       // A paper sent back is not held. The refused file goes with it, the
       // same as a packet item sent back, so nothing reads it as an answer.
@@ -221,6 +243,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (doc.file) await tx.docFile.delete({ where: { docInstanceId: id } })
     }
   })
+  // A supplier's own copy accepted answers this buyer's open asks for the
+  // same paper, so the request stops asking (the second Tapin walk).
+  if (keptForBuyer && verdict.verdict === 'ACCEPT' && caller.company && subjectCompanyId && key) {
+    await answerOpenAsks({
+      buyerId: caller.company.id, supplierId: subjectCompanyId, key,
+      verificationId, reviewerId: caller.person.id, validUntil: verdict.expiresAt, now,
+    })
+  }
   if (item) {
     await itemFollowsPaper({
       itemId: item.id,
@@ -239,6 +269,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       action: 'COMPLIANCE_CHECK',
       reason: `${verdict.verdict === 'ACCEPT' ? 'Examined' : 'Sent back'} ${doc.template.name} for ${issuer.name}`,
     })
+  } else if (subjectCompanyId && caller.company?.id !== subjectCompanyId) {
+    // A firm's paper looked at by another firm is a read of that firm's
+    // data, and it was never logged (2026-11-02). Written with the firm as
+    // its subject; the examination has already been written, so a row
+    // that cannot be written is reported rather than undoing it.
+    try {
+      await recordAccess([{ companyId: subjectCompanyId }], {
+        ...accessActor(caller),
+        action: 'COMPLIANCE_CHECK',
+        reason: `${verdict.verdict === 'ACCEPT' ? 'Examined' : 'Sent back'} ${doc.template.name} for ${issuer.name}`,
+      })
+    } catch (err) {
+      await reportError('access-log', err, { personId: caller.person.id, companyId: caller.company?.id })
+    }
   }
   void emit({
     type: 'verification.recorded',
@@ -274,10 +318,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       countersigned: verdict.countersign,
       verificationId,
       says: checkSays ? `${verdict.says} ${checkSays}` : verdict.says,
+      ...(door ? { door } : {}),
     },
   })
 }
 
-function refuse(status: number, code: string, message: string, field?: string) {
-  return NextResponse.json({ error: { code, message, ...(field ? { field } : {}) } }, { status })
+function refuse(status: number, code: string, message: string, field?: string, door?: Door | null) {
+  return NextResponse.json({ error: { code, message, ...(field ? { field } : {}), ...(door ? { door } : {}) } }, { status })
 }

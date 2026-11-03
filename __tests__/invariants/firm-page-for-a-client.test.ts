@@ -64,8 +64,12 @@ vi.mock('@/lib/db', () => {
 import { publicSite } from '@/lib/public-site'
 import { POST as askFirm } from '@/app/api/site/[slug]/ask/route'
 import { firmContact, mayShowPublicly, FIRM_ASK_COPY, firmAskThanks } from '@/lib/public-site/firm-page'
-import { joinReply, joinReplyFor, joinReplyNoLetter } from '@/lib/public-site/join-bench'
-import { check } from '@/lib/positioning'
+import { joinReply, joinReplyFor, joinReplyNoLetter, joinProblems, JOIN_BENCH_COPY, JOIN_EMAIL_NO_LETTER, TOO_MANY_SAYS } from '@/lib/public-site/join-bench'
+import { NOBODY_READS } from '@/lib/public-site/firm-page'
+import {
+  check, copyFrom, britishSpellings, wordsNobodyUses, unverifiableClaims, readsAsAimedAtSuppliers, longSentences,
+} from '@/lib/positioning'
+import { writeFromRules, DEFAULT_HEADINGS, keepsTheHouseWords, type SiteFacts } from '@/lib/site-voice'
 
 const NOW = new Date()
 const days = (n: number) => new Date(NOW.getTime() + n * 86_400_000)
@@ -236,6 +240,111 @@ describe('Join the bench, said only as far as it is true', () => {
     expect(joinReplyNoLetter('Tapin')).not.toMatch(/letter|email|sent|on its way/i)
     expect(joinReplyFor('Tapin', true)).toBe(joinReply('Tapin'))
     const route = readFileSync(join(process.cwd(), 'src/app/api/site/[slug]/join/route.ts'), 'utf8')
-    expect(route).toContain('joinReplyFor(firm.name, emailSender() !== null)')
+    // One function knows whether email can leave (lib/notify/mail-leaves, 6bd3b86a).
+    expect(route).toContain('joinReplyFor(firm.name, mailLeaves())')
+    expect(route).not.toContain('emailSender() !== null')
+  })
+
+  it('where no email can leave, the email field on Join the bench says the ask shows in Etyme, never that a letter goes', () => {
+    const empty = (letterCanLeave: boolean) => joinProblems({ name: 'Jo Park', email: '' }, letterCanLeave).find((p) => p.field === 'email')!.says
+    expect(empty(true)).toBe('Your email. The letter that asks for your yes goes there.')
+    expect(empty(false)).toBe(JOIN_EMAIL_NO_LETTER)
+    expect(JOIN_EMAIL_NO_LETTER).toBe('Your email. The ask for your yes shows in Etyme when you sign in with it.')
+    expect(JOIN_EMAIL_NO_LETTER).not.toMatch(/letter|sent|on its way/i)
+  })
+
+  it('whether email can leave is read on the server, by the route and by the page that hands it to the form, never in the browser', () => {
+    const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+    expect(read('src/app/api/site/[slug]/join/route.ts')).toContain('joinProblems({ name: body.name as string, email: body.email as string }, mailLeaves())')
+    expect(read('src/app/site/[slug]/page.tsx')).toContain('<JoinBench slug={site.slug} letterCanLeave={mailLeaves()} />')
+    const form = read('src/app/site/[slug]/join-bench.tsx')
+    expect(form).toContain('joinProblems({ name, email }, letterCanLeave)')
+    // The browser cannot see the server's email keys, so the form never asks itself.
+    expect(form).not.toContain('mail-leaves')
+  })
+})
+
+describe('the words on a firm’s public page (the second Tapin walk, 2026-10-31)', () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+  const PAGE = read('src/app/site/[slug]/page.tsx')
+
+  /** The rules-written voice for the kinds of firm whose pages a stranger opens. */
+  function ruleVoices(): string[] {
+    const base: SiteFacts = {
+      name: 'Tapin', kind: 'VENDOR', posture: 'BENCH', skills: [], locations: [], placements: 0, activeNow: 0,
+      clients: 0, openPositions: 0, comingFree: 0, trainingCourses: 0,
+    }
+    const facts: SiteFacts[] = [
+      base,
+      { ...base, posture: 'PRIME', skills: ['Registered nurse', 'ICU'], locations: ['San Antonio, TX'], placements: 3, clients: 1, comingFree: 2 },
+      { ...base, placements: 7, clients: 2, trainingCourses: 1 },
+      { ...base, kind: 'CLIENT', posture: null, openPositions: 2, activeNow: 5, clients: 1, locations: ['Dayton, OH'] },
+      { ...base, kind: 'MSP', posture: null },
+    ]
+    return facts.flatMap((f) => { const v = writeFromRules(f); return [v.tagline, v.intro] })
+  }
+
+  it('under the Clients figure the page says company or companies, the way a US buyer says it', () => {
+    expect(PAGE).toContain("{site.track.clients === 1 ? 'company' : 'companies'}")
+    expect(britishSpellings(PAGE)).toEqual([])
+  })
+
+  it('every word Etyme writes on a firm’s page is plain, American, and never says desk or program office', () => {
+    const said = [
+      ...copyFrom(PAGE),
+      ...Object.values(DEFAULT_HEADINGS),
+      FIRM_ASK_COPY.heading('Tapin'), FIRM_ASK_COPY.means('Tapin'), FIRM_ASK_COPY.emailLabel, FIRM_ASK_COPY.askLabel,
+      FIRM_ASK_COPY.askPlaceholder, firmAskThanks('Tapin'),
+      ...Object.values(JOIN_BENCH_COPY).filter((v): v is string => typeof v === 'string'),
+      joinReply('Tapin'), joinReplyNoLetter('Tapin'),
+      ...ruleVoices(),
+    ]
+    // A refusal tells the reader when to try again ("in an hour"), which is
+    // an instruction rather than a promised speed, so it is read for the
+    // words and not for claims.
+    const refusals = [FIRM_ASK_COPY.failed, NOBODY_READS, TOO_MANY_SAYS].join(' ')
+    expect(wordsNobodyUses(refusals)).toEqual([])
+    expect(britishSpellings(refusals)).toEqual([])
+    expect(longSentences(refusals, 25)).toEqual([])
+    // The page's own sentences are read, not only its constants.
+    expect(said).toContain('Rates are agreed with each supplier and are not published here.')
+    expect(said.join(' ')).toContain('It is not a recommendation from Etyme.')
+    const text = said.join(' ')
+    expect(wordsNobodyUses(text)).toEqual([])
+    expect(britishSpellings(text)).toEqual([])
+    expect(unverifiableClaims(text)).toEqual([])
+    expect(readsAsAimedAtSuppliers(text)).toEqual([])
+    // Per string, since a heading and a label carry no full stop to end on.
+    for (const w of said) expect(longSentences(w, 25), w).toEqual([])
+    // Two lines that read as jargon or an idiom to a reader whose first language is not English.
+    expect(text).not.toMatch(/open to the network|vouched for/i)
+    const rules = check({ hero: [], body: said }).map((f) => f.rule)
+    expect(rules).not.toContain('neutrality')
+    expect(rules).not.toContain('never-lead-with-ai')
+  })
+
+  it('the model that writes a firm’s page is asked for American English and plain words, and a draft that breaks either is not used', () => {
+    const voice = read('src/lib/site-voice.ts')
+    expect(voice).not.toMatch(/default to British/i)
+    expect(voice).toContain('American English, always')
+    // The rule is said in other words, and the source never holds either word:
+    // the check reads the one list in lib/positioning (two-words.test.ts reads the prompt).
+    expect(voice).toContain('The firm that runs a client\'s program is an MSP.')
+    expect(wordsNobodyUses(voice)).toEqual([])
+    expect(voice).toContain("import { britishSpellings, wordsNobodyUses } from '@/lib/positioning'")
+    expect(voice).toContain('if (!keepsTheHouseWords(parsed)) return null')
+    const clean = { tagline: 'ICU nurses, out of San Antonio, TX.', intro: '3 placements across 1 organization.' }
+    expect(keepsTheHouseWords(clean)).toBe(true)
+    // Each word built from parts, so this file holds no British word for the spelling invariant.
+    const british = ['organi' + 'sation', 'speciali' + 'sed', 'lic' + 'ence']
+    for (const w of british) expect(keepsTheHouseWords({ ...clean, intro: `Placements across 1 ${w}.` }), w).toBe(false)
+    expect(keepsTheHouseWords({ ...clean, intro: 'Ask our recruiting desk.' })).toBe(false)
+    expect(keepsTheHouseWords({ ...clean, headings: { comingFree: 'Ready for your program office' } })).toBe(false)
+  })
+
+  it('when a client’s question fails to send, the firm’s page never tells them to write to Etyme', () => {
+    expect(FIRM_ASK_COPY.failed).toBe('That did not send. Try again in a minute.')
+    expect(FIRM_ASK_COPY.failed).not.toMatch(/\bus\b|Etyme/)
+    expect(read('src/app/site/ask.tsx')).toContain("firm ? FIRM_ASK_COPY.failed : 'That did not send. Try again, or write to us directly.'")
   })
 })
