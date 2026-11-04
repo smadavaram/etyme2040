@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { reportError } from '@/lib/alerts'
-import { respond, today, modelState, boundarySays, cardIdsOf, partyOf, queueFrom, readAsk, withOwnPapers, withoutOwnWeek, questionsFor, pictureOf, readsPicture, monthOf, type Readers, type Picture, type Answer, type Party, type QueueRead, type RichLine } from './ask'
+import { respond, whereAnswer, menuOf, placeOf, today, modelState, boundarySays, cardIdsOf, partyOf, queueFrom, readAsk, withOwnPapers, withoutOwnWeek, questionsFor, pictureOf, readsPicture, monthOf, type Readers, type Picture, type Answer, type Party, type QueueRead, type RichLine } from './ask'
 import { mapSeatOf, mapView, mapNeeds, mapOwed, mapChips, mapAnswer, mapHelp, siteLine, REGION_BOUNDARY, type MapSeat } from './regions'
 import { fromPrismaDecimal } from '@/lib/money'
 import { readThread, appendTurn, markCard, clearThread, type SavedThread, type SavedTurn, type CardState } from '@/lib/ask-etyme-thread'
 import { prisma } from '@/lib/db'
-import { modelSwitchFor } from '@/lib/model-boundary'
+import { modelSwitchFor, MODEL_SWITCH_HREF } from '@/lib/model-boundary'
 import { programView } from '@/app/api/program/view'
 import { programSummary } from '@/app/api/program/summary'
 import { GET as decisionQueue } from '@/app/api/decisions/route'
@@ -22,6 +22,10 @@ import { hasPermission } from '@/lib/permissions'
 import { firstActFacts } from './first-act-read'
 import { linkAsksFor, joinAsksFor, firmAskItems, withFirmAsks } from './firm-asks'
 import { mailLeaves } from '@/lib/notify/mail-leaves'
+import { ownPageFor } from '@/lib/portfolio-data'
+import { cookieHatOf, greetsAsYou, firmHatWithNothing, nothingOfTheFirm, noticesForHat, youOffered, type HatFacts } from './hat'
+import { sinceSays } from './ask'
+import type { CompanyKind } from '@/lib/nav-table'
 
 /**
  * GET    /api/conversations/twin[?take=n][&only=thread]   the greeting, and the seat's saved thread
@@ -163,6 +167,54 @@ function seatOf(caller: Caller): Promise<LiveSeat | null> {
     seats.set(caller, got)
   }
   return got
+}
+
+/**
+ * Which hat this request is greeted in (./hat), read once per request.
+ * The work is asked about (`ownPage`) only where it can change the
+ * answer: a firm seat whose cookie names the You hat, or a firm greeting
+ * that must leave the person's own notices for the You hat.
+ */
+const hats = new WeakMap<object, Promise<HatFacts>>()
+const hatsWithWork = new WeakMap<object, Promise<HatFacts>>()
+function hatFactsOf(caller: Caller, request: NextRequest, opts: { askWork?: boolean } = {}): Promise<HatFacts> {
+  const memo = opts.askWork ? hatsWithWork : hats
+  let got = memo.get(caller)
+  if (!got) {
+    got = (async (): Promise<HatFacts> => {
+      const workerSeat = asWorker(caller)
+      const consultantSeat = workerSeat && caller.context.type === 'CONSULTANT'
+      const region = caller.region?.label ?? null
+      const cookieHat = cookieHatOf(request)
+      const seat = await seatOf(caller)
+      const menuKind = ((seat ? 'CLIENT' : caller.company?.kind) ?? null) as CompanyKind | null
+      // A seat with no role of its own wears whichever hat the menu says, so its work is always asked.
+      const ask = !consultantSeat && !region && !!caller.company && (opts.askWork || cookieHat === 'you' || workerSeat)
+      const worker = ask ? (await ownPageFor(caller.person.id).catch(() => ({ ok: false }))).ok : false
+      return { workerSeat, consultantSeat, region, cookieHat, menuKind, worker, seatedAtClient: seat?.clientCompany.name ?? null, permissions: await judgedBy(caller) }
+    })()
+    memo.set(caller, got)
+  }
+  return got
+}
+
+/** Whether this request is answered as the person's own Ask Etyme: a worker's seat, or the You hat. */
+async function asYou(caller: Caller, request: NextRequest): Promise<boolean> {
+  if (caller.region) return false
+  if (asWorker(caller)) return caller.context.type === 'CONSULTANT' || !caller.company || greetsAsYou(await hatFactsOf(caller, request))
+  if (cookieHatOf(request) !== 'you') return false
+  return greetsAsYou(await hatFactsOf(caller, request))
+}
+
+/**
+ * A seat with no role of its own at the firm, in the firm's hat (the
+ * fourth screen walk, 2026-11-03): it is greeted as the firm, read with
+ * its own permissions, which hold nothing of the firm's, so the greeting
+ * says so in one line rather than drawing the worker's greeting.
+ */
+async function inFirmHatWithNothing(caller: Caller, request: NextRequest): Promise<boolean> {
+  if (caller.region || !caller.company || !asWorker(caller) || caller.context.type === 'CONSULTANT') return false
+  return firmHatWithNothing(await hatFactsOf(caller, request))
 }
 
 /**
@@ -390,7 +442,9 @@ export async function GET(request: NextRequest) {
   // The mark's number: the greeting's own count, read with no notice
   // marked seen and no line kept, so polling it changes nothing.
   if (request.nextUrl.searchParams.get('only') === 'owed') return owedCount(caller, request)
-  if (asWorker(caller) && !caller.region) return workerGreeting(caller, request)
+  // The person's own hat (founder, 2026-11-03): their week, pay and papers.
+  if (await asYou(caller, request)) return workerGreeting(caller, request)
+  if (await inFirmHatWithNothing(caller, request)) return nothingOfTheFirmGreeting(caller, request)
   if (!caller.company) {
     return NextResponse.json({ error: { code: 'NO_COMPANY', message: NO_COMPANY } }, { status: 403 })
   }
@@ -423,8 +477,14 @@ export async function GET(request: NextRequest) {
     const setupLine = setupLineOf(caller)
     const seat = await seatOf(caller)
     const readers = startedReaders(readersFor(caller, company.id, request, { seat }), who)
-    const [notices, threads, modelSwitch, party, week] = await Promise.all([
+    // A notice about the person's own work is said in the You hat, and left
+    // unread here for it, where the person wears two hats (./hat).
+    const firmNotices = Promise.all([
       unreadNotices(caller, { program: seat?.clientCompany.id ?? null }),
+      hatFactsOf(caller, request, { askWork: true }).catch(() => null),
+    ]).then(([n, f]) => (f ? { ...n, shown: noticesForHat(f, 'firm', n.shown) } : n))
+    const [notices, threads, modelSwitch, party, week] = await Promise.all([
+      firmNotices,
       unreadThreads(caller), modelSwitchFor(company.id), who, ownWeek,
     ])
     // The boundary line reads the company's own switch, so it says what is
@@ -439,7 +499,7 @@ export async function GET(request: NextRequest) {
     })
     const answer = await withWelcome(caller, greeted, party.party, await thread)
     // Said, so read: the section empties itself on the next greeting. One write for both.
-    await markNoticesSeen(caller, [...notices.shown.map((n) => n.id), ...threads.noticeIds])
+    await markNoticesSeen(caller, [...notices.shown.map((n) => n.id), ...(notices.withheld ?? []), ...threads.noticeIds])
     // The chips are the desk's own: only questions this seat gets an answer to.
     // A hiring manager on a plant asks about the time limit at the plant too.
     const own = questionsFor(party.party, await judgedBy(caller), company.kind)
@@ -577,10 +637,13 @@ function notReadByRegion(caller: Caller) {
  * firm seat's decisions total; null where it could not be read. Reads only.
  */
 async function owedCount(caller: Caller, request: NextRequest) {
-  const worker = asWorker(caller) && !caller.region
+  // The mark follows the hat: the person's own cards in the You hat, the firm's queue in a firm hat.
+  const worker = await asYou(caller, request)
   if (!worker && !caller.company) {
     return NextResponse.json({ error: { code: 'NO_COMPANY', message: NO_COMPANY } }, { status: 403 })
   }
+  // A seat with no role of its own owes the firm nothing in its hat: no number.
+  if (!worker && (await inFirmHatWithNothing(caller, request))) return NextResponse.json({ data: { total: 0 } })
   try {
     // Her facts in count-only mode: only what decides how many things need her.
     const total = await owedTotal({ worker, facts: () => workerFacts(caller, request, undefined, { forCount: true }), needs: needsFor(request, caller) })
@@ -600,15 +663,54 @@ async function workerGreeting(caller: Caller, request: NextRequest) {
   }
   try {
     const saved = thread()
-    const [notices, threads, facts] = await Promise.all([unreadNotices(caller), unreadThreads(caller), workerFacts(caller, request)])
+    // In the You hat a firm seat's notices about the firm's book, and the
+    // threads other companies wrote to the firm, wait for the firm hat.
+    const hat = await hatFactsOf(caller, request)
+    const own = youOffered(hat)
+    const [allNotices, allThreads, facts] = await Promise.all([unreadNotices(caller), unreadThreads(caller), workerFacts(caller, request)])
+    const notices = own ? { ...allNotices, shown: noticesForHat(hat, 'you', allNotices.shown) } : allNotices
+    const threads = own ? { shown: [], more: 0, noticeIds: [] } : allThreads
     const answer = workerToday(facts, { greeting: true, notices, threads })
     await Promise.all([
       markNoticesSeen(caller, notices.shown.map((n) => n.id)),
+      // A colleague's paper held back is marked read with the rest, never said.
+      markNoticesSeen(caller, [...allNotices.withheld]),
       markNoticesSeen(caller, threads.noticeIds),
     ])
     return NextResponse.json({ data: { answer, model: 'OFF', worker: true, party: 'WORKER', client: null, thread: await saved } })
   } catch (err) {
     await reportError('Ask Etyme could not greet a worker', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
+    return NextResponse.json({ error: { code: 'NOT_ANSWERED', message: NOT_ANSWERED } }, { status: 500 })
+  }
+}
+
+/**
+ * The firm's greeting for a seat with no role of its own at the firm, in
+ * the firm's hat: what the firm addressed to this person (the notices
+ * whose page is the firm's, a colleague's papers never among them, and
+ * the conversations other companies wrote to them), and where none is,
+ * one line that says so and where their own work is. No chips, no queue,
+ * no number: nothing of the firm's is theirs to decide.
+ */
+async function nothingOfTheFirmGreeting(caller: Caller, request: NextRequest) {
+  const take = takeOf(request)
+  const saved = threadFor(caller, take)
+  if (request.nextUrl.searchParams.get('only') === 'thread') {
+    return NextResponse.json({ data: { thread: await saved } })
+  }
+  try {
+    const [hat, all, threads] = await Promise.all([hatFactsOf(caller, request), unreadNotices(caller), unreadThreads(caller)])
+    const shown = noticesForHat(hat, 'firm', all.shown)
+    const since = sinceSays(shown, all.older, { worker: false, threads: threads.shown, moreThreads: threads.more })
+    const answer: Answer = {
+      kind: 'NEEDS', greeting: true, items: [],
+      says: nothingOfTheFirm(caller.company!.name, since.length > 0),
+      ...(since.length ? { more: since } : {}),
+    }
+    await markNoticesSeen(caller, [...shown.map((n) => n.id), ...all.withheld, ...threads.noticeIds])
+    return NextResponse.json({ data: { answer, model: 'OFF', worker: false, party: 'FIRM', client: null, chips: [], thread: await saved } })
+  } catch (err) {
+    await reportError('Ask Etyme could not greet a seat in its firm hat', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
     return NextResponse.json({ error: { code: 'NOT_ANSWERED', message: NOT_ANSWERED } }, { status: 500 })
   }
 }
@@ -633,15 +735,36 @@ async function keep(caller: Caller, question: string, answer: Answer): Promise<{
   }
 }
 
+/**
+ * The page the last answer named, for "take me there": the seat's own
+ * saved line first, else what the screen says it last showed. Either is
+ * checked against the seat's own menu before it is opened (`whereAnswer`),
+ * so nothing sent here opens a page the seat may not open.
+ */
+async function lastPlace(caller: Caller, said: unknown): Promise<string | null> {
+  try {
+    const got = await readThread(caller, { take: 4 })
+    if (got.ok) {
+      const last = [...got.thread.turns].reverse().find((t) => t.speaker === 'ETYME')
+      if (last) return placeOf(last.answer)
+    }
+  } catch { /* the screen's own word stands in */ }
+  return typeof said === 'string' && /^\/(?!\/)/.test(said) ? said.slice(0, 300) : null
+}
+
 export async function POST(request: NextRequest) {
   const { caller, error } = await getCallerContext(request, { narrowsToRegion: true })
   if (error) return error
-  if (asWorker(caller) && !caller.region) {
+  if (await asYou(caller, request)) {
     const body = await request.json().catch(() => ({}))
     const text = typeof body.text === 'string' ? body.text.slice(0, 2000) : ''
     let answer: Answer
     try {
-      answer = await respondWorker(text, { facts: () => workerFacts(caller, request) })
+      // Where a page is, and "take me there": her own menu, rules only.
+      const where = readAsk(text)
+      answer = where.kind === 'WHERE' || where.kind === 'GO'
+        ? whereAnswer(where, menuOf({ party: 'WORKER', permissions: caller.permissions }), where.kind === 'GO' ? await lastPlace(caller, body.place) : null)
+        : await respondWorker(text, { facts: () => workerFacts(caller, request) })
     } catch (err) {
       await reportError('Ask Etyme could not answer a worker', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
       return NextResponse.json({ error: { code: 'NOT_ANSWERED', message: NOT_ANSWERED } }, { status: 500 })
@@ -649,6 +772,14 @@ export async function POST(request: NextRequest) {
     const kept = !text.trim()
       ? { kept: false, turnId: null, notKeptBecause: null }
       : await keep(caller, text.trim(), answer)
+    return NextResponse.json({ data: { answer, ...kept } })
+  }
+  if (await inFirmHatWithNothing(caller, request)) {
+    // Nothing of the firm's is this seat's to read: every question in the firm hat is told so, and where its own work is.
+    const body = await request.json().catch(() => ({}))
+    const text = typeof body.text === 'string' ? body.text.slice(0, 2000) : ''
+    const answer: Answer = { kind: 'TEXT', says: nothingOfTheFirm(caller.company!.name) }
+    const kept = text.trim() ? await keep(caller, text.trim(), answer) : { kept: false, turnId: null, notKeptBecause: null }
     return NextResponse.json({ data: { answer, ...kept } })
   }
   if (!caller.company) {
@@ -677,7 +808,8 @@ export async function POST(request: NextRequest) {
     // papers and her contract are answered from her own pages, as a
     // worker's are; what she billed and the rest, from the firm's book.
     // Setting up her firm is the firm's book too (2026-11-02).
-    const solo = who.party === 'SOLO' && !['UNPAID', 'SETUP'].includes(readAsk(text).kind) &&
+    const asked = readAsk(text)
+    const solo = who.party === 'SOLO' && !['UNPAID', 'SETUP', 'WHERE', 'GO'].includes(asked.kind) &&
       ['SIGNED', 'PAPERS', 'CONTRACT_END', 'OWED', 'CHAIN', 'MY_RATE', 'INTERVIEWS', 'FILE', 'SIGN_WEEK', 'LAST_PAID', 'JOBS'].includes(readWorkerAsk(text))
     const seat = await seatOf(caller)
     answer = solo
@@ -687,6 +819,11 @@ export async function POST(request: NextRequest) {
         env: process.env, companyKind: seat ? seat.clientCompany.kind : caller.company.kind, permissions: await judgedBy(caller), needs: queueFor(request, caller), party: who.party,
         ownCompany: caller.company.name, client: seat?.clientCompany.name ?? null, ownKind: caller.company.kind,
         role: await roleOf(caller), ownPay: () => ownPayOf(caller, request, text),
+        modelSwitchHref: MODEL_SWITCH_HREF,
+        ...(asked.kind === 'WHERE' || asked.kind === 'GO' ? {
+          menu: menuOf({ companyKind: caller.company.kind, party: who.party, permissions: await judgedBy(caller), client: seat?.clientCompany.name ?? null }),
+          place: asked.kind === 'GO' ? await lastPlace(caller, body.place) : null,
+        } : {}),
       })
     if (!solo) answer = await onThePlant(caller, map, answer, queueFor(request, caller))
   } catch (err) {

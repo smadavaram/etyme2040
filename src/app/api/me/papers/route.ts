@@ -1,3 +1,6 @@
+import { fileHash } from '@/lib/document-stages/degree'
+import { heldOnRecord, linesOfPerson } from '@/lib/document-stages/paper-record'
+import { DEGREE_POSTED } from '@/lib/document-stages/degree-check'
 import { NextRequest, NextResponse } from 'next/server'
 import { employmentOf } from '@/app/api/compliance/verifications/record'
 import { linesForWorker } from '@/lib/document-stages/employer'
@@ -13,7 +16,7 @@ import {
   type OutstandingItem,
   type SentDocument,
 } from '@/lib/document-request'
-import { requirementsFor } from '@/lib/document-requirements'
+import { requirementsWhereWorkIsDone } from '@/lib/document-stages/where-work-is-done'
 import { orderedNotCollected } from '@/lib/attestation'
 import { credentialChaseNow } from '@/lib/contract-clearance'
 import { CREDENTIAL_PACKET_KEY } from '@/lib/credential-chase'
@@ -135,8 +138,10 @@ export async function GET(request: NextRequest) {
     // A renewal request's sentence is said again today rather than as it
     // was stored, so its count of days matches the line above it.
     reason: p.packetKey === CREDENTIAL_PACKET_KEY ? (credentialChaseNow(held, new Date(), p.company.name) ?? p.reopenedReason) : p.reopenedReason,
+    renewal: p.packetKey === CREDENTIAL_PACKET_KEY,
     items: p.items.map((i) => ({
       id: i.id,
+      key: i.key,
       label: i.label,
       state: i.state,
       required: i.required,
@@ -171,7 +176,7 @@ export async function GET(request: NextRequest) {
   // Read through the one door, `lib/document-requirements`, so the items
   // she is shown and the items the refusal at activation is built from
   // are the same items rather than two lists that agree by coincidence.
-  const owed = await whatSheOwes(me, held, instances, new Date())
+  const { owed, onFileKeys } = await whatSheOwes(me, held, instances, new Date())
 
   // Where a request has already been opened for one of them, the row is
   // that request's — it has an id, and the page answers it at
@@ -209,6 +214,7 @@ export async function GET(request: NextRequest) {
         held: onFile,
         owed,
         asksByKey,
+        onFileKeys,
       }),
     },
   })
@@ -235,26 +241,24 @@ async function whatSheOwes(
   held: { type: string; status: string; issuedAt: Date | null; validFrom: Date | null; expiresAt: Date | null }[],
   papers: SignedPaperRow[],
   on: Date
-): Promise<OutstandingItem[]> {
+): Promise<{ owed: OutstandingItem[]; onFileKeys: string[] }> {
   // Anything not finished. Said as what it is not, because the two
   // enums differ — a buy line has BENCH_PAID, INTERNAL and TRAINING and
   // a sell line has none of them — and a list of the live ones would go
   // stale on the next state somebody adds.
   const live = { notIn: ['ENDED', 'CANCELLED'] as never[] }
 
-  const [sellLines, buyCandidates] = await Promise.all([
-    prisma.sellContract.findMany({
-      where: { personId, state: live },
-      select: { id: true },
-      take: 20,
-    }),
-    prisma.buyContractCandidate.findMany({
-      where: { personId, state: 'ACTIVE', buyContract: { state: live } },
-      select: { buyContractId: true },
-      take: 20,
-    }),
-  ])
-
+  // Her lines, and what is on file for her on each, through the one
+  // reader the placement reads (lib/document-stages/paper-record): the
+  // papers against the line, about her and about either firm on it, typed
+  // by both firms' names, and what those firms asked her for and
+  // accepted. The fourth screen walk, R3: her firm's NDA with Northbend
+  // read "on file" on her placement and "Not on file" here, because this
+  // page never read a paper about the firm. A file nobody has examined is
+  // left to `papersAsHeld`, which says "sent, waiting" of it.
+  const lines = await linesOfPerson(personId, { live: true })
+  const onTheLines: HeldKeyRecord[] = (await heldOnRecord({ personId, firms: [], lines, examinedOnly: true }))
+    .map((h) => ({ ...h, validFrom: h.validFrom ?? null, expiresAt: h.expiresAt ?? null }))
   const onFile: HeldKeyRecord[] = held.map((v) => ({
     key: v.type,
     validFrom: v.validFrom ?? v.issuedAt ?? null,
@@ -266,10 +270,9 @@ async function whatSheOwes(
     received: WITH_THEM.includes(v.status),
   }))
 
-  const sets = await Promise.all([
-    ...sellLines.map((l) => requirementsFor({ sellContractId: l.id })),
-    ...buyCandidates.map((c) => requirementsFor({ buyContractId: c.buyContractId })),
-  ])
+  const sets = await Promise.all(
+    lines.map((l) => requirementsWhereWorkIsDone(l.sellContractId ? { sellContractId: l.sellContractId } : { buyContractId: l.buyContractId! }))
+  )
 
   const byKey = new Map<string, OutstandingItem>()
   for (const set of sets) {
@@ -284,7 +287,7 @@ async function whatSheOwes(
       // was built to prevent, arriving because nothing ever reached it.
       // The line's own set is the dictionary, so a paper filed against
       // "Hot floor induction" reads back to the type that asked for it.
-      held: [...onFile, ...papersAsHeld(papers, set.items)],
+      held: [...onFile, ...papersAsHeld(papers, set.items), ...onTheLines],
       owedBy: ['WORKER'],
       on,
     })
@@ -296,7 +299,12 @@ async function whatSheOwes(
       if (!already || (item.stopsWork && !already.stopsWork)) byKey.set(item.key, item)
     }
   }
-  return [...byKey.values()]
+  // What is on file and in date for her today, by kind, so a request still
+  // asking for one of them is not shown to her as asked (R3).
+  const inForce = (h: { validFrom: Date | null; expiresAt: Date | null }) =>
+    !(h.validFrom && h.validFrom.getTime() > on.getTime()) && !(h.expiresAt && h.expiresAt.getTime() < on.getTime())
+  const onFileKeys = [...new Set([...onFile, ...onTheLines].filter((h) => h.accepted && inForce(h)).map((h) => h.key))]
+  return { owed: [...byKey.values()], onFileKeys }
 }
 
 /** A `DocInstance` row, as the arithmetic needs it. */
@@ -308,6 +316,8 @@ type SignedPaperRow = {
   signedAt: Date | null
   countersignedAt: Date | null
   template: { name: string }
+  /** Who looked at it, and when: an upload holds once somebody did. */
+  examinedAt?: Date | null
 }
 
 /**
@@ -373,8 +383,11 @@ function papersAsHeld(
       key,
       validFrom: r.validFrom ?? signed ?? null,
       expiresAt: r.expiresAt ?? null,
-      accepted: r.status === 'SIGNED',
-      received: r.status === 'UPLOADED',
+      // An upload the firm examined is on file, the way the placement
+      // reads it; until somebody looks, it is with them (the release
+      // walk, R3: her NDA read "Not on file" while the placement held it).
+      accepted: r.status === 'SIGNED' || (r.status === 'UPLOADED' && !!r.examinedAt),
+      received: r.status === 'UPLOADED' && !r.examinedAt,
     })
   }
   return out
@@ -659,7 +672,7 @@ async function lineOwing(
   const tried = linesForWorker({ candidates, sellLines: chain, facts, key })
 
   for (const c of tried) {
-    const set = await requirementsFor(c.side === 'SELL' ? { sellContractId: c.lineId } : { buyContractId: c.lineId })
+    const set = await requirementsWhereWorkIsDone(c.side === 'SELL' ? { sellContractId: c.lineId } : { buyContractId: c.lineId })
     if (!set) continue
     const item = outstandingItems({
       items: set.items,
@@ -930,7 +943,7 @@ export async function PUT(request: NextRequest) {
   if (isForm) {
     const form = await request.formData().catch(() => null)
     if (!form) return refuse('That did not arrive. Pick the file again and send it.', 422, 'FILE_REQUIRED')
-    for (const k of OWN_PAPER_POSTED) {
+    for (const k of [...OWN_PAPER_POSTED, ...DEGREE_POSTED]) {
       const v = form.get(k)
       fields[k] = typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null
     }
@@ -946,7 +959,7 @@ export async function PUT(request: NextRequest) {
     }
   } else {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
-    for (const k of OWN_PAPER_POSTED) {
+    for (const k of [...OWN_PAPER_POSTED, ...DEGREE_POSTED]) {
       const v = body[k]
       fields[k] = typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null
     }
@@ -990,7 +1003,7 @@ export async function PUT(request: NextRequest) {
           validFrom: row.validFrom,
           expiresAt: row.expiresAt,
           edition: row.edition,
-          file: { create: { fileName: file.name, contentType: file.type || 'application/octet-stream', sizeBytes: file.bytes.byteLength, bytes: file.bytes, uploadedById: me } },
+          file: { create: { fileName: file.name, contentType: file.type || 'application/octet-stream', sizeBytes: file.bytes.byteLength, bytes: file.bytes, uploadedById: me, fileHash: fileHash(file.bytes) } },
         },
         select: { id: true },
       })
@@ -1009,6 +1022,11 @@ export async function PUT(request: NextRequest) {
           validFrom: row.validFrom,
           expiresAt: row.expiresAt,
           formEdition: row.edition,
+          // What a degree says beyond the school and the year, as she
+          // confirmed it (founder, 2026-11-03): read against her résumé.
+          ...(row.key === 'DEGREE'
+            ? { qualification: fields.qualification ?? null, fieldOfStudy: fields.fieldOfStudy ?? null, nameOnDocument: fields.nameOnDocument ?? null, honors: fields.honors ?? null }
+            : {}),
           uploadedById: me,
           // `credentialDetail` in lib/contract-clearance reads the number
           // and the state from here, so the renewal sentence can name them.
@@ -1028,6 +1046,7 @@ export async function PUT(request: NextRequest) {
           data: {
             verificationId: v.id, fileName: file.name, fileUrl: `/api/me/papers?file=${v.id}`,
             contentType: file.type || 'application/octet-stream', sizeBytes: file.bytes.byteLength, bytes: file.bytes,
+            fileHash: fileHash(file.bytes),
           },
         })
       }

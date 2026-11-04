@@ -1,3 +1,4 @@
+import { jobWorkCountry } from '@/lib/work-country'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getCallerContext, realPersonId } from '@/lib/api-context'
@@ -57,6 +58,7 @@ export async function POST(
         select: {
           id: true, title: true, skills: true, location: true,
           billMin: true, billMax: true, startDate: true,
+          workAuthRequired: true, workAuthBasis: true, workAuthCite: true,
         },
       },
     },
@@ -88,7 +90,7 @@ export async function POST(
   const companyId = caller.company!.id
 
   // ── What the checks read ────────────────────────────────────────────
-  const [profile, hold, requiredDocs] = await Promise.all([
+  const [profile, hold, requiredDocs, work] = await Promise.all([
     prisma.consultantProfile.findFirst({
       where: { personId: submission.personId },
       select: { skills: true, availableFrom: true, workAuth: true },
@@ -102,6 +104,8 @@ export async function POST(
       where: { subjectType: 'PERSON', subjectId: submission.personId },
       select: { status: true, template: { select: { name: true } } },
     }),
+    // Where the work is done, so a no-sponsorship rule is applied only in the US.
+    jobWorkCountry(submission.requirementId, prisma, { personId: submission.personId }),
   ])
 
   const pkg: Package = {
@@ -124,12 +128,12 @@ export async function POST(
     availableFrom: profile?.availableFrom ?? null,
     startDate: submission.requirement.startDate,
     workAuth: profile?.workAuth ?? null,
-    workAuthRequired: null,
-    // Not read here yet. The requirement carries the basis; this route
-    // does not load it, and passing null keeps the rule at WARN rather
-    // than inventing a lawful reason it was never given.
-    workAuthBasis: null,
-    workAuthCite: null,
+    // The job's own three facts. A mismatch fails only where the job
+    // recorded a lawful basis; with none it warns (lib/work-authorisation).
+    workAuthRequired: submission.requirement.workAuthRequired,
+    workAuthBasis: submission.requirement.workAuthBasis,
+    workAuthCite: submission.requirement.workAuthCite,
+    work,
     consented: hold?.consentedAt != null,
   }
 

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { degreeOnRecord, isDegreePaper } from '@/lib/document-stages/degree-check'
 import { examineNeedsOf, type ExamineNeeds } from '@/lib/document-stages/examine-form'
 import { getCallerContext } from '@/lib/api-context'
 import { isConsultantSeat, staffOnly } from '@/lib/seat'
 import { prisma } from '@/lib/db'
 import { logBulkAccess } from '@/lib/access-log'
 import { BUILT_IN } from '@/lib/document-type'
-import { licenseFactsFrom, mayAskOnTies, typeKeyForTemplate, KEPT_BY_HOLDER } from '@/lib/document-request'
+import { isWorkAuthQuestion, sponsorshipReading, licenseFactsFrom, mayAskOnTies, typeKeyForTemplate, KEPT_BY_HOLDER, libraryOf, holdsPaperworkDesk } from '@/lib/document-request'
 import { jurisdictionOf, mayAskOfACandidate } from '@/lib/document-stages'
 import { paperSubject } from '@/lib/document-stages/firm-papers'
 import { hasPermission } from '@/lib/permissions'
@@ -116,6 +117,7 @@ export async function GET(request: NextRequest) {
         template: { select: { id: true, name: true, audience: true, needsSignature: true } },
         sellContract: { select: { person: { select: { name: true } }, clientCompany: { select: { name: true } } } },
         buyContract: { select: { candidates: { where: { state: 'ACTIVE' }, take: 1, select: { person: { select: { name: true } } } } } },
+        file: { select: { fileHash: true } },
       },
       orderBy: [{ sentAt: { sort: 'desc', nulls: 'last' } }, { signedAt: { sort: 'desc', nulls: 'last' } }],
     })
@@ -164,9 +166,25 @@ export async function GET(request: NextRequest) {
             ? `${i.sellContract?.person.name ?? 'Somebody'} at ${i.sellContract?.clientCompany.name ?? 'a client'}`
             : i.buyContract?.candidates[0]?.person.name ?? 'Somebody'
 
+    // ── A degree, read against the record, beside the paper ──
+    // What does not look right is said to the roles whose work papers are,
+    // never to the person or a supplier's seat (founder, 2026-11-03).
+    const readsDegrees = !isConsultantSeat(caller) && holdsPaperworkDesk(caller.permissions ?? [])
+    const degreeOf = new Map<string, Awaited<ReturnType<typeof degreeOnRecord>>>()
+    if (readsDegrees) {
+      for (const i of instances) {
+        const about = aboutOf(i)
+        if (about.kind !== 'PERSON' || !['UPLOADED', 'SIGNED', KEPT_BY_HOLDER].includes(i.status)) continue
+        if (!isDegreePaper(itemOf.get(i.subjectId)?.key ?? null, i.template.name)) continue
+        degreeOf.set(i.id, await degreeOnRecord({ personId: about.personId, fileHashes: i.file?.fileHash ? [i.file.fileHash] : [] }))
+      }
+    }
+
     return NextResponse.json({
       data: {
         instances: instances.map((i) => ({
+          // A degree's reading: the sentence to HR and the three doors, or null.
+          degree: degreeOf.has(i.id) ? { says: degreeOf.get(i.id)!.says, verified: degreeOf.get(i.id)!.verified, doors: degreeOf.get(i.id)!.doors } : null,
           id: i.id,
           template: i.template,
           subjectType: i.subjectType,
@@ -195,6 +213,10 @@ export async function GET(request: NextRequest) {
           // A license's number, issuer and expiry as the sender gave them,
           // so the examine step opens with them filled in.
           licenseFacts: licenseFactsFrom(i.note),
+          // The screening answer on sponsorship: the person's own words
+          // stay in `note`; this says how the rule read them, or that it
+          // could not, so HR reads the words (2026-11-03).
+          sponsorshipRead: isWorkAuthQuestion(i.template.name) ? sponsorshipReading(i.note) : null,
         })),
         total: instances.length,
       },
@@ -214,17 +236,19 @@ export async function GET(request: NextRequest) {
     orderBy: { name: 'asc' },
   })
 
+  const library = libraryOf(templates.map((t) => ({
+    id: t.id,
+    name: t.name,
+    audience: t.audience,
+    needsSignature: t.needsSignature,
+    hasFile: !!t.fileUrl,
+    instanceCount: t._count.instances,
+  })))
   return NextResponse.json({
     data: {
-      templates: templates.map((t) => ({
-        id: t.id,
-        name: t.name,
-        audience: t.audience,
-        needsSignature: t.needsSignature,
-        hasFile: !!t.fileUrl,
-        instanceCount: t._count.instances,
-      })),
-      total: templates.length,
+      // One row per paper, in American English (`libraryOf`).
+      templates: library,
+      total: library.length,
     },
   })
 }

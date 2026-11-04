@@ -294,8 +294,11 @@ const CLIENT: Record<PageKey, Words> = {
     create: null,
   },
   consultants: {
-    title: 'Contractors',
-    subtitle: 'People working at your sites. Skills, work authorization, and tenure.',
+    // "Candidates" at a client since 2026-11-03 (founder: "Contracts, not
+    // Contractors"): the people this client has met through its suppliers
+    // and would reach out to again. Who works here today is on Contracts.
+    title: 'Candidates',
+    subtitle: 'Everyone your suppliers put in front of you: who is here now, who worked here before, and who you would ask for again.',
     create: null,
   },
 }
@@ -318,7 +321,7 @@ const BOOK: Record<PageKey, string> = {
   timesheets: 'hours',
   invoices: 'invoice receipts',
   expenses: 'expenses',
-  consultants: 'contractors',
+  consultants: 'candidates',
 }
 
 /**
@@ -444,6 +447,8 @@ export function sectionOfHref(
     worker: reader?.worker,
     permissions: reader?.permissions,
     termsHref: reader?.termsHref ?? null,
+    // The hat the sidebar is drawn in (2026-11-03), so the eyebrow reads the same menu.
+    hat: reader?.hat ?? null,
   }), href)
 }
 
@@ -525,6 +530,8 @@ export interface ReaderFacts {
   permissions?: readonly string[] | null
   /** Where this person's own terms wait, if anywhere. */
   termsHref?: string | null
+  /** The hat worn: the firm's menu or the person's own (`hat` in lib/nav-table). */
+  hat?: 'firm' | 'you' | null
 }
 
 /**

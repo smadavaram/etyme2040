@@ -5,7 +5,7 @@ import type { ExamineNeeds } from '@/lib/document-stages/examine-form'
 import { readJson } from '@/lib/read-response'
 import { usePageSection } from '@/components/page-section'
 import { Chip, EmptyState, FormMessage, LoadingState, PageHead, RefusedState, type ChipTone } from '@/components/ui'
-import { statusWord, audienceWord, askTheBooks, booksSays, type BooksReading } from '@/lib/document-request'
+import { paperWord, waitsToBeExamined, audienceWord, askTheBooks, booksSays, type BooksReading } from '@/lib/document-request'
 import { ExaminePaper, type ExamineRow } from './examine'
 import { plainDate } from '@/lib/plain-date'
 import { OwnPapers, readOwnPapers } from './own-papers'
@@ -55,7 +55,11 @@ interface Request_ {
   hasSignedFile: boolean
   fileName: string | null
   note: string | null
+  /** How the rule read a sponsorship answer, or that it could not. */
+  sponsorshipRead?: string | null
   examinedAt?: string | null
+  /** A degree read against the record: the sentence to HR and the doors, or null. */
+  degree?: { says: string | null; verified: string | null; doors: { kind: 'TRANSCRIPT' | 'PROVIDER' | 'SEND_BACK'; says: string }[] } | null
   expiresAt?: string | null
   examineNeeds?: Partial<ExamineNeeds>
   licenseFacts?: { licenseNumber: string; issuer: string; expiresAt: string } | null
@@ -161,10 +165,13 @@ export default function DocumentsPage() {
     } catch (e: any) { setError(e.message) }
   }
 
-  const tone = (status: string): ChipTone =>
-    status === 'SIGNED' || status === 'UPLOADED' ? 'verified'
-      : status === 'SENT' ? 'attention'
-        : 'passive'
+  // Green only once somebody examined it: a paper that arrived is waiting
+  // on this firm, which is attention, not done (the second screen walk).
+  const tone = (r: Request_): ChipTone =>
+    waitsToBeExamined(r) ? 'attention'
+      : (r.status === 'SIGNED' || r.status === 'UPLOADED' || r.status === 'KEPT') ? 'verified'
+        : r.status === 'SENT' ? 'attention'
+          : 'passive'
 
   // A library that could not be read is the sentence alone. Not
   // "Requests 0" and a form to ask with, which say there is nothing here
@@ -197,6 +204,8 @@ export default function DocumentsPage() {
 
       {teamFirm && <OwnPapers about="MY_FIRM" heading="Company paperwork" />}
 
+      {/* Where "Ask for the transcript" on a degree lands. */}
+      <div id="ask" />
       {!onePersonFirm && <section className="mb-8">
         <h2 className="font-serif text-lg text-etyme-ink mb-3">Ask somebody for a document</h2>
         <form onSubmit={askFor} className="bg-etyme-surface border border-etyme-rule rounded-lg p-4 flex flex-wrap gap-3 items-end">
@@ -245,12 +254,28 @@ export default function DocumentsPage() {
               <div className="flex-1 min-w-[220px]">
                 <div className="text-sm text-etyme-ink">{r.template.name} <span className="text-etyme-muted">· {r.subject}</span></div>
                 <div className="text-xs text-etyme-faint tabular-nums mt-0.5">
-                  {r.signedAt ? `${statusWord(r.status)} ${new Date(r.signedAt).toLocaleDateString()}` : r.sentAt ? `Asked ${new Date(r.sentAt).toLocaleDateString()}` : 'Not asked yet'}
+                  {r.signedAt ? `${r.status === 'SIGNED' ? 'Signed' : 'Arrived'} ${plainDate(r.signedAt)}` : r.sentAt ? `Asked ${new Date(r.sentAt).toLocaleDateString()}` : 'Not asked yet'}
                   {r.fileName ? ` · ${r.fileName}` : ''}
                   {r.note ? ` · ${r.note}` : ''}
                 </div>
+                {r.sponsorshipRead && <div className="text-xs text-etyme-muted mt-0.5">{r.sponsorshipRead}</div>}
+                {/* A degree read against the record: said beside the paper, and HR decides (2026-11-03). */}
+                {r.degree?.says && (
+                  <div className={`text-xs mt-1 ${r.degree.verified ? 'text-etyme-verified' : 'text-etyme-attention'}`}>
+                    {r.degree.says}
+                    {r.degree.doors.length > 0 && (
+                      <span className="flex flex-wrap gap-3 mt-1">
+                        {r.degree.doors.map((d) => d.kind === 'TRANSCRIPT'
+                          ? <a key={d.kind} href="#ask" className="text-etyme-action hover:underline">{d.says}</a>
+                          : d.kind === 'PROVIDER'
+                            ? <a key={d.kind} href="/dashboard/compliance" className="text-etyme-action hover:underline">{d.says}</a>
+                            : <button key={d.kind} type="button" onClick={() => setExamining(r)} className="text-etyme-action hover:underline">{d.says}</button>)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
-              <Chip tone={tone(r.status)}>{statusWord(r.status)}</Chip>
+              <Chip tone={tone(r)}>{paperWord(r)}</Chip>
               {(r.status === 'PENDING' || r.status === 'SENT') && (
                 <button onClick={() => send(r.id)} className="text-xs text-etyme-action hover:underline">
                   {r.status === 'PENDING' ? 'Ask for it' : 'Ask again'}

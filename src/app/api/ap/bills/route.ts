@@ -18,6 +18,7 @@ import {
 import { amount } from '@/lib/money-display'
 import { formatDay } from '@/lib/format-date'
 import { readLines } from '@/lib/money/keyed-lines'
+import { paidSellLine, clientLinesFrom } from '@/lib/money/paid-line'
 import {
   booksFor, noteMoneyRead, seatMayPay, seatedRefusal, moneyTrailFor,
 } from '@/lib/money/seated-books'
@@ -107,7 +108,8 @@ export async function POST(request: NextRequest) {
   const number = String(body.number ?? '').trim()
   const currency = String(body.currency ?? 'USD').toUpperCase()
   const buyContractId = body.buyContractId ? String(body.buyContractId) : null
-  const workOrderId = body.workOrderId ? String(body.workOrderId) : null
+  const sellContractId = !buyContractId && body.sellContractId ? String(body.sellContractId) : null
+  let workOrderId = body.workOrderId ? String(body.workOrderId) : null
   const projectOrderId = body.projectOrderId ? String(body.projectOrderId) : null
   const payWhenPaid = body.payWhenPaid === true
 
@@ -272,6 +274,75 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Only from a firm this firm pays ─────────────────────────────────
+  //
+  // An invoice receipt with no line named is still from a firm this firm
+  // pays: a buy line of ours to it, a line of its billed to us, or an order
+  // we raised to it. The list the form offers is exactly those firms
+  // (`suppliersFor` in lib/money/receipt-options); a receipt typed against
+  // any other firm is refused in a sentence rather than recorded as owed.
+  if (!buyContractId && !sellContractId) {
+    const [buys, sells, orders] = await Promise.all([
+      prisma.buyContract.count({ where: { companyId, vendorCompanyId } }),
+      prisma.sellContract.count({ where: { companyId: vendorCompanyId, clientCompanyId: companyId } }),
+      prisma.workOrder.count({ where: { issuedById: companyId, issuedToId: vendorCompanyId } }),
+    ])
+    if (buys + sells + orders === 0) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'NOT_A_SUPPLIER',
+            message:
+              `${reading.companyName} does not pay ${vendor.name}: there is no line with them and no order raised to them. ` +
+              `An invoice receipt is recorded only from a firm you pay. Raise the order or record the line first.`,
+            field: 'vendorCompanyId',
+          },
+        },
+        { status: 422 }
+      )
+    }
+  }
+
+  // ── A client's side: the supplier's line whose customer it is ───────
+  //
+  // A client holds no buy line; what it pays is the supplier's sell line
+  // to it (lib/money/paid-line). Second screen walk, 2026-11-03: the
+  // client's AP clerk could never record a typed-in invoice receipt,
+  // because the form offered buy lines only. The receipt draws on the
+  // client's own order behind that line.
+  let clientPeople: string[] | null = null
+  if (sellContractId) {
+    const sell = await paidSellLine(sellContractId, companyId)
+    if (!sell || sell.vendorCompanyId !== vendorCompanyId) {
+      return NextResponse.json(
+        { error: { code: 'NOT_FOUND', message: `No line of ${vendor.name}’s is billed to you here.`, field: 'sellContractId' } },
+        { status: 404 }
+      )
+    }
+    workOrderId ??= sell.workOrderId
+    clientPeople = sell.candidates.map((c) => c.personId)
+    // A total cannot say whose weeks it bills where the order holds more
+    // than one of this supplier's people, and a receipt the record cannot
+    // read back is not let in.
+    if (!linesFromBody(body)) {
+      const sharing = await clientLinesFrom(companyId, vendorCompanyId, sell.workOrderId)
+      if (sharing.length > 1) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'VALIDATION',
+              message:
+                `${vendor.name} has ${sharing.length} people on this order, so a total cannot say whose weeks it bills. ` +
+                `Record this invoice with its lines, one per week.`,
+              field: 'lines',
+            },
+          },
+          { status: 422 }
+        )
+      }
+    }
+  }
+
   const duplicate = await prisma.vendorBill.findUnique({
     where: { companyId_vendorCompanyId_number: { companyId, vendorCompanyId, number } },
     select: { id: true, totalCents: true, receivedAt: true },
@@ -328,6 +399,7 @@ export async function POST(request: NextRequest) {
       vendorName: vendor.name,
       number,
       buyContractId,
+      sellContractId,
       workOrderId,
       periodStart,
       periodEnd,
@@ -425,7 +497,7 @@ export async function POST(request: NextRequest) {
     const spanTo = spans.reduce((a, x) => (x.to > a ? x.to : a), spans[0].to)
     const people = buyContractId
       ? (await prisma.buyContractCandidate.findMany({ where: { buyContractId }, select: { personId: true } })).map((c) => c.personId)
-      : null
+      : clientPeople
     const generated = await prisma.invoice.findMany({
       where: {
         status: { notIn: ['DRAFT', 'CANCELLED', 'VOID'] },
@@ -965,4 +1037,9 @@ export async function GET(request: NextRequest) {
         'wave through sorts above a rate query ten times its size.',
     },
   })
+}
+
+/** Whether the body carries lines at all; their shape is `readLines`'. */
+function linesFromBody(body: { lines?: unknown }): boolean {
+  return Array.isArray(body.lines) && body.lines.length > 0
 }

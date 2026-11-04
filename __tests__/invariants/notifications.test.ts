@@ -477,3 +477,107 @@ describe('the address a notice links to', () => {
     }
   })
 })
+
+// ── A paper a person files for herself (the second screen walk, 2026-11-03) ──
+
+import { paperExaminers, papersAreTheirWork, EXAMINERS_TOLD } from '@/lib/notify/paper-examiners'
+
+describe('who hears that a paper arrived', () => {
+  const OWNER = { personId: 'owner', permissions: ['*'] }
+  const HR = { personId: 'farah', permissions: ['consultants.read', 'consultants.write', 'assignments.read', 'timesheets.read', 'governance.read'] }
+  const COMPLIANCE = { personId: 'comp', permissions: ['consultants.read', 'assignments.read', 'timesheets.read', 'governance.read', 'privacy.manage'] }
+  const RECRUITER = { personId: 'rec', permissions: ['consultants.read', 'consultants.write', 'requirements.read', 'submissions.create'] }
+  const ENGINEER = (id: string) => ({ personId: id, permissions: ['assignments.read', 'timesheets.read'] })
+
+  it('a worker filing her own paper tells HR and the compliance officer, and never the Owner, her colleagues or herself', () => {
+    const seats = [OWNER, HR, COMPLIANCE, RECRUITER, ENGINEER('felix'), ENGINEER('deepa'), ENGINEER('karthik'), ENGINEER('ifeoma')]
+    const told = paperExaminers(seats, 'ifeoma')
+    expect(told).toEqual(['farah', 'comp'])
+    for (const nobody of ['owner', 'felix', 'deepa', 'karthik', 'ifeoma', 'rec']) expect(told).not.toContain(nobody)
+  })
+
+  it('at a firm with nobody in HR, a worker’s own I-9 is one notice, to the Owner, and not to the Admin', () => {
+    const ADMIN = { personId: 'admin', permissions: ['consultants.read', 'governance.read', 'settings.manage', 'team.manage'] }
+    const seats = [ADMIN, OWNER, RECRUITER, ENGINEER('felix'), ENGINEER('deepa'), ENGINEER('ifeoma')]
+    expect(paperExaminers(seats, 'ifeoma')).toEqual(['owner'])
+  })
+
+  it('at a firm with neither HR nor an Owner seated, the Admin hears it, never nobody', () => {
+    const ADMIN = { personId: 'admin', permissions: ['consultants.read', 'governance.read', 'settings.manage'] }
+    expect(paperExaminers([ADMIN, ENGINEER('ifeoma')], 'ifeoma')).toEqual(['admin'])
+  })
+
+  it('the Owner filing her own paper at a firm with no HR tells whoever else runs the firm', () => {
+    const ADMIN = { personId: 'admin', permissions: ['consultants.read', 'governance.read', 'settings.manage'] }
+    expect(paperExaminers([OWNER, ADMIN], 'owner')).toEqual(['admin'])
+  })
+
+  it('HR filing her own paper is not told about it, and the compliance officer is', () => {
+    expect(paperExaminers([HR, COMPLIANCE], 'farah')).toEqual(['comp'])
+  })
+
+  it('a firm with nobody whose work is papers is still heard by whoever may examine one, never by nobody', () => {
+    expect(paperExaminers([RECRUITER, ENGINEER('felix')], 'felix')).toEqual(['rec'])
+  })
+
+  it('one notice per examining seat: a person with two seats is told once, and no arrival tells more than ten', () => {
+    expect(paperExaminers([HR, HR], null)).toEqual(['farah'])
+    const many = Array.from({ length: 15 }, (_, i) => ({ personId: `hr${i}`, permissions: HR.permissions }))
+    expect(paperExaminers(many, null)).toHaveLength(EXAMINERS_TOLD)
+  })
+
+  it('a recruiter may open a paper and is not told every arrival; HR and the compliance officer are', () => {
+    expect(papersAreTheirWork(RECRUITER.permissions)).toBe(false)
+    expect(papersAreTheirWork(HR.permissions)).toBe(true)
+    expect(papersAreTheirWork(COMPLIANCE.permissions)).toBe(true)
+    expect(papersAreTheirWork(OWNER.permissions)).toBe(true)
+  })
+})
+
+// ── A degree and the start's one question (decided by the founder, 2026-11-03) ──
+
+import * as degreeWords from '@/lib/notify/degree-and-start'
+
+describe('the words for a degree and the start', () => {
+  const W = degreeWords
+  const all = [
+    W.degreeYearDiffers({ certificateYear: 2016, resumeYear: 2019 }),
+    W.degreeYearAhead({ certificateYear: 2028, on: new Date('2026-11-03T00:00:00Z') }),
+    W.degreeNameDiffers({ printedName: 'R. Mehta', personName: 'Priya Raman' }),
+    W.degreeSchoolDiffers({ certificateSchool: 'Pune University', resumeSchool: 'Anna University' }),
+    W.degreeNotWhatTheJobAsks({ jobTitle: 'ICU nurse', required: 'a nursing degree', onPaper: 'a degree in biology' }),
+    W.sameFileFiledBefore({ otherPersonName: 'Rahul Mehta' }),
+    W.degreeVerifiedBy({ provider: 'Sterling', reference: '4471', on: new Date('2026-03-12T00:00:00Z') }),
+    W.degreeAskedOfYou({ firmName: 'Northbend' }),
+    W.degreeSentBack({ firmName: 'Northbend', reason: 'The name on it is not yours.' }),
+    W.START_QUESTION,
+    W.notThePersonInterviewed({ saidBy: 'Dana Whitfield' }),
+  ]
+
+  it('every degree and start sentence names who, what and the door, in the trade’s words', () => {
+    expect(W.degreeYearDiffers({ certificateYear: 2016, resumeYear: 2019 }))
+      .toBe('The certificate says 2016; the résumé says 2019 for the same degree. Ask for the transcript, send it to a verification provider, or send it back.')
+    expect(W.sameFileFiledBefore({ otherPersonName: 'Rahul Mehta' }))
+      .toBe('This file was already filed by Rahul Mehta. Both records keep it; check which is right.')
+    expect(W.degreeAskedOfYou({ firmName: 'Northbend' }))
+      .toBe('Northbend asks for your degree certificate before the start. Upload it once; it stays on your record for every firm you work with.')
+    expect(W.START_QUESTION).toBe('Is the person who started the person you interviewed?')
+    expect(W.notThePersonInterviewed({ saidBy: 'Dana Whitfield' }))
+      .toBe('Dana Whitfield says the person who started is not the person interviewed. The start is on hold until HR confirms who is on site.')
+    const n = W.notThePersonNotice({ saidBy: 'Dana Whitfield', personName: 'Priya Raman', jobTitle: 'Java developer' })
+    expect(n.title).toBe('Start on hold: Priya Raman, Java developer')
+    // Each warning to HR ends on what to do.
+    for (const s of all.slice(0, 4)) expect(s.endsWith(W.DEGREE_DOORS)).toBe(true)
+    expect(W.degreeVerifiedBy({ provider: 'Sterling', reference: '4471', on: new Date('2026-03-12T00:00:00Z') })).toBe('Sterling verified the degree on Mar 12, 2026, reference 4471. Nothing more to do on it.')
+  })
+
+  it('no degree or start sentence apologizes, accuses, uses a pronoun for the person, or prints a code', () => {
+    for (const s of all) {
+      expect(s).not.toMatch(/sorry|apolog|unfortunately|please/i)
+      expect(s).not.toMatch(/fraud|fake|forg|lie|lying|suspicious/i)
+      expect(s).not.toMatch(/\b(he|she|his|her|him|hers)\b/i)
+      expect(s).not.toMatch(/\b[A-Z]{2,}_[A-Z_]+\b/)
+      expect(s).not.toMatch(/\bdesk\b|program office/i)
+    }
+  })
+})

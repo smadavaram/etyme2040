@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { as, req, json, prisma, freshWorld } from './harness'
 
-import { POST as activate } from '@/app/api/contracts/[id]/activate/route'
+import { POST as activate, GET as preflight } from '@/app/api/contracts/[id]/activate/route'
+import { viewBefore } from '@/app/dashboard/contracts/activate-view'
 
 /**
  * A contract cannot go live on missing paperwork.
@@ -41,6 +42,8 @@ describe('activating a contract on paperwork', () => {
   let personId: string
   let i9Id: string
 
+  const ask = async () =>
+    json(await preflight(req('GET', `/api/contracts/${contractId}/activate`), { params: Promise.resolve({ id: contractId }) }))
   const post = async (body: Record<string, unknown>) =>
     json(await activate(req('POST', `/api/contracts/${contractId}/activate`, body), { params: Promise.resolve({ id: contractId }) }))
 
@@ -91,6 +94,27 @@ describe('activating a contract on paperwork', () => {
     expect(still.state).toBe('DRAFT')
   })
 
+  it('the panel asks the start before it draws: the employer that may start reads a block and no reason box', async () => {
+    as(seat)
+    const r = await ask()
+    expect(r.status).toBe(200)
+    expect(r.body.data.may).toBe(true)
+    expect(r.body.data.papers.outcome).toBe('BLOCK')
+    const view = viewBefore(r.body.data)
+    expect(view.button).toBe('Activate')
+    expect(view.box).toBeNull()
+    expect(view.says).toMatch(/cannot start without/)
+  })
+
+  it('a firm not party to the placement is refused the panel in the start’s own words, and the refusal is logged', async () => {
+    as('world-brightmoor@demo.etyme.local')
+    const r = await ask()
+    expect(r.status).toBe(403)
+    expect(r.body.error.code).toBe('NOT_A_PARTY')
+    const row = await prisma.accessLog.findFirst({ where: { subjectId: personId, allowed: false, action: 'COMPLIANCE_CHECK' } })
+    expect(row).not.toBeNull()
+  })
+
   it('with an I-9 but no background check, it warns and asks for a reason', async () => {
     i9Id = (await prisma.verification.create({
       data: {
@@ -116,6 +140,15 @@ describe('activating a contract on paperwork', () => {
     expect(still.state).toBe('DRAFT')
   })
 
+  it('with an I-9 and no background check the panel draws Activate with a reason and its box', async () => {
+    as(seat)
+    const r = await ask()
+    expect(r.body.data.papers.outcome).toBe('WARN')
+    const view = viewBefore(r.body.data)
+    expect(view.button).toBe('Activate with a reason')
+    expect(view.box).toEqual({ answering: ['DOCUMENTS_WARN'] })
+  })
+
   it('an I-9 completed from a passport recorded behind it reads as backed at the start, the way the placement page reads it', async () => {
     // Found by the simulation, 2026-10-20: the start read neither the
     // form's edition nor the documents behind it, so every I-9 read "on
@@ -135,6 +168,22 @@ describe('activating a contract on paperwork', () => {
     expect(r.body.error.message).not.toMatch(/nothing behind it/)
     // The background check still warns: only the I-9 changed.
     expect(r.body.error.chasing.map((c: { key: string }) => c.key)).toContain('BACKGROUND_CHECK')
+  })
+
+  it('a hiring manager’s No on who started is asked a reason at the start, never a block, and a later Yes clears it', async () => {
+    await prisma.sellContract.update({ where: { id: contractId }, data: { startIdentityConfirmed: false, startIdentityConfirmedById: seatPersonId, startIdentityConfirmedAt: new Date() } })
+    as(seat)
+    const asked = await post({ action: 'activate', overrideReason: 'Background check follows Monday.', answering: ['DOCUMENTS_WARN'] })
+    expect(asked.status).toBe(422)
+    expect(asked.body.error.code).toBe('START_IDENTITY_WARN')
+    expect(asked.body.error.message).toMatch(/is not the Nobody Onfile who was interviewed\. Check with the supplier first, or give a reason to start anyway\./)
+    expect((await prisma.sellContract.findUniqueOrThrow({ where: { id: contractId } })).state).toBe('DRAFT')
+    // The same hiring manager says Yes: the question is gone and only the paperwork is asked.
+    await prisma.sellContract.update({ where: { id: contractId }, data: { startIdentityConfirmed: true } })
+    as(seat)
+    const again = await post({ action: 'activate' })
+    expect(again.body.error.code).toBe('DOCUMENTS_WARN')
+    expect(again.body.error.warnings.map((w: { code: string }) => w.code)).toEqual(['DOCUMENTS_WARN'])
   })
 
   it('with a reason recorded, it proceeds — and the reason travels with the record', async () => {

@@ -40,6 +40,8 @@ import { jobApart } from '@/app/api/requisitions/words'
 import { placeOf } from '@/lib/job-site'
 import { todayReads } from '@/lib/today-page'
 import { GET as benchRoute } from '@/app/api/bench/route'
+import { GET as profitabilityRoute } from '@/app/api/profitability/route'
+import { marginRefusal, type MarginRow } from './ask'
 import { GET as ourBenchRoute } from '@/app/api/bench/ours/route'
 import { GET as submissionsRoute } from '@/app/api/submissions/route'
 import { GET as complianceRoute } from '@/app/api/compliance/route'
@@ -70,7 +72,7 @@ import {
   hrefFor, WEEKS_SHOWN, deskRefusal, LIMIT_IS_THE_CLIENTS, SMALL_MODEL,
   type Readers, type SubmissionJob, type VarianceReceipt, type WaitingItem, type LedgerLine,
   matchPerson, billFromPayload, billItemTitle, BILL_SEND, RECEIPT_APPROVE, RECEIPT_PAY,
-  putForwardFromPayload, putForwardItemTitle, PUT_FORWARD, START_PAPERS, PAPERS_STEP_TEXT,
+  putForwardFromPayload, putForwardItemTitle, questionTitleFrom, PUT_FORWARD, START_PAPERS, PAPERS_STEP_TEXT,
   type HeldBill, type Billing, type RollRow, type BenchRow, type UnbilledRow, type UnpaidRow, type AppliedRow, type PaperHeld, type PaperRun,
   type OtherWaiting, type LimitEntry, type SpendReceipt, type WeekRow, type ToldReceipt, type Named, type Verdict, type SetupRead,
 } from './ask'
@@ -401,6 +403,19 @@ export function readersFor(
       const sendable = bills.length
         ? await maySendBills({ personId: caller.person.id, companyId: caller.company.id, permissions: caller.permissions }, bills.map((q) => q.entityId))
         : new Map()
+      // Each question by what it is about, by name: the person and the job,
+      // the number, the person (release walk three, 2026-11-03). Never the
+      // act kind's description, which is the role contract's words.
+      const unnamed = questions.filter((q) => !q.label)
+      const payloads = unnamed.length
+        ? new Map((await prisma.twinApproval.findMany({ where: { id: { in: unnamed.map((q) => q.id) } }, select: { id: true, twinAction: { select: { payload: true } } } }))
+          .map((r) => [r.id, r.twinAction.payload] as const))
+        : new Map<string, unknown>()
+      const personIds = unnamed.filter((q) => q.entityType === 'Person').map((q) => q.entityId)
+      const personNames = personIds.length
+        ? new Map((await prisma.person.findMany({ where: { id: { in: personIds } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]))
+        : new Map<string, string>()
+      if (personIds.length) logPeople(personIds, 'Read in Ask Etyme: what waits on somebody else')
       return questions
         .map((q) => {
           const verdict = q.action === BILL_SEND && q.entityType === 'Invoice' ? sendable.get(q.entityId) : undefined
@@ -410,7 +425,8 @@ export function readersFor(
           return {
             // A bill this firm drafted to send upward is a bill; only what a
             // supplier sent in is an invoice receipt.
-            title: q.label ?? (q.action === BILL_SEND ? 'A drafted bill' : q.entityType === 'Invoice' ? 'An invoice receipt' : TWIN_ACTS[q.action]?.says ?? 'A question'),
+            title: q.label ?? questionTitleFrom(q.action, payloads.get(q.id), personNames.get(q.entityId)) ??
+              (q.action === BILL_SEND ? 'A drafted bill' : q.entityType === 'Invoice' ? 'An invoice receipt' : ''),
             noun: q.action === BILL_SEND ? 'bill' : q.entityType === 'Invoice' ? 'invoice receipt' : 'question',
             desks: desksHolding(q.needsPermission as Permission, caller.company!.kind),
             own,
@@ -888,6 +904,7 @@ export function readersFor(
         where: { id: { in: [...submissionIds] }, toCompanyId: companyId },
         select: {
           id: true,
+          submittedAt: true,
           requirement: { select: { id: true, companyId: true, title: true, location: true, startDate: true, createdAt: true, site: { select: { name: true } } } },
         },
       })
@@ -903,7 +920,7 @@ export function readersFor(
       for (const s of subs) {
         const job = s.requirement
         const others = alike.filter((r) => r.companyId === job.companyId && r.title === job.title && r.id !== job.id)
-        out.set(s.id, { requirementId: job.id, apart: jobApart(facts(job), others.map(facts)) })
+        out.set(s.id, { requirementId: job.id, apart: jobApart(facts(job), others.map(facts)), putForwardOn: s.submittedAt.toISOString().slice(0, 10) })
       }
       return out
     },
@@ -1012,6 +1029,55 @@ export function readersFor(
           reason: 'Read in Ask Etyme: who is on the bench',
         })
       }
+      return { ok: true as const, rows }
+    },
+
+    async margins() {
+      const company = caller.company
+      if (!ownCompany || !company || !request) return { ok: false as const, says: 'A firm’s margin is read at your own company; switch to it first.' }
+      if (company.kind === 'CLIENT') return { ok: false as const, ...marginRefusal('CLIENT') }
+      // The Profitability page's own gate, named before the read: the seat
+      // that does not hold it is told who does (release walk three, 2026-11-03).
+      if (!hasAnyPermission(caller.permissions, ['margin.read', 'pnl.read'])) {
+        return { ok: false as const, says: deskRefusal('reads what your placements earn', 'margin.read', company.kind) }
+      }
+      // The page's own read, in-process under this seat: one list, read by
+      // both doors, and no margin computed a second way here.
+      const url = new URL(request.url)
+      url.pathname = '/api/profitability'
+      url.search = '?by=contract&scope=all'
+      const res = await profitabilityRoute(new NextRequest(url, { headers: request.headers }))
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        return {
+          ok: false as const,
+          says: typeof body?.error?.message === 'string' ? body.error.message : 'Profitability could not be read just now, so no margin is said. Try again in a minute.',
+          links: [{ label: 'Open Profitability', href: '/dashboard/profitability' }],
+        }
+      }
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+      const rows: MarginRow[] = (Array.isArray(body?.data?.rows) ? body.data.rows : [])
+        .filter((r: any) => typeof r?.person?.name === 'string' && typeof r?.contractId === 'string')
+        .map((r: any): MarginRow => {
+          const agreed = r.agreed ?? {}
+          const profit = r.profit ?? null
+          return {
+            personId: String(r.person.id ?? ''),
+            person: r.person.name,
+            client: typeof r.client?.name === 'string' ? r.client.name : null,
+            live: r.live === true,
+            spreadMinor: num(agreed.spreadRateCents),
+            spreadPct: num(agreed.pct),
+            spreadMissing: typeof agreed.refusedBecause === 'string' ? agreed.refusedBecause : null,
+            earnedMinor: profit && !profit.costUnknown ? num(profit.marginCents) : null,
+            earnedRevenueMinor: profit ? num(profit.revenueCents) : null,
+            earnedPct: profit && !profit.costUnknown ? num(profit.marginPct) : null,
+            currency: typeof agreed.currency === 'string' && agreed.currency ? agreed.currency : typeof r.billing?.currency === 'string' ? r.billing.currency : 'USD',
+            href: `/dashboard/placements/${r.contractId}`,
+          }
+        })
+      const ids = [...new Set(rows.map((r) => r.personId).filter(Boolean))]
+      if (ids.length) logPeople(ids, 'Read in Ask Etyme: what our placements earn')
       return { ok: true as const, rows }
     },
 

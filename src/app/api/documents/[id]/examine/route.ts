@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { degreeFromBody, degreeOnRecord, isDegreePaper } from '@/lib/document-stages/degree-check'
+import { degreeSentBack } from '@/lib/notify/degree-and-start'
 import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { notify, notifyBulk } from '@/lib/notify'
@@ -8,7 +10,7 @@ import { reportError } from '@/lib/alerts'
 import { hasPermission } from '@/lib/permissions'
 import { mayExamine, standingOn, typeKeyForTemplate } from '@/lib/document-request'
 import { BUILT_IN, typeByKey } from '@/lib/document-type'
-import { RECORDABLE_ABOUT_A_FIRM, examinedFromAPacket } from '@/lib/attestation'
+import { RECORDABLE_ABOUT_A_FIRM, examinedFromAPacket, orderedNotCollected, reportRunsOutOn } from '@/lib/attestation'
 import { paperSubject } from '@/lib/document-stages/firm-papers'
 import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
 import { answerOpenAsks, buyerMayExamineKept, examinationBody, examinationOf, itemFollowsPaper, recordSupplierPaper, type Door } from '@/app/api/packets/examination'
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       template: { select: { name: true, needsSignature: true, company: { select: { id: true, name: true } } } },
       sellContract: { select: { personId: true } },
       buyContract: { select: { candidates: { where: { state: 'ACTIVE' }, select: { personId: true }, take: 1 } } },
-      file: { select: { id: true } },
+      file: { select: { id: true, fileHash: true } },
     },
   })
   if (!doc) return refuse(404, 'NOT_FOUND', 'That document is not here.')
@@ -134,9 +136,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return Number.isNaN(d.getTime()) ? 'BAD' : d
   }
   const validFrom = dateOf('validFrom')
-  const expiresAt = dateOf('expiresAt')
+  let expiresAt = dateOf('expiresAt')
   if (validFrom === 'BAD') return refuse(422, 'VALIDATION', 'Give the day it starts as a date, like 2026-11-01.', 'validFrom')
   if (expiresAt === 'BAD') return refuse(422, 'VALIDATION', 'Give the day it runs out as a date, like 2027-10-31.', 'expiresAt')
+  // A screening company's report about a person prints the day it
+  // reported, not an end: it counts for its months from that day, the
+  // same count the record makes (2026-11-03).
+  const renderedOn = dateOf('renderedOn')
+  if (renderedOn === 'BAD') return refuse(422, 'VALIDATION', 'Give the day they reported as a date, like 2026-10-28.', 'renderedOn')
+  if (!expiresAt && renderedOn && subjectPersonId && key && orderedNotCollected(key)) expiresAt = reportRunsOutOn(key, renderedOn)
 
   const now = new Date()
   const verdict = mayExamine(
@@ -205,6 +213,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     checkSays = examined?.says ?? null
     door = examined?.door ?? null
   }
+
+  // ── A degree is read against the record (founder, 2026-11-03) ──
+  // Nothing here stops the accept: what does not look right is said to
+  // the person accepting it, beside the paper, with the three doors.
+  const degree = subjectPersonId && isDegreePaper(key, doc.template.name)
+    ? await degreeOnRecord({ personId: subjectPersonId, paper: degreeFromBody(body), fileHashes: doc.file?.fileHash ? [doc.file.fileHash] : [], on: now })
+    : null
 
   const note = [doc.note, verdict.note].filter(Boolean).join('\n').slice(-2000)
   await prisma.$transaction(async (tx) => {
@@ -298,7 +313,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const title = verdict.verdict === 'ACCEPT'
     ? `${issuer.name} accepted ${doc.template.name}`
     : `${issuer.name} sent back ${doc.template.name}`
-  const noticeBody = verdict.verdict === 'ACCEPT' ? verdict.says : `${verdict.note}. Send the right one from your paperwork page.`
+  // A degree sent back is told to the person in the firm's own words, and
+  // a degree's findings never reach the person: they are HR's to decide.
+  const noticeBody = verdict.verdict === 'ACCEPT'
+    ? verdict.says
+    : degree && subjectPersonId
+      ? degreeSentBack({ firmName: issuer.name, reason: verdict.note ?? 'it was not the right certificate' })
+      : `${verdict.note}. Send the right one from your paperwork page.`
   if (subjectPersonId) {
     void notify({ personId: subjectPersonId, companyId: issuer.id, type: 'SYSTEM', title, body: noticeBody, entityId: id })
   } else if (subjectCompanyId) {
@@ -317,8 +338,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: verdict.next,
       countersigned: verdict.countersign,
       verificationId,
-      says: checkSays ? `${verdict.says} ${checkSays}` : verdict.says,
+      says: [verdict.says, checkSays, verdict.verdict === 'ACCEPT' ? degree?.says : null].filter(Boolean).join(' '),
       ...(door ? { door } : {}),
+      ...(degree ? { degree: { says: degree.says, verified: degree.verified, doors: degree.doors } } : {}),
     },
   })
 }

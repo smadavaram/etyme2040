@@ -1,5 +1,6 @@
 import type { SessionState } from '@/components/session-provider'
-import { kindLabel } from '@/lib/parties'
+import type { Hat } from '@/lib/nav-table'
+import { kindLabel, kindWord } from '@/lib/parties'
 
 /**
  * The sidebar's props, read off the session.
@@ -40,6 +41,8 @@ export type SidebarIdentity = {
   termsHref?: string | null
   /** The region this seat reads, where it sits on a REGION unit. Its menu is that region alone. */
   region?: string | null
+  /** The hat this person has on: the firm's, or their own (founder, 2026-11-03). */
+  hat?: Hat | null
   pending: boolean
 }
 
@@ -51,7 +54,7 @@ export function sidebarPropsFrom(
     // company to name.
     // Optional too: a fixture describing a seat need not know about a
     // program office's desk, and almost nobody holds one.
-    Partial<Pick<SessionState, 'person' | 'seat' | 'isDemo' | 'termsHref'>>
+    Partial<Pick<SessionState, 'person' | 'seat' | 'isDemo' | 'termsHref' | 'hat' | 'roleName'>>
 ): SidebarIdentity {
   // While the session loads, the frame without nav items — rather than
   // flashing the wrong company's navigation.
@@ -96,7 +99,7 @@ export function sidebarPropsFrom(
     // their banner.
     companyLabel: session.seat
       ? `At ${session.seat.clientName}${session.seat.roleName ? ` · ${session.seat.roleName}` : ''}`
-      : isConsultant ? 'Consultant' : kindLabel(kind),
+      : isConsultant ? 'Consultant' : footerRole(kind, session.roleName),
     // A seat is exactly the desk the client granted: the client's own
     // role's permissions, never the office's. Read through `deskOf`, so
     // the + button and ⌘K cannot read it another way.
@@ -104,6 +107,7 @@ export function sidebarPropsFrom(
     // Their own terms, while a placement of theirs waits on them.
     termsHref: session.termsHref ?? null,
     region: session.region ?? null,
+    hat: session.hat ?? null,
     pending: false,
   }
 }
@@ -143,6 +147,8 @@ export interface Desk {
   seatedAtClient: string | null
   /** The region this seat reads, or null (lib/region-scope). */
   region: string | null
+  /** The hat this person has on, or null where the default is read (`hatOf`). */
+  hat: Hat | null
   /**
    * The role this desk is held under, as the header says it: the client's
    * own role where a client granted the office a seat — the role whose
@@ -156,7 +162,7 @@ export interface Desk {
 
 export function deskOf(
   session: Pick<SessionState, 'company' | 'contextType' | 'isWorker' | 'permissions'> &
-    Partial<Pick<SessionState, 'seat' | 'filesAWeek' | 'roleName' | 'region'>>
+    Partial<Pick<SessionState, 'seat' | 'filesAWeek' | 'roleName' | 'region' | 'hat'>>
 ): Desk {
   const companyKind = session.company?.kind ?? null
   const isConsultant = session.contextType === 'CONSULTANT'
@@ -170,6 +176,21 @@ export function deskOf(
     permissions: seat ? seat.permissions : session.permissions,
     seatedAtClient: seat?.clientName ?? null,
     region: session.region ?? null,
+    hat: session.hat ?? null,
     roleName: seat ? seat.roleName : (session.roleName ?? null),
   }
+}
+
+/**
+ * The line under the company's name at the foot of the menu: the kind of
+ * firm, then the role this person actually holds there, or "Member"
+ * where the seat holds none. Never the kind's own tagline, which read as
+ * a role: "Integrator · Delivery" for Karthik Menon at Teleworld, who
+ * holds no delivery role (walk 4, A3). A role the seat does not hold is
+ * never named.
+ */
+export function footerRole(kind: SidebarIdentity['companyKind'] | undefined, roleName: string | null | undefined): string {
+  if (!kind) return kindLabel(kind)
+  const role = roleName?.trim()
+  return `${kindWord(kind)} · ${role || 'Member'}`
 }

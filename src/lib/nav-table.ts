@@ -23,18 +23,24 @@ import { TWIN_FEED_READERS } from '@/lib/twin/readers'
 /**
  * Sidebar navigation — from CLAUDE.md, "Navigation per company type".
  *
- * Nine links per party (founder, 2026-10-19), and this file and
- * CLAUDE.md's table are held together by a test rather than by anybody
- * remembering:
+ * Nine links per party (founder, 2026-10-19), and since 2026-11-04 the
+ * founder's process order: Network above Jobs, then the money as Bills,
+ * Invoice receipts and Payroll, eleven at a supplier; and this file
+ * and CLAUDE.md's table are held together by a test rather than by
+ * anybody remembering:
  *
- *   Client      Ask Etyme · Today · Jobs · Candidates · Timesheets · Invoice receipts · Contractors · Suppliers · Settings
- *   Supplier,   Ask Etyme · Today · Jobs · Candidates · Timesheets · Bills · People · Companies · Settings
- *   integrator,
- *   MSP
+ *   Client      Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Invoice receipts · Settings
+ *   Supplier,   Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings
+ *   integrator
+ *   MSP         the supplier's, with no Payroll, its Network holding Companies alone (an MSP places nobody and pays nobody)
  *   Solo        Ask Etyme · Your work · Timesheets · Bills · Contracts · Paperwork · Settings
  *   Consultant  Ask Etyme · Your work · Your page · Who has you · Your data · Your paperwork
  *
- * Every other page is a tab of one of the nine.
+ * The founder, 2026-11-03: "People = candidates. And Candidates =
+ * submissions", and "Contracts, not Contractors". One word means one
+ * thing on every menu: Submissions is who was put forward to a job,
+ * Candidates is the people a firm keeps, Contracts is the line from the
+ * award on. Every other page is a tab of one of the links.
  */
 
 export type NavSection = {
@@ -57,9 +63,15 @@ export type NavItem = {
   icon: string  // emoji for now; SVG icons later
   badge?: number
   /**
-   * A sub-heading inside a section. No menu sets one since the nine
-   * links (2026-10-19): a page that was a neighbor is a tab now. Kept on
-   * the type because lib/page-framing reads it structurally.
+   * The group a tab sits in, inside a tabbed section that holds two
+   * lists. Network and Contracts set one (Contracts: its lines, and
+   * Paperwork beside them, since 2026-11-04). Network (founder, 2026-11-04, "bring all master
+   * data under network hierarchy"): its tabs are the people a firm keeps
+   * (Candidates) and the firms it trades with (Companies, or a client's
+   * Suppliers), and the tab row draws each group's name and then its
+   * pages. The menu never prints a group: the link is Network. The
+   * eyebrow over every page in it reads Network (lib/page-framing heads
+   * a page by its group only for its own register headings).
    */
   group?: string
   /**
@@ -416,8 +428,12 @@ const JOBS: NavItem = { label: 'Jobs', href: '/dashboard/requirements', icon: '�
 const LEADS: NavItem = { label: 'Leads', href: '/dashboard/leads', icon: '⌁', pageCalls: ['openings', 'openings/**'] }
 const SHARED_WITH_YOU: NavItem = { label: 'Shared with you', href: '/dashboard/invitations', icon: '✉' }
 
-/** Who was put forward, and the rounds they sit. */
-const CANDIDATES: NavItem = { label: 'Candidates', href: '/dashboard/submissions', icon: '◇' }
+/**
+ * Who was put forward, and the rounds they sit. "Submissions" on every
+ * menu since 2026-11-03 (founder: "Candidates = submissions"; "hiring
+ * managers also see submissions as submissions or applications").
+ */
+const SUBMISSIONS: NavItem = { label: 'Submissions', href: '/dashboard/submissions', icon: '◇' }
 const INTERVIEWS: NavItem = { label: 'Interviews', href: '/dashboard/interviews', icon: '◷' }
 
 const TIMESHEETS: NavItem = { label: 'Timesheets', href: '/dashboard/timesheets', icon: '▦' }
@@ -438,16 +454,21 @@ const PAYROLL: NavItem = { label: 'Payroll', href: '/dashboard/payroll', icon: '
 // What a recruiter earned on a placement.
 const COMMISSIONS: NavItem = { label: 'Commissions', href: '/dashboard/payroll/commissions', icon: '◈', needs: ['payroll.read'] }
 
-/** The firm's own people. The register first; the bench beside it. */
-const PEOPLE: NavItem = { label: 'People', href: '/dashboard/consultants', icon: '◌', needs: ['consultants.read'] }
+/**
+ * The firm's own people, its candidates: the register first, the bench
+ * beside it. "Candidates" since 2026-11-03 (founder: "People =
+ * candidates"); "People" is nobody's word at a staffing firm.
+ */
+const CANDIDATES: NavItem = { label: 'Candidates', href: '/dashboard/consultants', icon: '◌', needs: ['consultants.read'] }
 const BENCH: NavItem = { label: 'Bench', href: '/dashboard/bench', icon: '◎', ...BENCH_READS }
 const CHECK_INS: NavItem = { label: 'Bench check-ins', href: '/dashboard/texts', icon: '✆', needs: CHECK_IN_READERS }
 
 /**
- * The firms it trades with, and what it agreed with them: the register,
- * the firms it buys from, the people at them, both lines of a contract
- * and the order they draw down. `/api/suppliers` is scoped to the caller
- * as the buyer, which is what a prime with sub-vendors under it reads.
+ * The firms it trades with: the register, the firms it buys from and the
+ * people at them. `/api/suppliers` is scoped to the caller as the buyer,
+ * which is what a prime with sub-vendors under it reads. Both lines of a
+ * contract and the order they draw down are a link of their own since
+ * 2026-11-03 (Contracts, below).
  */
 const COMPANIES: NavItem = { label: 'Companies', href: '/dashboard/companies', icon: '▣' }
 const SUPPLIERS: NavItem = { label: 'Suppliers', href: '/dashboard/suppliers', icon: '⬡', needs: ['vendors.read', 'requirements.read', 'payments.record'] }
@@ -506,35 +527,97 @@ const DNR_LIST: NavItem = { label: 'DNR list', href: '/dashboard/blacklist', ico
 const DATA_REQUESTS: NavItem = { label: 'Data requests', href: '/dashboard/privacy', icon: '⚖', needs: ['governance.read'], api: 'data-requests' }
 const YOUR_DATA_HERE: NavItem = { label: 'Your data', href: '/dashboard/my-data', icon: '⛁' }
 
-/** A supplier's Settings, every tab in the order a firm reaches for it. */
+/**
+ * A supplier's Settings, every tab in the order a firm reaches for it.
+ * The papers' working pages left it for Contracts on 2026-11-04 (founder:
+ * "Should the paperwork be connected to contracts — why is it
+ * navigationally independent?"); the DNR list and the automation ladder
+ * stay, and Papers you require is the setup checklist's item.
+ */
 const FIRM_SETTINGS: NavItem[] = [
-  SETTINGS, SITES, USERS, SETUP, IMPORT, INTEGRATIONS, AUTOMATION,
-  PAPERWORK, MISSING_PAPERWORK, DOCUMENT_REQUESTS, SCREENING_PACKS, COMPLIANCE, CHECK_QUEUE, DNR_LIST,
+  SETTINGS, SITES, USERS, SETUP, IMPORT, INTEGRATIONS, AUTOMATION, DNR_LIST,
   DATA_REQUESTS, YOUR_DATA_HERE,
 ]
 
 const tabbed = (label: string, items: NavItem[]): NavSection => ({ label, tabbed: true, items })
 
+/** Tabs that sit in one group of a section's tab row. */
+const inGroup = (group: string, items: NavItem[]): NavItem[] => items.map((i) => ({ ...i, group }))
+
 /**
- * A staffing vendor: Ask Etyme · Today · Jobs · Candidates · Timesheets ·
- * Bills · People · Companies · Settings.
+ * ── Network: the master data a firm keeps ───────────────────────────
+ *
+ * The founder, 2026-11-04: "Also bring all master data under network
+ * hierarchy." The master data is what the documentation split named on
+ * 2026-09-30: the business partners (customers and suppliers) and the
+ * consultants. So the two lists every firm keeps are one link, Network,
+ * after the money and before Settings, and inside it two groups: the
+ * people it keeps (Candidates) and the firms it trades with. Each group
+ * opens on its own register, named after the group, so the tab row reads
+ * "Candidates: Bench · Bench pay · … | Companies: Suppliers · Contacts"
+ * with the group's name as the link to its register. Sites stay under
+ * Settings: a site is the firm's own place and a setup item, not its
+ * network.
+ */
+const FIRM_CANDIDATES = inGroup('Candidates', [CANDIDATES, BENCH, BENCH_PAY, CHECK_INS, TRAINING])
+const FIRM_COMPANIES = inGroup('Companies', [COMPANIES, SUPPLIERS, CONTACTS])
+
+/**
+ * A firm's contracts, a link of its own between Submissions and
+ * Timesheets (founder, 2026-11-03: "a utility for contracts on sell side
+ * or buy where documentation happens and hiring happens, followed by
+ * timesheet and expense submit"). Sell, the line that bills the client
+ * or the prime; Buy, the line that pays a sub-vendor or the firm's own
+ * employee; and the orders beside them.
+ */
+const FIRM_CONTRACTS: NavItem[] = [
+  ...inGroup('Contracts', [SELL_CONTRACTS, BUY_CONTRACTS, POS]),
+  // Paperwork is a tab of Contracts, not a thing of its own (founder,
+  // 2026-11-04): a paper lives on the line, on the side it protects. The
+  // firm's own Paperwork page first, then HR's working lists beside it.
+  ...inGroup('Paperwork', [PAPERWORK, MISSING_PAPERWORK, DOCUMENT_REQUESTS, SCREENING_PACKS, COMPLIANCE, CHECK_QUEUE]),
+]
+
+/**
+ * The money, in the founder's process order (2026-11-04: "Billing (AR),
+ * Invoice Receipt (AP), Payment in, Payment out and Payroll"). Bills is
+ * what the firm issues upward, with AR, where what came in is recorded:
+ * there is no separate payments page, so "Payments in" is the AR page in
+ * its own word. Invoice receipts is what it receives from below, the AP
+ * page, where what went out is recorded, "Payments out" by the same
+ * reading. Payroll is a link of its own, because it is neither a bill
+ * nor an invoice receipt: the party who issues a document names it.
+ */
+const FIRM_BILLS: NavItem[] = [BILLS, AR]
+const FIRM_RECEIPTS: NavItem[] = [AP]
+const FIRM_PAYROLL: NavItem[] = [PAYROLL, COMMISSIONS]
+
+/**
+ * A staffing vendor: Ask Etyme · Today · Network · Jobs · Submissions ·
+ * Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings
+ * — the master data first, then the process in the founder's order
+ * (2026-11-04). A bench vendor reads every one of them: prime, sub-vendor
+ * and bench are positions on a deal, never a kind, and nothing here reads
+ * a firm's posture.
  */
 const VENDOR_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
+  tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
   tabbed('Jobs', [JOBS, LEADS, SHARED_WITH_YOU]),
-  tabbed('Candidates', [CANDIDATES, INTERVIEWS]),
+  tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
+  tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
-  tabbed('Bills', [BILLS, AR, AP, PAYROLL, COMMISSIONS]),
-  tabbed('People', [PEOPLE, BENCH, BENCH_PAY, CHECK_INS, TRAINING]),
-  tabbed('Companies', [COMPANIES, SUPPLIERS, CONTACTS, SELL_CONTRACTS, BUY_CONTRACTS, POS]),
+  tabbed('Bills', FIRM_BILLS),
+  tabbed('Invoice receipts', FIRM_RECEIPTS),
+  tabbed('Payroll', FIRM_PAYROLL),
   tabbed('Settings', FIRM_SETTINGS),
 ]
 
 /**
- * An integrator: the supplier's nine. No Leads: a GSI's demand arrives
+ * An integrator: the supplier's eleven. No Leads: a GSI's demand arrives
  * through the client relationship it already has, not through a capture
- * form. Its People are its own employees, rolling off one project and
+ * form. Its Candidates are its own employees, rolling off one project and
  * onto the next — checked first on a job request before a role reaches a
  * sub-vendor (match-engine.ts: this company's own bench and nobody
  * else's).
@@ -542,23 +625,25 @@ const VENDOR_NAV: NavSection[] = [
 const GSI_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
+  tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
   tabbed('Jobs', [JOBS, SHARED_WITH_YOU]),
-  tabbed('Candidates', [CANDIDATES, INTERVIEWS]),
+  tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
+  tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
-  tabbed('Bills', [BILLS, AR, AP, PAYROLL, COMMISSIONS]),
-  tabbed('People', [PEOPLE, BENCH, BENCH_PAY, CHECK_INS, TRAINING]),
-  tabbed('Companies', [COMPANIES, SUPPLIERS, CONTACTS, SELL_CONTRACTS, BUY_CONTRACTS, POS]),
+  tabbed('Bills', FIRM_BILLS),
+  tabbed('Invoice receipts', FIRM_RECEIPTS),
+  tabbed('Payroll', FIRM_PAYROLL),
   tabbed('Settings', FIRM_SETTINGS),
 ]
 
 /**
- * An MSP: the supplier's nine, less People. An MSP runs the program and
+ * An MSP: the supplier's, with no Payroll, its Network holding Companies alone. An MSP runs the program and
  * places nobody (CLAUDE.md, "Etyme runs the program"): it holds no bench
  * and no consultants of its own, and its own setup tells it so (sign-up
- * walk, round five, problem 21), so the menu offers no People with
+ * walk, round five, problem 21), so the menu offers no Candidates with
  * nothing behind it. No payroll and no commission run either: it pays
  * nobody and is paid a fee on the program. The supplier base it manages
- * and how each firm scores are under Companies.
+ * and how each firm scores are under Network, in Companies.
  *
  * What is deliberately not here: the client's own program screens. An
  * MSP acts inside a client's program through a seat the client grants
@@ -567,11 +652,14 @@ const GSI_NAV: NavSection[] = [
 const MSP_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY]),
+  // Companies alone: an MSP keeps no candidates of its own.
+  tabbed('Network', inGroup('Companies', [COMPANIES, SUPPLIERS, SUPPLIER_SCORECARDS, CONTACTS])),
   tabbed('Jobs', [JOBS, SHARED_WITH_YOU]),
-  tabbed('Candidates', [CANDIDATES, INTERVIEWS]),
+  tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
+  tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
-  tabbed('Bills', [BILLS, AR, AP]),
-  tabbed('Companies', [COMPANIES, SUPPLIERS, SUPPLIER_SCORECARDS, CONTACTS, SELL_CONTRACTS, BUY_CONTRACTS, POS]),
+  tabbed('Bills', FIRM_BILLS),
+  tabbed('Invoice receipts', FIRM_RECEIPTS),
   tabbed('Settings', FIRM_SETTINGS),
 ]
 
@@ -628,6 +716,16 @@ const CONSULTANT_NAV: NavSection[] = [
 ]
 
 /**
+ * The You hat at a firm (founder, 2026-11-03): Ask Etyme, with the
+ * threads addressed to the person, and their own five pages. None of
+ * the firm's links.
+ */
+const YOU_HAT_NAV: NavSection[] = [
+  ASK_ETYME_SECTION,
+  { label: 'You', items: [...YOURS] },
+]
+
+/**
  * A company of one: Ask Etyme · Your work · Timesheets · Bills ·
  * Contracts · Paperwork · Settings. Seven: she has no jobs and no
  * candidates.
@@ -659,26 +757,62 @@ const SOLO_NAV: NavSection[] = [
 ]
 
 /**
- * A client: Ask Etyme · Today · Jobs · Candidates · Timesheets · Invoice
- * receipts · Contractors · Suppliers · Settings.
+ * A client: Ask Etyme · Today · Network · Jobs · Submissions · Contracts ·
+ * Timesheets · Invoice receipts · Settings, nine: no Bills and no Payroll,
+ * because it sells nothing and employs no contractor —
+ * the process order, then the two lists it keeps (founder, 2026-11-03).
  *
  * A client only buys, so its money noun is what it receives: invoice
  * receipts, what is owed on them, the budget they draw down and the
  * orders that carry the ceiling. No AR and no payroll: nobody owes a
  * client money for contract labor, and the supplier employs the
- * contractor. Its people are Contractors — one row per human across
- * every supplier, never one per submission — with the contracts that
- * place them, who is ending soon, who has gone and the time limit.
+ * contractor. Its Contracts are its buy side, one row per person placed,
+ * with who is ending soon, who has gone and the time limit. Its
+ * Candidates are its memory of people it would like to reach out to —
+ * one row per human across every supplier, never one per submission,
+ * with the stars and the recent engagements.
  */
 const CLIENT_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [{ label: 'Today', href: '/dashboard/program', icon: '◉' }, BY_REGION]),
+  // Network (founder, 2026-11-04): its memory of people, and the firms
+  // it buys from with the people at them. Above Jobs ("Network can stay
+  // above the jobs"): the master data first, the process after it.
+  tabbed('Network', [
+    // Its memory of people it would like to reach out to (founder,
+    // 2026-11-03): everybody put in front of it, the ones it starred, its
+    // recent engagements, each with "Ask for them". Opens on the first
+    // filter in the reader's order that has rows, Favorites first (demand,
+    // a1a67e31f), so it is never empty where anybody was ever put forward.
+    ...inGroup('Candidates', [{ label: 'Candidates', href: '/dashboard/people', icon: '◍' }]),
+    ...inGroup('Suppliers', [
+      SUPPLIERS,
+      CONTACTS,
+      { label: 'Agreements', href: '/dashboard/program/agreements', icon: '▤' },
+      // Only computable here: no supplier can work these out about itself.
+      SUPPLIER_SCORECARDS,
+    ]),
+  ]),
   // One entry for a job, at every stage: the stage is a filter on the
   // screen, never a fork in the menu (raised twice by the founder).
   tabbed('Jobs', [{ label: 'Jobs', href: '/dashboard/requisitions', icon: '⊞' }]),
   // What suppliers put forward, waiting to be looked at; the list
   // defaults to what was sent TO the caller.
-  tabbed('Candidates', [CANDIDATES, INTERVIEWS]),
+  tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
+  // "Contracts, not Contractors" (founder, 2026-11-03): from the award on
+  // the thing a client holds is the line, with its papers, rate and dates.
+  tabbed('Contracts', [
+    ...inGroup('Contracts', [
+      { label: 'Contracts', href: '/dashboard/contracts', icon: '▤' },
+      { label: 'Ending soon', href: '/dashboard/rolloff', icon: '⚠', needs: ENDING_SOON_READERS },
+      { label: 'Past contractors', href: '/dashboard/alumni', icon: '◎' },
+      { label: 'Tenure', href: '/dashboard/tenure', icon: '▩' },
+      // Where a chain we can only see part of makes one person look like two.
+      { label: 'Duplicate check', href: '/dashboard/identity', icon: '⧉' },
+    ]),
+    // The papers on its lines, beside the lines (founder, 2026-11-04).
+    ...inGroup('Paperwork', [COMPLIANCE, DOCUMENT_REQUESTS]),
+  ]),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES]),
   // What a firm receives from below is an invoice receipt (founder, 2026-09-28).
   tabbed('Invoice receipts', [
@@ -686,22 +820,6 @@ const CLIENT_NAV: NavSection[] = [
     AP,
     { label: 'Budget', href: '/dashboard/program/budget', icon: '◱' },
     POS,
-  ]),
-  tabbed('Contractors', [
-    { label: 'Contractors', href: '/dashboard/people', icon: '◍' },
-    { label: 'Contracts', href: '/dashboard/contracts', icon: '▤' },
-    { label: 'Ending soon', href: '/dashboard/rolloff', icon: '⚠', needs: ENDING_SOON_READERS },
-    { label: 'Past contractors', href: '/dashboard/alumni', icon: '◎' },
-    { label: 'Tenure', href: '/dashboard/tenure', icon: '▩' },
-    // Where a chain we can only see part of makes one person look like two.
-    { label: 'Duplicate check', href: '/dashboard/identity', icon: '⧉' },
-  ]),
-  tabbed('Suppliers', [
-    SUPPLIERS,
-    CONTACTS,
-    { label: 'Agreements', href: '/dashboard/program/agreements', icon: '▤' },
-    // Only computable here: no supplier can work these out about itself.
-    SUPPLIER_SCORECARDS,
   ]),
   tabbed('Settings', [
     SETTINGS,
@@ -714,8 +832,6 @@ const CLIENT_NAV: NavSection[] = [
     // The MSP the client seats in its program, granted and taken back here.
     { label: 'MSPs', href: '/dashboard/program/seats', icon: '⌂', needs: ['governance.read'] },
     { label: 'Org view', href: '/dashboard/program/org', icon: '⬢' },
-    COMPLIANCE,
-    DOCUMENT_REQUESTS,
     // The program manager's twin (2026-10-12): what it did, what it is
     // waiting on a person for, and what it may do.
     { label: 'Program twin', href: '/dashboard/twin', icon: '◎', needs: TWIN_FEED_READERS, api: 'twin/ledger', pageCalls: ['twin/**'] },
@@ -725,13 +841,39 @@ const CLIENT_NAV: NavSection[] = [
   ]),
 ]
 
-/** The tab row for the page being read: the noun's pages, when it has more than one. */
-export function tabsFor(sections: readonly NavSection[], current: string | null): { label: string; tabs: NavItem[] } | null {
+/** One group of a tab row: its name, and its pages in order. */
+export type TabGroup = { name: string; tabs: NavItem[] }
+
+/**
+ * The tab row for the page being read: the noun's pages, when it has
+ * more than one. Where its tabs sit in groups (Network), `groups` holds
+ * them in order, each with its name, so the row draws "Candidates:
+ * Bench · … | Companies: Suppliers · Contacts"; `tabs` is still every
+ * page, flat.
+ */
+export function tabsFor(
+  sections: readonly NavSection[],
+  current: string | null
+): { label: string; tabs: NavItem[]; groups?: TabGroup[] } | null {
   if (!current) return null
   const section = sections.find((s) => s.tabbed && s.items.some((i) => i.href === current))
   // Ask Etyme draws its own column of threads, so it never carries a tab row.
   if (!section || section.items.length < 2 || section.items.some((i) => i.href === ASK_ETYME_HREF)) return null
-  return { label: section.label, tabs: section.items }
+  const groups = groupsOf(section.items)
+  return groups ? { label: section.label, tabs: section.items, groups } : { label: section.label, tabs: section.items }
+}
+
+/** A section's tabs by group, in order, or null where none is grouped. */
+export function groupsOf(items: readonly NavItem[]): TabGroup[] | null {
+  if (!items.some((i) => i.group)) return null
+  const out: TabGroup[] = []
+  for (const item of items) {
+    const name = item.group ?? ''
+    const last = out[out.length - 1]
+    if (last && last.name === name) last.tabs.push(item)
+    else out.push({ name, tabs: [item] })
+  }
+  return out
 }
 
 /** The one link a menu prints for a section: the noun, opening its first page; or, for "You", each page. */
@@ -756,7 +898,8 @@ export type SeatFacts = {
    * staff — `ownPage()` in lib/consultant-portfolio, read off placements,
    * submissions and contracts rather than off a context type.
    *
-   * Their firm's menu gains a "You" section; it never replaces it.
+   * They are offered the You hat in the account menu (`offersYouHat`); the
+   * firm hat never carries their own pages, since 2026-11-03.
    */
   worker?: boolean
   /**
@@ -795,6 +938,181 @@ export type SeatFacts = {
    * (lib/region-scope). Such a seat reads `REGION_NAV` and nothing else.
    */
   region?: string | null
+  /**
+   * Which hat the person has on (founder, 2026-11-03, "One person, two
+   * hats"): the firm's, or their own as a worker. Absent, `defaultHat`
+   * decides. Only a worker is ever offered "you" (`offersYouHat`); for
+   * anybody else it is read as "firm".
+   */
+  hat?: Hat | null
+}
+
+/**
+ * ── One person, two hats ─────────────────────────────────────────────
+ *
+ * The founder, 2026-11-03, on Tapin's Owner seat reading the firm's
+ * links and then "YOU" with five more underneath: "company user and
+ * individual can be switched on the top right menu", and then "You can
+ * go under profile and they switch to worker account." So the left menu
+ * shows one hat's links and nothing else: in the firm hat, the firm's;
+ * in the You hat, the worker's own pages. The "You" list appended under
+ * the firm's links is gone. Who is a worker is still read off the work
+ * (`ownPage` in lib/consultant-portfolio), never off a seat.
+ *
+ * The hat is a view, never a permission: it changes which menu is drawn
+ * and which greeting Ask Etyme gives, and every route still answers the
+ * seat it always answered.
+ */
+export type Hat = 'firm' | 'you'
+
+/**
+ * The cookie that remembers the hat on this device: `firm` or `you`,
+ * and, after a colon, the seat (a Context id) the person chose when
+ * they hold more than one, as in `firm:ctx_123`. Read by the shell, by
+ * `getCallerContext` (which seat to act at when no header names one,
+ * only ever among the person's own live seats) and by Ask Etyme for
+ * the greeting per hat. Not secret, and not trusted: it chooses among
+ * what the person already holds.
+ */
+export const HAT_COOKIE = 'etyme_hat'
+
+/** The cookie's value read back, or nothing where it is absent or not ours. */
+export function readHatCookie(value: string | null | undefined): { hat: Hat | null; contextId: string | null } {
+  if (!value) return { hat: null, contextId: null }
+  const [head, ...rest] = decodeURIComponent(value).split(':')
+  const hat = head === 'you' || head === 'firm' ? head : null
+  const id = rest.join(':').trim()
+  return { hat, contextId: hat && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null }
+}
+
+/** The cookie's value for a hat and, where the person chose one, a seat. */
+export function hatCookieValue(hat: Hat, contextId?: string | null): string {
+  return contextId ? `${hat}:${contextId}` : hat
+}
+
+/**
+ * Whether this person is offered the You hat at this seat: somebody the
+ * work is about, at a firm. Never a consultant seat, which already is
+ * the person's own menu; never a one-person firm, whose owner is the
+ * firm and reads her two hats as tabs under Paperwork (2026-09-21); and
+ * never an Owner on no placement, submission, bench listing or line
+ * that pays them ("What is the use of You for an Owner?").
+ */
+export function offersYouHat(kind: CompanyKind | null | undefined, isConsultant: boolean, seat: SeatFacts = {}): boolean {
+  if (isConsultant || !kind || !seat.worker) return false
+  if (seat.region && kind === 'CLIENT') return false
+  return !(kind === 'CONSULTANT_CORP' && !seat.seatedAtClient)
+}
+
+/**
+ * The hat a person reads before they have chosen one on this device.
+ * The firm's, except for a worker whose seat holds no desk there: their
+ * firm hat holds only what is addressed to them, so they open in their
+ * own (Karthik Menon, an integrator's own engineer).
+ */
+export function defaultHat(kind: CompanyKind | null | undefined, isConsultant: boolean, seat: SeatFacts = {}): Hat {
+  return offersYouHat(kind, isConsultant, seat) && isDeskless(seat.permissions) ? 'you' : 'firm'
+}
+
+/** The hat this person reads: the one chosen, where it may be worn, else the default. */
+export function hatOf(kind: CompanyKind | null | undefined, isConsultant: boolean, seat: SeatFacts = {}): Hat {
+  if (!offersYouHat(kind, isConsultant, seat)) return 'firm'
+  return seat.hat ?? defaultHat(kind, isConsultant, seat)
+}
+
+/** Whether a path is one of this menu's pages, Ask Etyme and its conversations aside. */
+function pathOnMenu(sections: readonly NavSection[], path: string): boolean {
+  return sections.some((s) => s.items.some((i) => {
+    const itemPath = i.href.split('?')[0]
+    if (itemPath === ASK_ETYME_HREF || itemPath === '/dashboard/conversations') return false
+    return itemPath === '/dashboard' ? path === '/dashboard' : path === itemPath || path.startsWith(itemPath + '/')
+  }))
+}
+
+/**
+ * The hat a page opens in. A link from a notice into a worker's own page
+ * opens the You hat, and a page only the firm's menu holds opens the
+ * firm's, so a person never reads one hat's menu around the other hat's
+ * page; a page on both menus, or on neither (Ask Etyme, a placement's
+ * own page), keeps the hat they had on.
+ */
+export function hatForPath(
+  kind: CompanyKind | null | undefined,
+  isConsultant: boolean,
+  seat: SeatFacts,
+  path: string | null | undefined
+): Hat {
+  const worn = hatOf(kind, isConsultant, seat)
+  if (!path || !offersYouHat(kind, isConsultant, seat)) return worn
+  const inYou = pathOnMenu(getNavForKind(kind, isConsultant, { ...seat, hat: 'you' }), path)
+  const inFirm = pathOnMenu(getNavForKind(kind, isConsultant, { ...seat, hat: 'firm' }), path)
+  if (inYou && !inFirm) return 'you'
+  if (inFirm && !inYou) return 'firm'
+  return worn
+}
+
+/** One line in the account menu: a seat at a firm, or the person's own hat. */
+export interface HatLine {
+  hat: Hat
+  /** The seat this line switches to, where it is a different one from the seat in use. */
+  contextId: string | null
+  /** "Tapin · Owner", "You · Sharath". */
+  label: string
+  current: boolean
+}
+
+/**
+ * The account menu's list of hats: every firm seat the person holds,
+ * "Company · Role", and "You · <first name>" only where the work makes
+ * them a worker. The current one is marked. A one-person firm reads one
+ * firm hat and no You, because she is the firm.
+ */
+export function hatsFor(input: {
+  /** Every live seat the person holds, from /api/me. A consultant seat is not a firm seat. */
+  seats: readonly {
+    contextId: string; companyName: string | null; roleName: string | null; type: string | null
+    /** The kind of company the seat is at, where known. */
+    companyKind?: string | null
+  }[]
+  /** The seat in use now. */
+  activeContextId: string | null
+  personName: string | null | undefined
+  /** True when the seat in use is a consultant seat, which is the person's own. */
+  isConsultant: boolean
+  /** Offered the You hat at the seat in use (`offersYouHat`). */
+  youOffered: boolean
+  hat: Hat
+}): HatLine[] {
+  const first = (input.personName ?? '').trim().split(/\s+/)[0] || 'yourself'
+  const firm = input.seats.filter((x) => x.type !== 'CONSULTANT' && x.companyName)
+  const own = input.seats.find((x) => x.type === 'CONSULTANT')
+  // A person who owns a one-person firm is the firm: her own pages are
+  // inside its menu, and her two hats are tabs under Paperwork. So a
+  // consultant seat she also holds (the bench listing at the firm that
+  // buys from her company) never adds a You line. Found by the fourth
+  // screen walk, 2026-11-03: Colleen Byrne holds one at Halcyon, and the
+  // account menu offered "You · Colleen" beside her own firm.
+  const soloFirm = firm.some((x) => x.companyKind === 'CONSULTANT_CORP')
+  const wearingYou = input.isConsultant || (input.youOffered && input.hat === 'you')
+  const lines: HatLine[] = firm.map((x) => ({
+    hat: 'firm' as const,
+    contextId: x.contextId,
+    label: x.roleName ? `${x.companyName} · ${x.roleName}` : x.companyName!,
+    current: !wearingYou && x.contextId === input.activeContextId,
+  }))
+  // Where she is in that consultant seat right now, the line stays, marked,
+  // so the menu still says which hat is on and her firm is one click back.
+  if (soloFirm ? input.isConsultant : (input.youOffered || input.isConsultant || own)) {
+    lines.push({
+      hat: 'you',
+      // At a firm seat the You hat is the same seat read as a worker; a
+      // person who also holds a consultant seat switches to that one.
+      contextId: input.youOffered ? input.activeContextId : (input.isConsultant ? input.activeContextId : own?.contextId ?? null),
+      label: `You · ${first}`,
+      current: wearingYou,
+    })
+  }
+  return lines
 }
 
 /**
@@ -851,6 +1169,7 @@ export function getNavForKind(
   // A seat that reads one region of a client's program: its region and
   // nothing the region door would refuse.
   if (seat.region && kind === 'CLIENT' && !isConsultant) return REGION_NAV
+  const hat = hatOf(kind, isConsultant, seat)
   // A consultant is a context type, not an absent company. Somebody on a
   // vendor's bench HAS a company — that is what a bench is — and keying on
   // the company would show them their agency's payroll and buy contracts.
@@ -877,15 +1196,15 @@ export function getNavForKind(
   // nothing in his own navigation pointed back to it.
   //
   // He is an employee of Teleworld with a real seat, and he is the
-  // person the work is about. Appending rather than substituting is the
-  // only reading that is true of both.
+  // person the work is about. Appending rather than substituting was the
+  // reading true of both until 2026-11-03, when the founder made them two
+  // hats, switched in the account menu: both are still his, one at a time.
   //
-  // "Your data" is the one page both menus name — a firm's Governance
+  // "Your data" is the one page both menus name — a firm's Settings
   // carries it because everybody signed in has data held about them,
-  // and "You" carries it because it is the reader's own record. Two
-  // doors onto one page is a question the reader has to answer before
-  // they can click, so the firm's copy gives way to the personal one:
-  // somebody who has a "You" section reads it there.
+  // and "You" carries it because it is the reader's own record. Where a
+  // menu carries both (a Member with no desk, below), the firm's copy
+  // gives way to the personal one.
   const ownHrefs = new Set(YOURS.map((i) => i.href))
   // A worker whose seat reads only their own work opens on "Your work"
   // (lib/console-home), so the firm's Today would be a second door onto
@@ -903,39 +1222,55 @@ export function getNavForKind(
   // (CLAUDE.md, "A one-person corporation reads its own short menu"), and
   // her own pages are already inside her seven, so nothing is appended.
   const solo = !isConsultant && kind === 'CONSULTANT_CORP' && !seat.seatedAtClient
-  const worker = Boolean(seat.worker) || deskless
-  const trimmed = (!isConsultant && kind && (worker || solo))
+  // ── One hat at a time (founder, 2026-11-03) ──────────────────────
+  // In the You hat the menu is the person's own pages and none of the
+  // firm's. In the firm hat it is the firm's and none of the person's:
+  // the "You" list that was appended under a worker's firm links is the
+  // You hat in the account menu now. One exception, and it is not a
+  // second hat: a seat with no desk and no work of its own (a Member
+  // nobody has given a desk yet) holds nothing of the firm's, so its own
+  // pages stay beside what is addressed to it.
+  if (hat === 'you' && kind && !isConsultant) {
+    const own = withTermsAfterYourWork(YOU_HAT_NAV, seat.termsHref)
+    return seat.permissions == null ? own : own
+      .map((s) => ({ ...s, items: s.items.filter((i) => mayReach(i, seat.permissions)) }))
+      .filter((s) => s.items.length > 0)
+  }
+  const appendsYou = !isConsultant && Boolean(kind) && deskless && !seat.worker && !solo
+  const trimmed = (!isConsultant && kind && (seat.worker || deskless || solo))
     ? base
         .map((s) => ({
           ...s,
           items: s.items.filter((i) =>
-            (solo || !ownHrefs.has(i.href))
+            (solo || !appendsYou || !ownHrefs.has(i.href))
             && !(ownFrontDoor && i.href === '/dashboard')
             && !(deskless && openBecause(i.href) !== ADDRESSED && !(solo && ownHrefs.has(i.href)))),
         }))
         .filter((s) => s.items.length > 0)
     : base
-  const sections = (!isConsultant && kind && worker && !solo)
+  const sections = appendsYou
     ? [...trimmed, { label: 'You', items: YOURS }]
     : trimmed
 
   // "Your terms", right after "Your work", for as long as a placement of
   // theirs waits on terms. Only where a reader has a "Your work": a seat
   // that is neither a consultant nor a worker has no terms of its own.
-  const terms: NavItem | null = seat.termsHref
-    ? { label: 'Your terms', href: seat.termsHref, icon: '◇', api: YOUR_TERMS_READS }
-    : null
-  const withTerms = terms
-    ? sections.map((s) => {
-        const at = s.items.findIndex((i) => i.href === YOUR_WORK.href)
-        return at < 0 ? s : { ...s, items: [...s.items.slice(0, at + 1), terms, ...s.items.slice(at + 1)] }
-      })
-    : sections
+  const withTerms = withTermsAfterYourWork(sections, seat.termsHref)
 
   if (seat.permissions == null) return withTerms
   return withTerms
     .map((s) => ({ ...s, items: s.items.filter((i) => mayReach(i, seat.permissions)) }))
     .filter((s) => s.items.length > 0)
+}
+
+/** "Your terms", right after "Your work", wherever a menu has Your work and terms wait. */
+function withTermsAfterYourWork(sections: NavSection[], termsHref: string | null | undefined): NavSection[] {
+  if (!termsHref) return sections
+  const terms: NavItem = { label: 'Your terms', href: termsHref, icon: '◇', api: YOUR_TERMS_READS }
+  return sections.map((s) => {
+    const at = s.items.findIndex((i) => i.href === YOUR_WORK.href)
+    return at < 0 ? s : { ...s, items: [...s.items.slice(0, at + 1), terms, ...s.items.slice(at + 1)] }
+  })
 }
 
 /**
@@ -1084,8 +1419,8 @@ export function routeMatches(apiPath: string, pattern: string): boolean {
 
 /**
  * What the menu calls the page behind a route, read from the reader's
- * own menu first, so a client is told "Contractors" where a supplier
- * would read "Consultants". Null where no link names it.
+ * own menu first, so a client is told "Contracts" where a supplier
+ * would read "Sell contracts". Null where no link names it.
  */
 export function pageNameOf(apiPath: string, kind: CompanyKind | null | undefined): string | null {
   const own = kind ? getNavForKind(kind, false) : []

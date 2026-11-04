@@ -1,8 +1,12 @@
+import { fileHash } from '@/lib/document-stages/degree'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { BUILT_IN } from '@/lib/document-type'
 import { prisma } from '@/lib/db'
 import { notify, notifyBulk } from '@/lib/notify'
+import { paperExaminersAt } from '@/lib/notify/paper-examiners'
+import { degreeOnRecord, isDegreePaper } from '@/lib/document-stages/degree-check'
+import { degreeAskedOfYou } from '@/lib/notify/degree-and-start'
 import {
   mayAct,
   isProfessionalLicense,
@@ -10,6 +14,8 @@ import {
   typeKeyForTemplate,
   standingOn,
   askNotice, answeredNotice,
+  isWorkAuthQuestion,
+  sponsorshipFromWords,
   checkDocumentUpload,
   MAX_DOCUMENT_BYTES,
   sizeSaid,
@@ -157,6 +163,7 @@ export async function actOn(request: NextRequest, id: string, action: DocAction)
           contentType: file.type,
           sizeBytes: file.bytes.byteLength,
           bytes: file.bytes,
+          fileHash: fileHash(file.bytes),
           uploadedById: caller.person.id,
         },
         update: {
@@ -164,6 +171,7 @@ export async function actOn(request: NextRequest, id: string, action: DocAction)
           contentType: file.type,
           sizeBytes: file.bytes.byteLength,
           bytes: file.bytes,
+          fileHash: fileHash(file.bytes),
           uploadedAt: now,
           uploadedById: caller.person.id,
         },
@@ -171,8 +179,31 @@ export async function actOn(request: NextRequest, id: string, action: DocAction)
     }
   })
 
+  // ── The screening answer, as the person's own answer ──────────────
+  //
+  // "Are you authorized to work in the US, and will you need sponsorship
+  // now or in the future?" was kept as words on the paper and read by
+  // nothing, so somebody who said she will need sponsorship could be
+  // interviewed three times for a job that offers none (2026-11-03). The
+  // words are read by rule (`sponsorshipFromWords`), never by the model;
+  // where the rule cannot tell, the answer decides nothing and the words
+  // stay for HR to read. Recorded on the person's profile, where the
+  // put-forward reads it. A person with no profile keeps the words on the
+  // paper only.
+  if (action !== 'send' && note && subjectPersonId && caller.person.id === subjectPersonId && isWorkAuthQuestion(doc.template.name)) {
+    await prisma.consultantProfile.updateMany({
+      where: { personId: subjectPersonId },
+      data: { needsSponsorship: sponsorshipFromWords(note), needsSponsorshipSaidAt: now, needsSponsorshipQuote: note },
+    })
+  }
+
+  // A degree: asked of the person in words that say why and that it is
+  // asked once; and, sent back to the firm, read against the record for
+  // the roles who examine it (founder, 2026-11-03).
+  const aDegree = isDegreePaper(null, doc.template.name)
   if (action === 'send') {
-    const notice = askNotice(facts)
+    const asked = askNotice(facts)
+    const notice = aDegree && subjectPersonId ? { ...asked, body: degreeAskedOfYou({ firmName: issuer.name }) } : asked
     if (subjectPersonId) {
       // A candidate is reached by email; a company's own person in the app.
       const seat = await prisma.context.findFirst({
@@ -202,12 +233,11 @@ export async function actOn(request: NextRequest, id: string, action: DocAction)
   ) {
     // The person answered, or the firm answered its own paper; the
     // company that asked hears it either way.
-    const staff = await prisma.context.findMany({
-      where: { companyId: issuer.id, revokedAt: null, NOT: { roleId: null }, type: { not: 'CONSULTANT' } },
-      select: { personId: true },
-      orderBy: { id: 'asc' },
-      take: 10,
-    })
+    // The roles whose work papers are, at the firm that asked, once each,
+    // never the sender (`paperExaminersAt`): a worker's own I-9 sent from
+    // her page told every seat at her employer, nine notices (the second
+    // screen walk, 2026-11-03).
+    const staff = (await paperExaminersAt(issuer.id, caller.person.id)).map((personId) => ({ personId }))
     // A paper sent back and answered again is told as the second answer,
     // never as the first one word for word: each seat read the first line
     // already. Counted off what the firm was told about this paper before.
@@ -216,7 +246,12 @@ export async function actOn(request: NextRequest, id: string, action: DocAction)
           where: { entityId: doc.id, personId: staff[0].personId, title: { startsWith: `${caller.person.name} ` } },
         })
       : 0
-    const told = answeredNotice({ who: caller.person.name, paper: doc.template.name, signed: verdict.next === 'SIGNED', before, note })
+    const answered = answeredNotice({ who: caller.person.name, paper: doc.template.name, signed: verdict.next === 'SIGNED', before, note })
+    // What does not look right on a degree is said to these roles only.
+    const degree = aDegree && subjectPersonId && file
+      ? await degreeOnRecord({ personId: subjectPersonId, fileHashes: [fileHash(file.bytes)], on: now })
+      : null
+    const told = degree?.says ? { ...answered, body: `${answered.body} ${degree.says}`.trim() } : answered
     void notifyBulk(staff.map((s) => ({
       personId: s.personId, companyId: issuer.id, type: 'SYSTEM' as const,
       title: told.title,

@@ -435,7 +435,7 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(hello.more!.map((l) => l.links ?? [])).toEqual([
       [{ text: 'PR-2026-0441', href: '/dashboard/invoices/inv-441' }, { text: 'IN-XSWQQZ-20260901', href: '/dashboard/invoices/inv-cs' }],
       [{ text: 'Tobias Lindqvist', href: '/dashboard/people/p-tobias' }],
-      [{ text: '12 contractors', href: '/dashboard/people' }],
+      [{ text: '12 contractors', href: '/dashboard/contracts' }],
       [{ text: '£1,000', href: '/dashboard/invoices' }, { text: '$11,342.50', href: '/dashboard/invoices' }],
       [],
     ])
@@ -1081,7 +1081,7 @@ describe('Ask Etyme never goes beyond the transaction', () => {
       expect(read.model, q).not.toHaveBeenCalled()
       expect(read.logPrompt, q).not.toHaveBeenCalled()
     }
-    expect(ONLY_THE_RECORD).toBe('I answer only about your company’s own record: jobs, candidates, timesheets, bills, invoice receipts, payroll, papers and people.')
+    expect(ONLY_THE_RECORD).toBe('I answer only about your company’s own record: jobs, submissions, contracts, timesheets, bills, invoice receipts, payroll, papers and people.')
     expect(voiceBreaks(ONLY_THE_RECORD)).toEqual([])
     // It is refused even where the company has the model off: no model would be allowed to answer it.
     const off = readers({ modelOn: vi.fn(async () => false) })
@@ -1394,7 +1394,7 @@ describe('Ask Etyme for a worker: her own work, from her own pages, by rules', (
     const route = readFileSync(join(process.cwd(), 'src/app/api/conversations/twin/route.ts'), 'utf8')
     const branch = route.indexOf("if (request.nextUrl.searchParams.get('only') === 'owed') return owedCount(caller, request)")
     expect(branch).toBeGreaterThan(0)
-    expect(branch).toBeLessThan(route.indexOf('if (asWorker(caller) && !caller.region) return workerGreeting(caller, request)'))
+    expect(branch).toBeLessThan(route.indexOf('if (await asYou(caller, request)) return workerGreeting(caller, request)'))
     const body = route.slice(route.indexOf('async function owedCount('), route.indexOf("/** The worker's greeting and her saved thread."))
     expect(body).toContain('return NextResponse.json({ data: { total } })')
     expect(body).not.toMatch(/markNoticesSeen|unreadNotices|appendTurn|markCard|clearThread|prisma\./)
@@ -1605,6 +1605,13 @@ describe('every first screen names a person and the step in front of them (found
     expect(notices).toContain("where: { id: { in: order }, archivedAt: null, ...(me ? { OR: [{ companyId: me }, { withCompanyId: me }] } : {}) }")
   })
 
+  it('Ask Etyme names the steps in the public pages’ words, jobs, submissions, timesheets and invoice receipts, and never calls who applied “candidates”', () => {
+    for (const line of [closeFor('CLIENT'), closeFor('MSP', 'Cavanaugh Glassworks'), GREETING_CLOSE, ONLY_THE_RECORD]) {
+      expect(line).toMatch(/jobs, submissions, /)
+      expect(line).not.toMatch(/\bcandidates\b/)
+    }
+  })
+
   it('the closing line, the four chips and the box are the party’s own: a client and an MSP ask about contractors, a supplier about its people and money, a one-person firm about her own work', () => {
     expect(partyOf({ companyKind: 'CLIENT' })).toBe('CLIENT')
     expect(partyOf({ companyKind: 'MSP', seatedAt: 'Cavanaugh Glassworks' })).toBe('MSP')
@@ -1612,8 +1619,8 @@ describe('every first screen names a person and the step in front of them (found
     expect(partyOf({ companyKind: 'GSI' })).toBe('FIRM')
     expect(partyOf({ companyKind: 'CONSULTANT_CORP' })).toBe('SOLO')
     expect(partyOf({ companyKind: 'VENDOR', worker: true })).toBe('WORKER')
-    expect(closeFor('CLIENT')).toBe('Ask me about your jobs, candidates, timesheets and invoice receipts. I answer from the record, and I never move money without a person.')
-    expect(closeFor('MSP', 'Cavanaugh Glassworks')).toBe('Ask me about Cavanaugh Glassworks’ jobs, candidates, timesheets and invoice receipts. I answer from the record, and I never move money without a person.')
+    expect(closeFor('CLIENT')).toBe('Ask me about your jobs, submissions, timesheets and invoice receipts. I answer from the record, and I never move money without a person.')
+    expect(closeFor('MSP', 'Cavanaugh Glassworks')).toBe('Ask me about Cavanaugh Glassworks’ jobs, submissions, timesheets and invoice receipts. I answer from the record, and I never move money without a person.')
     expect(closeFor('FIRM')).toBe('Ask me about our people, our bench, our weeks and our bills. I answer from the record, and I never move money without a person.')
     expect(closeFor('SOLO')).toBe('Ask me about your weeks, your bills, your papers and your contract. I never file or sign anything for you.')
     expect(GREETING_CLOSE).toBe(closeFor('CLIENT'))
@@ -1690,7 +1697,7 @@ describe('every first screen names a person and the step in front of them (found
     expect(a.says).toBe('Your contract at Northbend Athletic ends on Mar 28, 2027. Checked just now.')
     // The route sends her week, her papers and her contract to her own pages, and what she billed and her firm's setup to the firm's book.
     const route = readFileSync(join(process.cwd(), 'src/app/api/conversations/twin/route.ts'), 'utf8')
-    expect(route).toContain("const solo = who.party === 'SOLO' && !['UNPAID', 'SETUP'].includes(readAsk(text).kind)")
+    expect(route).toContain("const solo = who.party === 'SOLO' && !['UNPAID', 'SETUP', 'WHERE', 'GO'].includes(asked.kind)")
   })
 
   it('a worker’s greeting ends on where she stands against the client’s time limit, in whole months, after the papers', () => {
@@ -1707,7 +1714,8 @@ describe('every first screen names a person and the step in front of them (found
     // The picture starts once the party is known, which a client knows at once, and is never awaited on its own.
     expect(greet).toContain('const picture = who.then((w) => pictureFor(caller, w.party))')
     expect(greet).not.toMatch(/picture: await pictureFor/)
-    expect(greet).toMatch(/await Promise\.all\(\[\s+unreadNotices\(caller, \{ program: seat\?\.clientCompany\.id \?\? null \}\),\s+unreadThreads\(caller\), modelSwitchFor\(company\.id\), who,/)
+    expect(greet).toMatch(/const firmNotices = Promise\.all\(\[\s+unreadNotices\(caller, \{ program: seat\?\.clientCompany\.id \?\? null \}\),/)
+    expect(greet).toMatch(/await Promise\.all\(\[\s+firmNotices,\s+unreadThreads\(caller\), modelSwitchFor\(company\.id\), who,/)
     // And the rules' own reads start beside them (2026-11-01), not after them.
     expect(greet.indexOf('startedReaders(readersFor(')).toBeLessThan(greet.indexOf('await Promise.all(['))
     // The paying clerk's receipts are each checked at the same time, not in turn.

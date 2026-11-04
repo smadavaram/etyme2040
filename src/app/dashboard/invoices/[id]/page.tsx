@@ -422,6 +422,8 @@ export default function InvoiceDetail() {
         {inv.terms?.says && (
           <div className="text-xs text-etyme-muted mt-1">{inv.terms.says}</div>
         )}
+        {/* Where it is paid: the firm's checked details, four digits only. */}
+        {inv.payToSays && <div className="text-xs text-etyme-muted mt-1">{inv.payToSays}</div>}
         {/* And what settles it sooner, where anybody agreed a rung. */}
         {inv.earlyPayment?.discount > 0 && (
           <div className="text-xs text-etyme-verified mt-1">
@@ -570,12 +572,8 @@ export default function InvoiceDetail() {
               {((m.notes ?? []) as string[]).map((n) => (
                 <p key={n} className="text-sm text-etyme-muted mt-1">{n}</p>
               ))}
-              {m.workOrder && (
-                <p className="text-sm text-etyme-muted mt-1 tabular-nums">
-                  {amountFromUnits(m.workOrder.remaining)} left on the purchase order
-                  {' · '}{m.workOrder.utilisationPercent}% used
-                </p>
-              )}
+              {/* What is left on the order is said once, under Purchase
+                  order in the money section, from the one reader. */}
             </div>
             {m.matched && inv.status === 'ISSUED' && (
               <button onClick={submit}

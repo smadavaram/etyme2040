@@ -6,6 +6,7 @@ import { reasonAsked, unanswered, ANSWERED_IN } from '@/lib/award/reason-asked'
 import { startOf } from '@/lib/award/hire-terms'
 import { jobBody, JOB_FIELDS_NOT_SENT, type JobTyped } from '@/app/dashboard/requisitions/job-body'
 import { panelFrom } from '@/app/api/requisitions/panel'
+import { readWorkFacts } from '@/app/api/requisitions/work-facts'
 import { applyBody, reuseBody, type ApplyForm } from '@/app/apply/[token]/apply-body'
 
 /**
@@ -82,6 +83,7 @@ describe('every question the award asks, the Place dialog has a field for', () =
 // ── The job request form and the raise ───────────────────────────────
 
 const RAISE = readFileSync(join(process.cwd(), 'src/app/api/requisitions/route.ts'), 'utf8')
+const PAGE = readFileSync(join(process.cwd(), 'src/app/dashboard/requisitions/page.tsx'), 'utf8')
 /** The fields the raise destructures from its body, by the name the body carries. */
 const raiseReads = (() => {
   const from = RAISE.indexOf('const body = await request.json()')
@@ -94,6 +96,7 @@ const JOB: JobTyped = {
   sendTo: ['brightmoor', 'veritan'], headcount: '2', budget: '48000', hoursPerWeek: '40',
   billMin: '28', billMax: '34', months: '6', neededBy: '2026-11-16', description: 'Second shift.',
   justification: 'Backfill for the Q4 line.', costCenterId: 'cc_ops', ownerId: 'p_marcus', panel: ['Marcus Hollins', ' Dana Whitfield ', 'Marcus Hollins'],
+  workMode: 'HYBRID', sponsorship: 'NO', sponsorshipPolicy: ' We do not sponsor work visas for this role ',
 }
 
 describe('every question the raise asks, the job request form has a field for, and nothing the form asks is thrown away', () => {
@@ -127,6 +130,57 @@ describe('every question the raise asks, the job request form has a field for, a
     const noSite = jobBody({ ...JOB, siteId: null, sendTo: null, location: 'Dayton, Ohio' })
     expect(noSite).toMatchObject({ locationId: null, location: 'Dayton, Ohio' })
     expect('sendTo' in noSite).toBe(false)
+  })
+
+  it('the job form sends where the work is done, opening on site, and the raise writes it to the job', () => {
+    expect(jobBody(JOB).workMode).toBe('HYBRID')
+    expect(jobBody({ ...JOB, workMode: '' }).workMode).toBe('ONSITE')
+    expect(RAISE).toContain('workMode: work.facts.workMode,')
+    expect(readWorkFacts({ workMode: jobBody(JOB).workMode })).toMatchObject({ ok: true, facts: { workMode: 'HYBRID' } })
+  })
+
+  it('a work mode that is not on site, hybrid or remote is refused in a sentence naming the field', () => {
+    expect(readWorkFacts({ workMode: 'remote-ish' })).toEqual({
+      ok: false, field: 'workMode', says: 'Say where the work is done: on site, hybrid or remote.',
+    })
+  })
+
+  it('a job that offers no sponsorship sends the policy in the firm’s own words, and the raise records it as the reason on record', () => {
+    const body = jobBody(JOB)
+    expect(body).toMatchObject({ sponsorship: 'NO', sponsorshipPolicy: 'We do not sponsor work visas for this role' })
+    expect(readWorkFacts(body)).toEqual({
+      ok: true,
+      facts: {
+        workMode: 'HYBRID',
+        restriction: {
+          workAuthRequired: 'NEEDS_NO_SPONSOR',
+          workAuthBasis: 'SPONSORSHIP_UNAVAILABLE',
+          workAuthCite: 'We do not sponsor work visas for this role',
+        },
+      },
+    })
+    expect(RAISE).toContain('...(work.facts.restriction ?? {}),')
+  })
+
+  it('"no sponsorship" with no words is refused, and the form has the field the refusal names', () => {
+    const refused = readWorkFacts({ sponsorship: 'NO', sponsorshipPolicy: '  ' })
+    expect(refused.ok).toBe(false)
+    expect(refused.ok ? null : refused.field).toBe('sponsorshipPolicy')
+    expect('sponsorshipPolicy' in jobBody(JOB)).toBe(true)
+    expect(PAGE).toContain('Your policy, in a few words')
+  })
+
+  it('a job that offers sponsorship sends no policy and records no restriction', () => {
+    const body = jobBody({ ...JOB, sponsorship: 'YES' })
+    expect('sponsorshipPolicy' in body).toBe(false)
+    expect(readWorkFacts(body)).toEqual({ ok: true, facts: { workMode: 'HYBRID', restriction: null } })
+  })
+
+  it('the job form asks "Where is the work done?" and "Sponsorship" in the trade’s words', () => {
+    expect(PAGE).toContain('<Lbl>Where is the work done?</Lbl>')
+    expect(PAGE).toContain("[['ONSITE', 'On site'], ['HYBRID', 'Hybrid'], ['REMOTE', 'Remote']]")
+    expect(PAGE).toContain('<Lbl>Sponsorship</Lbl>')
+    expect(PAGE).toContain("[['YES', 'Offered'], ['NO', 'Not offered']]")
   })
 
   it('every rate typed in dollars on the job form reaches the raise in cents through the one reader', () => {
@@ -179,5 +233,78 @@ describe('every question the supplier’s apply route asks, the apply page has a
 
   it('papers given to another client are sent again by their request and key, with the dates typed here', () => {
     expect(reuseBody([{ requestId: 'r1', key: 'INSURANCE_GL' }], FORM, REFS, DATES)).toMatchObject({ reuse: [{ requestId: 'r1', key: 'INSURANCE_GL' }], dates: DATES })
+  })
+})
+
+// ── The start's one question and its route (founder, 2026-11-03) ─────
+
+import { startIdentityBody } from '@/app/dashboard/program/start-identity-body'
+import { readStartIdentity } from '@/app/api/program/start-identity/answer'
+import { START_QUESTION, notThePersonNotice } from '@/lib/notify/degree-and-start'
+
+const IDENTITY_ROUTE = readFileSync(join(process.cwd(), 'src/app/api/program/start-identity/route.ts'), 'utf8')
+const IDENTITY_CARD = readFileSync(join(process.cwd(), 'src/app/dashboard/program/start-identity.tsx'), 'utf8')
+const PROGRAM_PAGE = readFileSync(join(process.cwd(), 'src/app/dashboard/program/page.tsx'), 'utf8')
+
+describe('the start asks whoever is hiring whether the person who started is the person interviewed', () => {
+  it('the start card asks "Is the person who started the person you interviewed?" with Yes and No, on the start row of the program page', () => {
+    expect(START_QUESTION).toBe('Is the person who started the person you interviewed?')
+    expect(IDENTITY_CARD).toContain('{START_QUESTION}')
+    expect(IDENTITY_CARD).toContain('onClick={() => answer(true)}')
+    expect(IDENTITY_CARD).toContain('onClick={() => answer(false)}')
+    expect(PROGRAM_PAGE).toContain('<StartIdentity')
+  })
+
+  it('every field the start question\'s route reads, the card sends, and the route refuses no answer in a sentence naming the field', () => {
+    const body = startIdentityBody({ contractId: 'sc_1', confirmed: false })
+    expect(body).toEqual({ contractId: 'sc_1', confirmed: false })
+    expect(readStartIdentity(body)).toEqual({ ok: true, confirmed: false })
+    expect(IDENTITY_ROUTE).toContain("typeof body?.contractId === 'string' ? body.contractId : ''")
+    expect(IDENTITY_ROUTE).toContain('const read = readStartIdentity(body)')
+    const refused = readStartIdentity({})
+    expect(refused).toEqual({
+      ok: false, field: 'confirmed', says: 'Answer Yes or No: is the person who started the person you interviewed?',
+    })
+  })
+
+  it('the answer is written to the three columns with who and when', () => {
+    expect(IDENTITY_ROUTE).toContain('startIdentityConfirmed: read.confirmed,')
+    expect(IDENTITY_ROUTE).toContain('startIdentityConfirmedById: caller.person.id,')
+    expect(IDENTITY_ROUTE).toContain('startIdentityConfirmedAt: now,')
+  })
+
+  it('a No tells the client\'s HR and the supplier in conversation\'s one sentence that the start is on hold', () => {
+    expect(notThePersonNotice({ saidBy: 'Marcus Hollins', personName: 'Ravi Kalathil', jobTitle: 'HCM integration lead' })).toEqual({
+      title: 'Start on hold: Ravi Kalathil, HCM integration lead',
+      body: 'Marcus Hollins says the person who started is not the person interviewed. The start is on hold until HR confirms who is on site.',
+    })
+    expect(IDENTITY_ROUTE).toContain("from '@/lib/notify/degree-and-start'")
+    expect(IDENTITY_ROUTE).toContain('notThePersonNotice({')
+    expect(IDENTITY_CARD).toContain("from '@/lib/notify/degree-and-start'")
+    expect(IDENTITY_ROUTE).toContain("role: { name: { in: ['HR', 'HR Partner', 'Compliance Officer'] } }")
+    expect(IDENTITY_ROUTE).toContain('companyId: contract.companyId,')
+  })
+
+  it('only whoever is hiring answers it, and the refusal says who does', () => {
+    expect(IDENTITY_ROUTE).toContain("hasPermission(permissions, 'requirements.write')")
+    expect(IDENTITY_ROUTE).toContain('is for whoever is hiring: a hiring or program manager.')
+  })
+})
+
+// ── Pick one of your suppliers, under Ask somebody (2026-11-03) ───────
+
+describe('every question the pick route asks, the supplier picker has a field for', () => {
+  const PICK = readFileSync(join(process.cwd(), 'src/app/api/contractor-invites/[id]/route.ts'), 'utf8')
+  const PAGE = readFileSync(join(process.cwd(), 'src/app/dashboard/people/page.tsx'), 'utf8')
+  it('the pick route reads supplierCompanyId, and the picker sends the firm pressed as supplierCompanyId', () => {
+    expect(PICK).toContain('body.supplierCompanyId')
+    expect(PAGE).toContain("act(p.inviteId, { action: 'pick', supplierCompanyId, ...(reason ? { reason } : {}) })")
+  })
+  it('the pick route asks for a reason for a firm on probation, and the picker has a reason box that sends it as reason', () => {
+    const PICKER = readFileSync(join(process.cwd(), 'src/app/dashboard/people/supplier-picker.tsx'), 'utf8')
+    expect(PICK).toContain("field: 'reason'")
+    expect(PICK).toContain('body?.reason')
+    expect(PICKER).toContain('<textarea')
+    expect(PICKER).toContain('onPick(c.companyId, reason.trim())')
   })
 })

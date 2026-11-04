@@ -128,7 +128,9 @@ export function mayAct(
     if (!extra.fileUrl) {
       return { ok: false, code: 'FILE_REQUIRED', message: `Attach the file. ${name} cannot be on file without one.` }
     }
-    return { ok: true, next: 'UPLOADED', says: subject ? `${name} is on file. Thank you.` : `${name} recorded as received.` }
+    // Received, never "on file": nobody has looked at it yet, and the
+    // start reads the look (the release walk, R3, 2026-11-03).
+    return { ok: true, next: 'UPLOADED', says: subject ? `${name} received. Thank you. ${doc.issuerName} will look at it before it counts.` : `${name} recorded as received.` }
   }
 
   // sign
@@ -379,6 +381,56 @@ export function questionOf(templateName: string): (typeof QUESTION_SAID)[string]
   if (/work authori[sz]ation|right to work/.test(about)) return QUESTION_SAID.RIGHT_TO_WORK
   if (/background/.test(about)) return QUESTION_SAID.BACKGROUND_CHECK
   return null
+}
+
+/**
+ * What a screening answer says about sponsorship, read by rule from the
+ * person's own words, never by the model.
+ *
+ * True where the words say sponsorship will be needed (or name a status
+ * that needs it: H-1B, OPT, TN, L-1, a visa); false where they say it will
+ * not, or name a status that never needs it (a citizen, a permanent
+ * resident or green card, an asylee, a refugee); null where the rule
+ * cannot tell, which decides nothing and keeps the words for HR to read.
+ * The person's answer is recorded as the person's; it is never a verdict.
+ */
+export function sponsorshipFromWords(words: string | null | undefined): boolean | null {
+  const t = ` ${(words ?? '').toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ')} `
+  if (!t.trim()) return null
+  const sponsorWord = /sponsor/
+  const negated =
+    /\b(will not|won't|wont|do not|don't|dont|does not|doesn't|shall not|never|no longer|not)\b[^.;]{0,30}\b(need|require|requir)\w*[^.;]{0,25}sponsor/.test(t) ||
+    /\bno\b[^.;]{0,15}sponsor/.test(t) ||
+    /sponsor\w*[^.;]{0,20}\b(not|never)\b[^.;]{0,10}\b(needed|required|necessary)\b/.test(t)
+  const asked =
+    !negated &&
+    sponsorWord.test(t) &&
+    (/\b(need|needs|needed|require|requires|required)\b[^.;]{0,40}sponsor/.test(t) || /sponsor\w*[^.;]{0,20}\b(needed|required)\b/.test(t) || /^\s*yes\b/.test(t))
+  const needsNone = /\b(citizen|green card|permanent resident|lawful permanent|asylee|refugee)\b/.test(t)
+  const onAVisa = /\b(h-?1-?b|opt|stem opt|cpt|tn|l-?1|f-?1|visa)\b/.test(t)
+  if (asked) return true
+  if (negated) return onAVisa && !needsNone ? null : false
+  if (needsNone && !onAVisa) return false
+  if (onAVisa && !needsNone) return true
+  return null
+}
+
+/**
+ * What HR reads beside the person's own words on the screening answer:
+ * how the rule read them, or that it could not, so HR reads the words.
+ * It says what the person said; it is never a verdict on the person.
+ */
+export function sponsorshipReading(words: string | null | undefined): string | null {
+  if (!(words ?? '').trim()) return null
+  const read = sponsorshipFromWords(words)
+  if (read === true) return 'Read as: will need sponsorship.'
+  if (read === false) return 'Read as: will not need sponsorship.'
+  return 'The words do not say whether sponsorship will be needed. Read them, and ask if it matters for the job.'
+}
+
+/** Whether this paper is the work-authorization screening question. */
+export function isWorkAuthQuestion(templateName: string): boolean {
+  return questionOf(templateName) === QUESTION_SAID.RIGHT_TO_WORK
 }
 
 /** What the person is told when it is asked for. */
@@ -690,6 +742,47 @@ export function audienceWord(audience: string): string {
   return AUDIENCE_WORDS[audience.toUpperCase()] ?? 'Anybody'
 }
 
+// ── The library, one row per paper ─────────────────────────────────────
+//
+// The screen walk (2026-11-02, open in walk 3): Northbend's library listed
+// "Certificate of good standing" twice, and a name stored by an older
+// build still read in British spelling. A template is created from a
+// request's label wherever none is found by name, so two rows for one
+// paper and a name written before the spelling was fixed are both on the
+// record. The library reads them as one row, in American English; the
+// rows themselves are left as they are.
+
+/** A stored name, read in American English. Built from parts so the British word is not written here. */
+const BRITISH_BANK_WORD = new RegExp('\\b(c)he' + 'que(s?)\\b', 'gi')
+export function libraryName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').replace(BRITISH_BANK_WORD, (_m, c: string, s: string) => `${c}heck${s}`)
+}
+
+export interface LibraryTemplate { id: string; name: string; audience: string; needsSignature: boolean; instanceCount: number; hasFile?: boolean }
+
+/**
+ * One row per paper: templates whose names read the same (letter case and
+ * spacing aside) are one row, under the one most asked, with every ask
+ * counted. Pure, and in the order given.
+ */
+export function libraryOf(templates: LibraryTemplate[]): LibraryTemplate[] {
+  const byName = new Map<string, LibraryTemplate[]>()
+  for (const t of templates) {
+    const k = libraryName(t.name).toLowerCase()
+    byName.set(k, [...(byName.get(k) ?? []), t])
+  }
+  return [...byName.values()].map((group) => {
+    const lead = [...group].sort((a, b) => b.instanceCount - a.instanceCount)[0]
+    return {
+      ...lead,
+      // The name as somebody wrote it for a reader: capitalized where any row was.
+      name: libraryName((group.find((g) => /^[A-Z0-9]/.test(g.name.trim())) ?? lead).name),
+      needsSignature: group.some((g) => g.needsSignature),
+      instanceCount: group.reduce((n, g) => n + g.instanceCount, 0),
+    }
+  })
+}
+
 /** The word a row shows: what is true, not the enum. */
 export function statusWord(status: string): string {
   switch (status) {
@@ -700,6 +793,30 @@ export function statusWord(status: string): string {
     case 'UPLOADED': return 'On file'
     default: return status.toLowerCase()
   }
+}
+
+/**
+ * The word a paper on the firm's Paperwork reads, from what is on the
+ * record about it: "On file" only once somebody examined it, or a
+ * provider's verdict on it is recorded.
+ *
+ * The second screen walk (2026-11-03) found Paperwork saying "On file"
+ * for a paper that had only arrived: a file somebody sent is not a file
+ * somebody looked at, and the start reads the second. Pure.
+ */
+export function paperWord(p: { status: string; examinedAt?: Date | string | null; verdictRecorded?: boolean }): string {
+  const looked = !!p.examinedAt || !!p.verdictRecorded
+  switch (p.status) {
+    case 'UPLOADED': return looked ? 'On file' : 'Arrived, not examined'
+    case 'SIGNED': return looked ? 'Signed and accepted' : 'Signed, not examined'
+    case KEPT_BY_HOLDER: return looked ? 'On file' : 'On file, not examined'
+    default: return statusWord(p.status)
+  }
+}
+
+/** Whether a paper arrived and is waiting for somebody to look at it. */
+export function waitsToBeExamined(p: { status: string; examinedAt?: Date | string | null; verdictRecorded?: boolean }): boolean {
+  return ['UPLOADED', 'SIGNED', KEPT_BY_HOLDER].includes(p.status) && !p.examinedAt && !p.verdictRecorded
 }
 
 // ── Everything asked of one person, from wherever it was asked ────────
@@ -737,6 +854,8 @@ export interface SentDocument {
 /** One thing asked for inside a packet. */
 export interface AskedItem {
   id: string
+  /** The kind of paper asked for, where the request says, so one already on file is read as such. */
+  key?: string | null
   label: string
   /** PENDING · RECEIVED · ACCEPTED · REJECTED */
   state: string
@@ -763,6 +882,13 @@ export interface AskedPacket {
    * them. Null where the packet carried none.
    */
   reason: string | null
+  /**
+   * A renewal: it asks for a new copy of a paper that is on file and still
+   * in date, because that paper is about to lapse. The paper on file does
+   * not answer it, only the renewal does, so it stays listed until the
+   * renewal arrives (release pass 36, Colleen Byrne's license).
+   */
+  renewal?: boolean
   items: AskedItem[]
 }
 
@@ -1309,11 +1435,23 @@ export function myPapers(input: {
    * second press is the same request rather than a second one.
    */
   asksByKey?: Record<string, string>
+  /**
+   * The kinds on file and in force for her today, read the way the
+   * placement reads them. A request item still asking for one of them is
+   * not listed: the paper is on her file, and showing it as both "On file"
+   * and "Asked for" is two truths about one paper (the fourth screen walk, R3).
+   */
+  onFileKeys?: string[]
   /** The day it is read on. Only used to say how long is left. */
   on?: Date
 }): Paper[] {
   const papers: Paper[] = []
   const now = input.on ?? new Date()
+  // A kind is on file where it, or anything that stands in for it, is.
+  const held = new Set(input.onFileKeys ?? [])
+  const onFile = {
+    has: (key: string) => [key, ...(SATISFIED_BY[key] ?? [])].some((k) => held.has(k)),
+  }
 
   // ── One document is one row on her page ────────────────────────────
   //
@@ -1374,6 +1512,10 @@ export function myPapers(input: {
     const mine =
       !!input.myEmail && p.recipientEmail.trim().toLowerCase() === input.myEmail.trim().toLowerCase()
     for (const item of [...p.items].sort((a, b) => a.position - b.position)) {
+      // An item asking for a paper already on file and in force is answered
+      // by that paper, so it is not listed twice (R3). A renewal is never
+      // answered by the paper it renews.
+      if (!p.renewal && item.state === 'PENDING' && item.key && onFile.has(item.key)) continue
       const answered = ANSWERED.includes(item.state)
       papers.push({
         id: item.id,
@@ -1702,13 +1844,13 @@ export const EXAMINED_NOT_SENT: readonly string[] = ['I9_EVERIFY', 'RIGHT_TO_WOR
 
 import { prisma } from '@/lib/db'
 import {
-  requirementsFor,
   SHAPE_SAYS,
   type EffectiveRequirement,
   type LineRequirements,
   type OwedBy,
 } from '@/lib/document-requirements'
 import { labelFor } from '@/lib/document-type'
+import { requirementsWhereWorkIsDone } from '@/lib/document-stages/where-work-is-done'
 import { possessive } from '@/lib/requisition-approval'
 import { gateChases, partyOfShape, workerPartyAt, withheldDetail, type WithheldChase } from '@/lib/document-stages/chase-gate'
 import type { Party } from '@/lib/document-stages/required-sets'
@@ -1836,7 +1978,7 @@ export async function lookAtDocInstances(
     if (!r.expiresAt) continue
     const lineId = r.sellContractId ?? r.buyContractId!
     const side: 'SELL' | 'BUY' = r.sellContractId ? 'SELL' : 'BUY'
-    const set = await requirementsFor(
+    const set = await requirementsWhereWorkIsDone(
       side === 'SELL' ? { sellContractId: lineId } : { buyContractId: lineId },
       db as never
     )
@@ -2272,8 +2414,8 @@ export async function requiredOfSupplier(input: {
     ...sell.map((r) => ({ side: 'SELL' as const, id: r.id })),
   ]
   const sets = await Promise.all([
-    ...buy.map((r) => requirementsFor({ buyContractId: r.id }, db as never)),
-    ...sell.map((r) => requirementsFor({ sellContractId: r.id }, db as never)),
+    ...buy.map((r) => requirementsWhereWorkIsDone({ buyContractId: r.id }, db as never)),
+    ...sell.map((r) => requirementsWhereWorkIsDone({ sellContractId: r.id }, db as never)),
   ])
   return foldForParty(sets, ['SUPPLIER'], lines)
 }
@@ -2327,8 +2469,8 @@ export async function requiredOfWorker(input: {
     ...buy.map((r) => ({ side: 'BUY' as const, id: r.id })),
   ]
   const sets = await Promise.all([
-    ...sell.map((r) => requirementsFor({ sellContractId: r.id }, db as never)),
-    ...buy.map((r) => requirementsFor({ buyContractId: r.id }, db as never)),
+    ...sell.map((r) => requirementsWhereWorkIsDone({ sellContractId: r.id }, db as never)),
+    ...buy.map((r) => requirementsWhereWorkIsDone({ buyContractId: r.id }, db as never)),
   ])
   return foldForParty(sets, ['WORKER'], lines)
 }
@@ -2361,7 +2503,7 @@ export async function requiredOfUsBy(input: {
     take: 40,
   })
   const lines: RequiredLine[] = rows.map((r) => ({ side: 'SELL' as const, id: r.id }))
-  const sets = await Promise.all(rows.map((r) => requirementsFor({ sellContractId: r.id }, db as never)))
+  const sets = await Promise.all(rows.map((r) => requirementsWhereWorkIsDone({ sellContractId: r.id }, db as never)))
   return foldForParty(sets, ['SUPPLIER', 'US'], lines)
 }
 

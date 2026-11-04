@@ -38,8 +38,9 @@ import { ITEM_WORDS, itemHref, CHECKLIST_HREF, type ItemKey } from '@/lib/setup-
 import { WEEK_WORDS, weekActOf } from '@/lib/notify/week-words'
 import type { BillCardPayload } from '@/lib/money/supplier-bills'
 import { supplierToldSays } from '@/lib/money/invoice-hold'
-import { offRecord, asksAboutFirmMoney, anotherFirmsMoney, NOT_ANOTHER_BOOK } from './transaction'
+import { offRecord, asksAboutFirmMoney, anotherFirmsMoney, writingAsk, NOT_ANOTHER_BOOK, ONLY_THE_RECORD } from './transaction'
 import type { WorkerAnswer } from './worker'
+import { getNavForKind, ASK_ETYME_HREF, type NavSection, type NavItem, type CompanyKind } from '@/lib/nav-table'
 
 // ── What was asked ───────────────────────────────────────────────────
 
@@ -69,6 +70,10 @@ export type Intent =
   | { kind: 'LAST_PAID' }
   /** Setting up the company, getting started, what to do first (the founder's screen, 2026-11-02). */
   | { kind: 'SETUP'; said: 'SETUP' | 'START'; item?: SetupItemAsked }
+  /** Where a page is, read from the seat's own menu; `go` where the person asked to be taken there (2026-11-03). */
+  | { kind: 'WHERE'; topic: number; go: boolean }
+  /** "Take me there": open the page the last answer named. */
+  | { kind: 'GO' }
   | { kind: 'ASK'; text: string }
 
 /** "#3", "INV-1003.", "'abc'" — a reference as somebody types it, cleaned. */
@@ -215,6 +220,183 @@ export function setupSays(r: SetupRead, item?: SetupItemAsked): Answer {
   }
 }
 
+// ── Where a page is ──────────────────────────────────────────────────
+//
+// Tapin's Owner, on production, 2026-11-03: "where can I see my
+// contracts" was answered "needs the model", and "take me there" with the
+// standing refusal. Both are rules questions. A question about where a
+// page is is answered from the person's own menu (lib/nav-table, the nine
+// links and their tabs, filtered by the seat's permissions the way the
+// menu itself is), with the page named and its link; never the model.
+
+/** One thing a person asks the place of, and the pages that show it, in the order they are named. */
+interface NavTopic { re: RegExp; subject: string; plural: boolean; pages: readonly string[] }
+
+/** Most specific first: "add people to the bench" is the bench, not people. */
+const NAV_TOPICS: readonly NavTopic[] = [
+  // The master data sits under Network on every firm's menu (founder,
+  // 2026-11-04): the people a firm keeps and the firms it trades with.
+  { re: /\bmaster data\b/, subject: 'Your master data', plural: false, pages: ['Candidates', 'Companies', 'Suppliers'] },
+  { re: /\bnetwork\b/, subject: 'Your network', plural: false, pages: ['Candidates', 'Companies', 'Suppliers'] },
+  { re: /\bbench\b/, subject: 'The bench', plural: false, pages: ['Bench', 'Candidates', 'Who has you'] },
+  // Money in and money out, in the founder's process order: payments in are
+  // recorded on AR under Bills, payments out on AP under Invoice receipts.
+  { re: /\bpayments? (?:in|received)\b|\bincoming payments?\b|\bwhat came in\b|\bmoney (?:in|that came in)\b/, subject: 'Payments in', plural: true, pages: ['AR'] },
+  { re: /\bpayments? (?:out|made)\b|\boutgoing payments?\b|\bpaid out\b|\bmoney out\b/, subject: 'Payments out', plural: true, pages: ['AP'] },
+  { re: /\binvoice receipts?\b|\bsuppliers?['’]?s? invoices?\b|\bwhat (?:my |our |the )?(?:sub-?)?(?:suppliers?|vendors?) (?:sent|billed|invoiced)\b/, subject: 'Invoice receipts', plural: true, pages: ['Invoice receipts', 'AP'] },
+  { re: /\bdocument requests?\b/, subject: 'Document requests', plural: true, pages: ['Document requests', 'Paperwork'] },
+  { re: /\b(purchase|sales|work) orders?\b|\bpos\b/, subject: 'Your orders', plural: true, pages: ['POs'] },
+  { re: /\bagreements?\b|\bmsas?\b/, subject: 'Your agreements', plural: true, pages: ['Agreements', 'Sell contracts', 'Buy contracts', 'Contracts'] },
+  { re: /\bcontracts?\b|\bplacements?\b|\bassignments?\b/, subject: 'Your contracts', plural: true, pages: ['Sell contracts', 'Buy contracts', 'Contracts', 'Your work'] },
+  { re: /\bexpenses?\b/, subject: 'Your expenses', plural: true, pages: ['Expenses'] },
+  { re: /\bcommissions?\b/, subject: 'Commissions', plural: true, pages: ['Commissions'] },
+  { re: /\bpayroll\b|\bpay runs?\b/, subject: 'Payroll', plural: false, pages: ['Payroll'] },
+  { re: /\btime ?sheets?\b|\bhours\b|\bweeks?\b/, subject: 'Your timesheets', plural: true, pages: ['Timesheets', 'Your work'] },
+  { re: /\bbill(s|ed|ing)?\b|\breceivables?\b|\bar\b/, subject: 'What you billed', plural: false, pages: ['Bills', 'AR'] },
+  { re: /\binvoic(e|es|ed|ing)\b/, subject: 'Your invoices', plural: true, pages: ['Bills', 'Invoice receipts', 'AR'] },
+  { re: /\bpayables?\b|\bap\b/, subject: 'What you owe', plural: false, pages: ['AP', 'Invoice receipts'] },
+  { re: /\binterviews?\b/, subject: 'Your interviews', plural: true, pages: ['Interviews', 'Your work'] },
+  // Who was put forward to a job is Submissions on every firm's menu
+  // (founder, 2026-11-03: "Candidates = submissions").
+  { re: /\bapplicants?\b|\bapplied\b|\bapplications?\b|\bsubmissions?\b|\bsubmitted\b|\bput forward\b/, subject: 'Your submissions', plural: true, pages: ['Submissions'] },
+  // A supplier's candidates are its people and its bench; a client's are
+  // the people it met through its suppliers and would reach out to again.
+  { re: /\bcandidates?\b/, subject: 'Your candidates', plural: true, pages: ['Candidates', 'Bench'] },
+  { re: /\bleads?\b/, subject: 'Leads', plural: true, pages: ['Leads'] },
+  { re: /\bjobs?\b|\bjob requests?\b|\brequisitions?\b|\bopenings?\b|\bpositions?\b/, subject: 'Your jobs', plural: true, pages: ['Jobs', 'Leads', 'Shared with you'] },
+  { re: /\b(users?|permissions?|teammates?|colleagues?|my team|our team)\b/, subject: 'Your team', plural: false, pages: ['Users & permissions'] },
+  // Contractors are the people on contracts ("Contracts, not Contractors").
+  { re: /\bcontractors?\b/, subject: 'Your contractors', plural: true, pages: ['Contracts', 'Sell contracts', 'Buy contracts', 'Your work'] },
+  { re: /\bpeople\b|\bconsultants?\b|\bemployees?\b|\bworkers?\b/, subject: 'Your people', plural: true, pages: ['Candidates', 'Bench', 'Contracts'] },
+  { re: /\b(sub-?)?(suppliers?|vendors?)\b/, subject: 'Your suppliers', plural: true, pages: ['Suppliers', 'Companies'] },
+  { re: /\bclients?\b|\bcustomers?\b|\bcompan(y|ies)\b|\bpartners?\b/, subject: 'Your companies', plural: true, pages: ['Companies', 'Suppliers'] },
+  { re: /\bcontacts?\b/, subject: 'Your contacts', plural: true, pages: ['Contacts'] },
+  { re: /\bcompliance\b/, subject: 'Compliance', plural: false, pages: ['Compliance', 'Paperwork'] },
+  { re: /\bi-?9s?\b|\bpapers?\b|\bpaperwork\b|\bdocuments?\b|\bdocs\b|\bcertificates?\b|\binsurance\b|\blicen[cs]es?\b/, subject: 'Your paperwork', plural: false, pages: ['Paperwork', 'Your paperwork', 'Company paperwork', 'Document requests', 'Compliance'] },
+  { re: /\bsites?\b|\blocations?\b|\bbranch(es)?\b/, subject: 'Your sites', plural: true, pages: ['Sites'] },
+  { re: /\broll ?offs?\b|\brolling off\b|\bending soon\b/, subject: 'Who rolls off', plural: false, pages: ['Rolloff', 'Ending soon'] },
+  { re: /\btenure\b|\btime limits?\b/, subject: 'The time limit', plural: false, pages: ['Tenure'] },
+  { re: /\bbudgets?\b/, subject: 'Your budget', plural: false, pages: ['Budget'] },
+  { re: /\breports?\b/, subject: 'Reports', plural: true, pages: ['Reports'] },
+  { re: /\bprofit(ability|s)?\b|\bmargins?\b/, subject: 'Profitability', plural: false, pages: ['Profitability'] },
+  { re: /\brates?\b/, subject: 'Rate history', plural: false, pages: ['Rate history', 'Your work'] },
+  { re: /\bscorecards?\b/, subject: 'Scorecards', plural: true, pages: ['Our scorecard', 'Supplier scorecards'] },
+  { re: /\bconsent\b|\bwho has me\b/, subject: 'Who has you', plural: false, pages: ['Who has you'] },
+  { re: /\bmy page\b|\bprofile\b/, subject: 'Your page', plural: false, pages: ['Your page'] },
+  { re: /\bmy data\b/, subject: 'Your data', plural: false, pages: ['Your data'] },
+  { re: /\bpay\b|\bpaid\b|\bpay ?checks?\b|\bpayments?\b/, subject: 'Your pay', plural: false, pages: ['Your work', 'AR', 'AP', 'Invoice receipts'] },
+  { re: /\bsettings?\b/, subject: 'Your settings', plural: true, pages: ['Settings'] },
+  { re: /\bdashboard\b|\btoday\b|\bhome\b/, subject: 'Your dashboard', plural: false, pages: ['Today', 'Your work'] },
+]
+
+/** "Where can I see…", "How do I get to…", "Take me to…", "Which page…": asking the place of a page. */
+const WHERE_ASK = /^(?:(?:please|ok(?:ay)?|so|and|hi|hey)[,!]? )*(?:where\b|how (?:do|can|would|should) (?:i|we) (?:get to|find|open|reach|go to|see|view|look at)\b|(?:take|bring|send) me to\b|(?:go|navigate) to\b|(?:which|what) (?:page|tab|screen)\b|on (?:which|what) (?:page|tab|screen)\b|show me where\b)/
+/** "Show me my contracts", "Open our bills": answered as a place only where no rule reads the record for it. */
+const SHOW_ME = /^(?:(?:please|ok(?:ay)?)[,!]? )?(?:show me|open|pull up|i want to see|i need to see|can i see|can you show me)\s+(?:my|our|the|all)\b/
+/** Asking to be taken, not told: the page opens. */
+const TAKE_ME = /^(?:(?:please|ok(?:ay)?)[,!]? )?(?:(?:take|bring|send) me to|(?:go|navigate) to|open)\b/
+/** "Take me there", "Open it", "Go": after an answer that named a page. */
+const GO_THERE = /^(?:(?:please|ok(?:ay)?|yes|yeah|sure|great|thanks|thank you|then)[,!.]? )*(?:take me (?:there|to it|to that(?: page)?)|bring me there|open (?:it|that|that page|the page|this|them)|go(?: there| to it)?|show me(?: it| that| there)?|let['’]?s go|navigate there)(?: please| now)?[.!?]*$/
+
+/** Which topic a question names, by index, or null. */
+function navTopicOf(lower: string): number | null {
+  const at = NAV_TOPICS.findIndex((t) => t.re.test(lower))
+  return at < 0 ? null : at
+}
+
+/** A question about where a page is, or a request to open one; null for anything else. */
+export function readWhere(raw: string, opts: { loose?: boolean } = {}): Intent | null {
+  const lower = raw.trim().replace(/\s+/g, ' ').toLowerCase().normalize('NFC').replace(/[’‘]/g, "'")
+  if (!lower) return null
+  if (GO_THERE.test(lower)) return { kind: 'GO' }
+  const asked = WHERE_ASK.test(lower) || (opts.loose && SHOW_ME.test(lower))
+  if (!asked) return null
+  if (/\b(?!my\b|our\b|your\b)[a-zÀ-ɏ]+'s\b/.test(lower)) return null
+  const topic = navTopicOf(lower)
+  if (topic === null) return null
+  return { kind: 'WHERE', topic, go: TAKE_ME.test(lower) }
+}
+
+/** The seat's own menu, as the sidebar draws it: its kind, a seat in a client's program, its permissions. */
+export function menuOf(seat: { companyKind?: string | null; party?: Party; permissions?: readonly string[] | null; client?: string | null }): NavSection[] {
+  const worker = seat.party === 'WORKER'
+  const kind = (seat.companyKind ?? null) as CompanyKind | null
+  return getNavForKind(kind, worker, { permissions: seat.permissions ?? null, seatedAtClient: seat.client ?? null })
+}
+
+interface Placed { section: NavSection; item: NavItem }
+
+/** Every page on the menu, each with the link it sits under. Ask Etyme itself is not a place to send anybody. */
+function placesOn(menu: readonly NavSection[]): Placed[] {
+  return menu.flatMap((section) => section.items.filter((item) => item.href !== ASK_ETYME_HREF).map((item) => ({ section, item })))
+}
+
+function andNames(xs: readonly string[]): string {
+  if (xs.length <= 1) return xs[0] ?? ''
+  return `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`
+}
+
+/** "under Companies, on the Sell contracts and Buy contracts tabs"; "under Timesheets"; "on Your work". */
+function whereOn(section: NavSection, items: readonly NavItem[]): string {
+  if (!section.tabbed) return `on ${andNames(items.map((i) => i.label))}`
+  const own = section.items[0]
+  if (items.length === 1 && items[0].href === own?.href) return `under ${section.label}`
+  return `under ${section.label}, on the ${andNames(items.map((i) => i.label))} tab${items.length === 1 ? '' : 's'}`
+}
+
+/** The page an answer named first, where it named one: what "take me there" opens. */
+export function placeOf(a: unknown): string | null {
+  const x = a as { kind?: unknown; place?: unknown } | null
+  return x && typeof x === 'object' && x.kind === 'TEXT' && typeof x.place === 'string' && /^\/(?!\/)/.test(x.place) ? x.place : null
+}
+
+/** Whether a page is on this menu: a page the seat may not open is never offered. */
+function onMenu(menu: readonly NavSection[], href: string): Placed | null {
+  return placesOn(menu).find((p) => p.item.href === href) ?? null
+}
+
+/** What the seat can open, said as its links: "Today, Jobs, … and Settings". */
+function linksSaid(menu: readonly NavSection[]): string {
+  return andNames(menu.filter((s) => !s.items.some((i) => i.href === ASK_ETYME_HREF)).flatMap((s) => (s.tabbed ? [s.label] : s.items.map((i) => i.label))))
+}
+
+export const WHERE_FIRST = 'Ask me where a page is first, for example “Where are my contracts?”'
+
+/**
+ * The answer to where a page is, or to "take me there", read from the
+ * seat's own menu. At most two pages are named; a page the menu does not
+ * show this seat is never named. Rules only.
+ */
+export function whereAnswer(intent: Extract<Intent, { kind: 'WHERE' | 'GO' }>, menu: readonly NavSection[], place?: string | null): Answer {
+  if (intent.kind === 'GO') {
+    const at = place ? onMenu(menu, place) : null
+    if (!at) return { kind: 'TEXT', says: `${WHERE_FIRST}, and I will open it.` }
+    return { kind: 'TEXT', says: `Opening ${at.item.label}.`, links: [{ label: `Open ${at.item.label}`, href: at.item.href }], place: at.item.href, go: true }
+  }
+  const topic = NAV_TOPICS[intent.topic]
+  const places = placesOn(menu)
+  const picked: Placed[] = []
+  for (const label of topic.pages) {
+    const p = places.find((x) => x.item.label === label && !picked.some((y) => y.item.href === x.item.href))
+    if (p) picked.push(p)
+    if (picked.length === 2) break
+  }
+  if (picked.length === 0) {
+    const what = topic.subject.charAt(0).toLowerCase() + topic.subject.slice(1)
+    return { kind: 'TEXT', says: `None of your pages shows ${what}. You can open ${linksSaid(menu)}.` }
+  }
+  const sections: NavSection[] = []
+  for (const p of picked) if (!sections.includes(p.section)) sections.push(p.section)
+  const parts = sections.map((s) => whereOn(s, picked.filter((p) => p.section === s).map((p) => p.item)))
+  const says = `${topic.subject} ${topic.plural ? 'are' : 'is'} ${parts.join(', and ')}.`
+  return {
+    kind: 'TEXT', says,
+    links: picked.map((p) => ({ label: `Open ${p.item.label}`, href: p.item.href })),
+    place: picked[0].item.href,
+    ...(intent.go ? { go: true } : {}),
+  }
+}
+
 /**
  * Read what a person typed into one of the five rule questions, or ASK.
  * Case and trailing punctuation do not matter; word order mostly does,
@@ -228,6 +410,9 @@ export function readAsk(raw: string): Intent {
   const lower = text.toLowerCase()
   const setup = setupAsked(lower)
   if (setup) return { kind: 'SETUP', ...setup }
+  // Where a page is, and "take me there": the person's own menu, never the model.
+  const where = readWhere(text)
+  if (where) return where
   if (/\b(mark-?up|margin)s?\b/.test(lower)) return { kind: 'MARGIN' }
   if (
     (/\bvariance\b/.test(lower) && /\bsuppliers?\b/.test(lower)) ||
@@ -296,6 +481,10 @@ export function readAsk(raw: string): Intent {
     /\bunsigned\b/.test(lower) ||
     (/\b(weeks?|timesheets?|hours)\b/.test(lower) && /\b(not signed|to sign|waiting|not approved|unapproved|approval)\b/.test(lower))
   ) return { kind: 'WEEKS' }
+
+  // "Show me my contracts": a place, where no rule above reads the record for it.
+  const shown = readWhere(text, { loose: true })
+  if (shown) return shown
 
   return { kind: 'ASK', text }
 }
@@ -664,7 +853,7 @@ export function closeFor(party: Party, client?: string | null): string {
   if (party === 'FIRM') return 'Ask me about our people, our bench, our weeks and our bills. I answer from the record, and I never move money without a person.'
   if (party === 'SOLO') return 'Ask me about your weeks, your bills, your papers and your contract. I never file or sign anything for you.'
   const whose = party === 'MSP' && client?.trim() ? possessive(client) : 'your'
-  return `Ask me about ${whose} jobs, candidates, timesheets and invoice receipts. I answer from the record, and I never move money without a person.`
+  return `Ask me about ${whose} jobs, submissions, timesheets and invoice receipts. I answer from the record, and I never move money without a person.`
 }
 
 /** What the box says before anybody types. */
@@ -751,6 +940,21 @@ export const NO_MODEL =
 /** The company switch is off (lib/model-boundary): the honest reply, with the door. */
 export const NO_SWITCH =
   `${NOT_YET} This question needs the model, and your company has not turned it on. An owner or admin can turn it on under Settings.`
+
+/** The same, to a seat that cannot change the switch: who can, and no link to a page it cannot open. */
+export const NO_SWITCH_ASK =
+  `${NOT_YET} This question needs the model, and your company has not turned it on. Ask the Owner or an Admin to turn it on.`
+
+/**
+ * The switch is off: to a seat holding `settings.manage`, the sentence
+ * with "Settings" linked to the switch's own panel (`MODEL_SWITCH_HREF`
+ * in lib/model-boundary, passed in by the route so this file stays free
+ * of the database); to anybody else, who to ask.
+ */
+export function noSwitch(permissions: readonly string[] | null | undefined, href?: string | null): Answer {
+  if (permissions && !hasPermission(permissions, 'settings.manage')) return { kind: 'TEXT', says: NO_SWITCH_ASK }
+  return href ? { kind: 'TEXT', says: NO_SWITCH, saysLinks: [{ text: 'Settings', href }] } : { kind: 'TEXT', says: NO_SWITCH }
+}
 
 /**
  * The model free text goes to: small, by the founder's word ("we don't
@@ -953,7 +1157,13 @@ export interface VarianceRow {
 }
 
 export type Answer =
-  | { kind: 'TEXT'; says: string; links?: Link[] }
+  | { kind: 'TEXT'; says: string; links?: Link[]
+      /** Phrases inside `says` that are links: "Settings" to the model switch. */
+      saysLinks?: { text: string; href: string }[]
+      /** The page this answer named first: what "take me there" opens next. */
+      place?: string
+      /** Open `place` now: the person asked to be taken there. The link is the act; no card. */
+      go?: boolean }
   /**
    * What needs this seat. `more` carries who else is asked and the time
    * limit; `greeting` marks the first message of the chat, which the
@@ -1343,6 +1553,27 @@ function deskWords(desks: readonly string[]): { subject: string; object: string;
     : { subject: raw, object: raw, beside: raw }
 }
 
+/**
+ * What a question waiting on somebody else is called in a sentence: the
+ * person and the job, the number, the thing's own title, the person's
+ * name, in that order; null where the question carries none of them
+ * (release walk three, 2026-11-03: an Owner's greeting read the act
+ * kind's description twice, "Put a person on the firm’s own bench
+ * forward … enters.."). The act kind's description is the role
+ * contract's words for the act, never a name for one question. Pure.
+ */
+export function questionTitleFrom(action: string, payload: unknown, name?: string | null): string | null {
+  const p = isRecord(payload) ? payload : {}
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().replace(/[\s.]+$/u, '') : null)
+  if (action === PUT_FORWARD) {
+    const person = str(p.personName)
+    const job = str(p.jobTitle)
+    if (person && job) return putForwardItemTitle({ personName: person, jobTitle: job })
+    if (person) return person
+  }
+  return str(p.number) ?? str(p.title) ?? str(p.personName) ?? str(name) ?? null
+}
+
 export function othersSay(others: readonly OtherWaiting[]): RichLine[] {
   const out: RichLine[] = []
   const byDesk = new Map<string, OtherWaiting[]>()
@@ -1365,10 +1596,13 @@ export function othersSay(others: readonly OtherWaiting[]): RichLine[] {
     const has = people.length > 1 ? 'have' : 'has'
     const whom = people.length ? people[0].split(/\s+/)[0] : desk ? desk.object : 'somebody else'
     const notYours = xs.length === 1 ? `it is not yours to ${verb}` : `they are not yours to ${verb}`
+    // Each thing by its name, once, with no full stop of its own; a
+    // question that names nothing is counted and not listed.
+    const named = [...new Map(xs.map((x) => [x.title.trim().replace(/[\s.]+$/u, ''), x] as const)).entries()].filter(([t]) => t)
     out.push({
-      says: `${who} ${has} ${lowerNumber(xs.length)} ${noun}${xs.length === 1 ? '' : 's'} to ${verb}: ${listed(xs.map((x) => x.title))}. ` +
+      says: `${who} ${has} ${lowerNumber(xs.length)} ${noun}${xs.length === 1 ? '' : 's'} to ${verb}${named.length ? `: ${listed(named.map(([t]) => t))}` : ''}. ` +
         (own ? `Etyme asked ${whom}; ${notYours}.` : `${cap(notYours)}.`),
-      links: xs.map((x) => ({ text: x.title, href: x.href })),
+      links: named.map(([t, x]) => ({ text: t, href: x.href })),
     })
   }
   return out
@@ -1388,10 +1622,12 @@ export function askOthersSays(others: readonly OtherWaiting[]): RichLine | null 
   const desk = deskWords(first.desks)
   const people = (first.people ?? []).slice(0, 2)
   const who = people.length ? (desk ? `${orNames(people)}, ${desk.beside},` : orNames(people)) : desk ? desk.object : 'whoever answers it'
-  const titles = same.slice(0, 3).map((o) => o.title)
+  const named = [...new Map(same.map((o) => [o.title.trim().replace(/[\s.]+$/u, ''), o] as const)).entries()].filter(([t]) => t)
+  const shown = named.slice(0, 3)
+  if (shown.length === 0) return { says: `Ask ${who} to ${verb} ${same.length === 1 ? 'it' : 'them'}.` }
   return {
-    says: `Ask ${who} to ${verb} ${listed(titles)}${same.length > 3 ? ` and ${same.length - 3} more` : ''}.`,
-    links: same.slice(0, 3).map((o) => ({ text: o.title, href: o.href })),
+    says: `Ask ${who} to ${verb} ${listed(shown.map(([t]) => t))}${named.length > 3 ? ` and ${named.length - 3} more` : ''}.`,
+    links: shown.map(([t, o]) => ({ text: t, href: o.href })),
   }
 }
 
@@ -1619,7 +1855,7 @@ export function weeksSay(total: number, oldest: WeekRow | null, company: string,
 }
 
 /** The closing line of the greeting, word for word from the approved prototype. */
-export const GREETING_CLOSE = 'Ask me about your jobs, candidates, timesheets and invoice receipts. I answer from the record, and I never move money without a person.'
+export const GREETING_CLOSE = 'Ask me about your jobs, submissions, timesheets and invoice receipts. I answer from the record, and I never move money without a person.'
 
 /** "Good morning", by the reader's own clock. */
 export function partOfDay(hour: number): string {
@@ -2040,6 +2276,8 @@ export interface Readers {
   rollingOff?(days: number): Promise<Refusable<{ rows: RollRow[] }>>
   /** Who is on this firm's bench: the people who agreed to be, or an integrator's own people between projects. */
   bench?(): Promise<Refusable<{ rows: BenchRow[] }>>
+  /** What this firm's own placements earn, as Profitability reads them; refused to a seat without `margin.read` in the route's own sentence. */
+  margins?(): Promise<Refusable<{ rows: MarginRow[] }>>
   /** Weeks signed at the top that are on none of this firm's bills, oldest first. */
   unbilledWeeks?(): Promise<Refusable<{ rows: UnbilledRow[] }>>
   /** Bills this firm sent that are not paid in full, the latest first. */
@@ -2138,10 +2376,11 @@ export interface Billing {
   currency: string | null
 }
 
-export const CONTRACTORS_HREF = '/dashboard/people'
+/** Who works here today is on Contracts (founder, 2026-11-03, "Contracts, not Contractors"). */
+export const CONTRACTORS_HREF = '/dashboard/contracts'
 export const RECEIPTS_HREF = '/dashboard/invoices'
 
-/** "Seven contractors are on site today, through four suppliers.", the count linking to Contractors. Null when nobody is. */
+/** "Seven contractors are on site today, through four suppliers.", the count linking to Contracts. Null when nobody is. */
 export function pictureSays(p: Picture | null | undefined): RichLine | null {
   if (!p || p.onSite <= 0) return null
   const who = counted(p.onSite, 'contractor')
@@ -2576,11 +2815,12 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   // ones it passed in here. A hold already drawn as a card is not said
   // again as a notice; the route still marks that notice read, because the
   // card said it.
-  // The setup line (lib/setup-checklist-state): after what needs the
-  // reader and before what was said since, once, outside the six lines so
-  // the cap never drops it, and never in the headline or the mark: setup is
-  // not a decision anybody else waits on.
-  if (opts.greeting && opts.setup) more.push(opts.setup)
+  // The setup line (lib/setup-checklist-state): first under the headline,
+  // once, outside the six lines so the cap never drops it, and never in the
+  // headline or the mark: setup is not a decision anybody else waits on.
+  // First, because said after the facts it sat below the first screen and
+  // the release walk read the greeting as having none (2026-11-03).
+  if (opts.greeting && opts.setup) more.unshift(opts.setup)
   // Start papers Ask Etyme could not ask for, because the set was never
   // confirmed: the gate's own sentence, once however many starts it held,
   // and like the setup line never counted.
@@ -2697,9 +2937,25 @@ export async function respond(
     role?: string | null
     /** The reader's own pay, read from their own work where they have any; null where Etyme keeps none. */
     ownPay?: () => Promise<Answer | null>
+    /** The seat's own menu, as its sidebar draws it; read from the kind and the permissions where not given. */
+    menu?: readonly NavSection[]
+    /** The page the last answer named, for "take me there". */
+    place?: string | null
+    /** Where the company's model switch is drawn (lib/model-boundary's MODEL_SWITCH_HREF). */
+    modelSwitchHref?: string | null
   }
 ): Promise<Answer> {
+  // A writing job (a poem, a joke, a story) is refused before any intent,
+  // whatever record words are in it: Ask Etyme answers about the company's
+  // own work and nothing else (CLAUDE.md, "it never goes beyond the
+  // transaction"; release walk three, 2026-11-03: "Write me a short poem
+  // about our bench" drew the bench table).
+  if (writingAsk(text)) return { kind: 'TEXT', says: ONLY_THE_RECORD }
   let intent = readAsk(text)
+  // Where a page is: the seat's own menu, before any read and never the model.
+  if (intent.kind === 'WHERE' || intent.kind === 'GO') {
+    return whereAnswer(intent, opts.menu ?? menuOf({ companyKind: opts.companyKind, party: opts.party, permissions: opts.permissions ?? null, client: opts.client }), opts.place)
+  }
   const own = [opts.ownCompany, opts.client].filter((x): x is string => !!x && !!x.trim())
   const refuseAs = { self: opts.role ?? null, book: opts.client ?? null }
   // A client or a program asks to approve a week, never to accept one: the
@@ -2774,7 +3030,7 @@ export async function respond(
       return {
         kind: 'LIST', says: appliedSays(got.job, got.rows, got.total),
         ...(got.rows.length ? { table: appliedTable(got.rows) } : {}),
-        links: [{ label: 'Open Candidates', href: '/dashboard/submissions' }],
+        links: [{ label: 'Open Submissions', href: '/dashboard/submissions' }],
       }
     }
 
@@ -2887,8 +3143,23 @@ export async function respond(
     case 'NEVER':
       return { kind: 'TEXT', ...neverSays(intent.act, opts.companyKind, opts.permissions, await read.named(text)) }
 
-    case 'MARGIN':
-      return { kind: 'TEXT', ...marginRefusal(opts.companyKind) }
+    // A firm's own margin is its own to read (release walk three,
+    // 2026-11-03): answered from Profitability's own figures where this
+    // seat holds `margin.read`, refused in the route's sentence where it
+    // does not. A client, or a firm reading a client's program, has no
+    // margin of its own here, and nobody reads another firm's.
+    case 'MARGIN': {
+      if (opts.party === 'CLIENT' || opts.party === 'MSP' || !read.margins) return { kind: 'TEXT', ...marginRefusal(opts.companyKind) }
+      const got = await read.margins()
+      if (!got.ok) return { kind: 'TEXT', says: got.says, ...(got.links ? { links: got.links } : {}) }
+      const named = marginRowsNamed(text, got.rows)
+      const rows = named.length ? named : got.rows
+      return {
+        kind: 'LIST', says: marginSays(rows, { named: named.length > 0 }),
+        ...(rows.length ? { table: marginTable(rows) } : {}),
+        links: [{ label: 'Open Profitability', href: '/dashboard/profitability' }],
+      }
+    }
 
     case 'TIME_LIMIT': {
       const limits = await read.limits()
@@ -2987,7 +3258,7 @@ export async function respond(
       // deployment has a key; the company's switch is said first, because
       // it is the one a person can change.
       const state = modelState(await read.modelOn(), opts.env)
-      if (state === 'OFF') return { kind: 'TEXT', says: NO_SWITCH }
+      if (state === 'OFF') return noSwitch(opts.permissions, opts.modelSwitchHref)
       if (state === 'NO_KEY') return { kind: 'TEXT', says: NO_MODEL }
       const lines = await read.ledgerLines()
       if (lines.length === 0) return { kind: 'TEXT', says: `${NOT_YET} Etyme has checked nothing you can read yet. ${WHAT_I_ANSWER}` }
@@ -3126,6 +3397,54 @@ export interface SubmissionJob {
   requirementId: string
   /** `jobApart`'s words, " in Dayton", ", starting Nov 3"; empty where no other job shares the title. */
   apart: string
+  /** The day the candidate was put forward, YYYY-MM-DD, where read: the next thing that tells two cards apart. */
+  putForwardOn?: string | null
+}
+
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth']
+
+/**
+ * No two candidate cards on one screen read word for word alike.
+ *
+ * The second screen walk (2026-11-03) found Beatrix Chowdhury four times
+ * on one screen as "Warehouse systems analyst, one of eight like it, from
+ * Brightmoor Staffing, $116/hr": four jobs alike in every way a person
+ * tells jobs apart, and the cards said how many, not which. So where the
+ * title and the fact still match another card's, the card says what else
+ * differs, in the order a hiring manager reads it: the day the person was
+ * put forward; and where even that is the same, its place among the
+ * alike cards in the order the queue lists them ("The second of four
+ * alike."), each opening its own job's candidates. Never a key.
+ */
+export function cardsApart(cards: QueueCard[], jobs: ReadonlyMap<string, SubmissionJob> | null = null): QueueCard[] {
+  const said = (c: QueueCard) => `${c.title} ${c.fact}`
+  const groups = new Map<string, QueueCard[]>()
+  for (const c of cards) {
+    if (c.type !== 'SUBMISSION_REVIEW') continue
+    const k = said(c)
+    groups.set(k, [...(groups.get(k) ?? []), c])
+  }
+  const out = new Map<string, string>()
+  for (const alike of groups.values()) {
+    if (alike.length < 2) continue
+    const dayOf = (c: QueueCard) => jobs?.get(c.key.slice(c.key.indexOf(':') + 1))?.putForwardOn ?? null
+    const days = new Set(alike.map(dayOf))
+    const byDay = new Map<string, QueueCard[]>()
+    for (const c of alike) {
+      const d = days.size > 1 ? dayOf(c) : null
+      const fact = d ? `${c.fact} Put forward ${formatDay(d, { year: false })}.` : c.fact
+      out.set(c.key, fact)
+      byDay.set(fact, [...(byDay.get(fact) ?? []), c])
+    }
+    for (const [fact, still] of byDay) {
+      if (still.length < 2) continue
+      still.forEach((c, i) => {
+        const nth = ORDINALS[i] ?? `number ${i + 1}`
+        out.set(c.key, `${fact} The ${nth} of ${lowerNumber(still.length)} alike.`)
+      })
+    }
+  }
+  return out.size ? cards.map((c) => (out.has(c.key) ? { ...c, fact: out.get(c.key)! } : c)) : cards
 }
 
 /** The button on a candidate-to-review card: no act kind decides a candidate in the chat, so it opens who applied. */
@@ -3412,7 +3731,7 @@ export function queueCards(
   jobs: ReadonlyMap<string, SubmissionJob> | null = null,
 ): QueueCard[] {
   if (!q) return []
-  return q.items
+  return cardsApart(q.items
     .filter((d) => d.type !== 'TWIN_QUESTION' && !carriedByTwin(d, twin))
     .map((d) => {
       // A receipt to pay that no Pay card of Etyme's carries (the twin has
@@ -3450,7 +3769,7 @@ export function queueCards(
         act: queueAct(d),
         ...(pay ? { open: 'Pay' } : {}),
       }
-    })
+    }), jobs)
 }
 
 /** "Your professional license is asked of you" read inside a sentence: "your professional license …". An acronym or a name keeps its capital. */
@@ -3582,6 +3901,33 @@ export const ROLLOFF_DAYS = 30
 
 export interface RollRow { personId: string; person: string; site: string | null; endsOn: string; daysLeft: number; href: string }
 export interface BenchRow { personId: string; person: string; free: string; skills: string[]; href?: string }
+/**
+ * One placement this firm sells, as Profitability reads it (GET
+ * /api/profitability?by=contract, `placementBooks` in lib/money/margin):
+ * the spread the two sides agreed and what the signed weeks earned. Both
+ * in the firm's own figures; null where the page shows a blank.
+ */
+export interface MarginRow {
+  personId: string
+  person: string
+  client: string | null
+  live: boolean
+  /** Bill less pay, per hour, in minor units, and its percentage; null where the page cannot stand behind one. */
+  spreadMinor: number | null
+  spreadPct: number | null
+  /** Why there is no agreed spread, in the page's own words. */
+  spreadMissing: string | null
+  /**
+   * What the placement made, as the page's row says it (`profit`: revenue
+   * less pay, burden, commission and expenses): the margin, the revenue it
+   * is on and its percentage. Null where nothing says what it costs.
+   */
+  earnedMinor: number | null
+  earnedRevenueMinor: number | null
+  earnedPct: number | null
+  currency: string
+  href: string
+}
 export interface UnbilledRow {
   timesheetId: string; person: string; customer: string | null; periodStart: string; periodEnd: string; hours: number; signedOn: string | null; href: string
   /** What the week bills, in minor units, as Today prices it; null where it cannot be priced. */
@@ -3706,6 +4052,64 @@ export function benchTable(rows: readonly BenchRow[]): ListTable {
     caption: 'On your bench',
     head: ['Person', 'Free', 'Skills'],
     rows: rows.map((r) => ({ cells: [r.person, r.free, r.skills.slice(0, 4).join(', ') || '—'], ...(r.href ? { href: r.href } : {}) })),
+  }
+}
+
+/**
+ * The placements a margin question names, by the person's full name, or
+ * by a first or last name written in the question; none where it names
+ * nobody, and the answer is then the whole book. Pure.
+ */
+export function marginRowsNamed(text: string, rows: readonly MarginRow[]): MarginRow[] {
+  const lower = text.toLowerCase()
+  const said = new Set(words(text).filter((w) => w.length >= 3))
+  return rows.filter((r) => {
+    if (lower.includes(r.person.trim().toLowerCase())) return true
+    const parts = words(r.person)
+    return parts.length > 0 && (said.has(parts[0]) || (parts.length > 1 && said.has(parts[parts.length - 1])))
+  })
+}
+
+const pctOf = (n: number) => `${Math.round(n * 10) / 10}%`
+
+/** One placement's margin in a clause: "Rajesh Iyer at Northbend Athletic: $35.00 an hour agreed (26.9%), $1,400.00 made on $5,200.00 billed (26.9%)". */
+function marginClause(r: MarginRow): string {
+  const at = r.client ? ` at ${r.client}` : ''
+  const agreed = r.spreadMinor != null && r.spreadPct != null
+    ? `${money(r.spreadMinor, r.currency)} an hour agreed (${pctOf(r.spreadPct)})`
+    : 'no agreed spread on the record'
+  const earned = r.earnedMinor != null && r.earnedRevenueMinor != null && r.earnedRevenueMinor > 0
+    ? `, ${money(r.earnedMinor, r.currency)} made on ${money(r.earnedRevenueMinor, r.currency)} billed${r.earnedPct != null ? ` (${pctOf(r.earnedPct)})` : ''}`
+    : r.earnedMinor == null && r.earnedRevenueMinor != null && r.earnedRevenueMinor > 0
+      ? ', and what it costs is not on the record, so what it made is not said'
+      : ', nothing billed on it yet'
+  return `${r.person}${at}: ${agreed}${earned}`
+}
+
+/** What the firm's own placements earn, in one sentence, from Profitability's figures. Pure. */
+export function marginSays(rows: readonly MarginRow[], opts: { named?: boolean } = {}): string {
+  if (rows.length === 0) return 'Your firm sells no placements yet, so there is no margin to read. Checked just now.'
+  const shown = rows.slice(0, 3).map(marginClause)
+  const more = rows.length > 3 ? ` And ${lowerNumber(rows.length - 3)} more on Profitability.` : ''
+  const lead = opts.named ? 'From Profitability' : 'Your margin, from Profitability'
+  return `${lead}: ${shown.join('; ')}.${more} Checked just now.`
+}
+
+export function marginTable(rows: readonly MarginRow[]): ListTable {
+  return {
+    caption: 'What your placements earn',
+    head: ['Person', 'Client', 'Agreed spread', 'Made so far'],
+    rows: rows.map((r) => ({
+      cells: [
+        r.person,
+        r.client ?? '—',
+        r.spreadMinor != null && r.spreadPct != null ? `${money(r.spreadMinor, r.currency)}/hr · ${pctOf(r.spreadPct)}` : '—',
+        r.earnedMinor != null && r.earnedRevenueMinor != null && r.earnedRevenueMinor > 0
+          ? `${money(r.earnedMinor, r.currency)}${r.earnedPct != null ? ` · ${pctOf(r.earnedPct)}` : ''}`
+          : '—',
+      ],
+      href: r.href,
+    })),
   }
 }
 

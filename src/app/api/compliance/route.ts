@@ -6,10 +6,10 @@ import { resolveClientCompany } from '@/lib/resolve-client-company'
 import { seatUnits } from '@/lib/account-walls'
 import { seatTrail } from '@/lib/program-seat'
 import { seatMayRead, seatScope, desksThatHold, complianceRefusal } from '@/lib/walls'
-import { hasPermission } from '@/lib/permissions'
+import { hasPermission, desksHolding } from '@/lib/permissions'
 import { logBulkAccess, recordRefusal } from '@/lib/access-log'
 import { supplierCoverGate, standingOf, coverLabel, licenseGate, nameCredential, COVER_THAT_STOPS_WORK, type HeldCredential } from '@/lib/document-stages'
-import { ADVERSE_STEPS, credentialKeys, credentialDetail, contractClearance, lineExtrasForSellLines, requirementsForSellLines } from '@/lib/contract-clearance'
+import { ADVERSE_STEPS, credentialKeys, credentialDetail, contractClearance, fixForReader, lineExtrasForSellLines, requirementsForSellLines } from '@/lib/contract-clearance'
 import { chainTop } from '@/lib/chain-top'
 import { checkHealth } from './health'
 import { employedPairs } from './verifications/record'
@@ -19,7 +19,6 @@ import { labelFor, humanKey } from '@/lib/document-type'
 import type { LineRequirements } from '@/lib/document-requirements'
 import {
   outstandingItems,
-  heldFromDocInstances,
   type HeldKeyRecord,
   type OutstandingItem,
 } from '@/lib/document-request'
@@ -654,6 +653,11 @@ export async function GET(request: NextRequest) {
   const checksOf = (personId: string) => startPersonRows.filter((v) => v.personId === personId)
   const firmChecksOf = (companyId: string) => startFirmRows.filter((v) => v.companyId === companyId)
 
+  // Who starts a placement here, for a reader whose role does not.
+  const reader = {
+    mayStart: hasPermission(caller.permissions, 'assignments.write'),
+    startedBy: desksHolding('assignments.write', caller.company?.kind),
+  }
   const starts = startLines.map((c) => {
     const firmName = shown(c.companyId, c.company.name)
     // Whether the firm on this row employs the person, or buys their
@@ -682,7 +686,8 @@ export async function GET(request: NextRequest) {
       startDate: c.startDate.toISOString(),
       outcome: papers.outcome,
       says: papers.says,
-      fix: papers.fix,
+      // Said to this reader: HR reads who activates (`fixForReader`).
+      fix: fixForReader(papers.fix, reader),
       /** What stops the start, by name. */
       blocking: papers.blocking.map(i => i.label),
       /** What is owed and does not stop it — warned, with a reason on the record. */
@@ -717,7 +722,8 @@ export async function GET(request: NextRequest) {
       startDate: c.startDate.toISOString(),
       outcome: papers.outcome,
       says: papers.says,
-      fix: papers.fix,
+      // Said to this reader: HR reads who activates (`fixForReader`).
+      fix: fixForReader(papers.fix, reader),
       blocking: papers.blocking.map(i => i.label),
       chasing: papers.chasing.map(i => i.label),
       /** True: this firm employs the person and completes their papers. */
@@ -968,7 +974,7 @@ async function whatThisFirmOwes(
   const personIds = [...new Set(lines.map((l) => l.personId).filter((v): v is string => !!v))]
   const clientIds = [...new Set(lines.map((l) => l.clientCompanyId).filter((v): v is string => !!v))]
 
-  const [checks, papers, agreements] = await Promise.all([
+  const [checks, extras, agreements] = await Promise.all([
     prisma.verification.findMany({
       where: {
         OR: [
@@ -981,13 +987,11 @@ async function whatThisFirmOwes(
         issuedAt: true, validFrom: true, expiresAt: true,
       },
     }),
-    prisma.docInstance.findMany({
-      where: { sellContractId: { in: lines.map((l) => l.id) } },
-      select: {
-        id: true, status: true, validFrom: true, expiresAt: true, signedAt: true,
-        countersignedAt: true, sellContractId: true, template: { select: { name: true } },
-      },
-    }),
+    // What is on file for each line, read the way the placement reads it
+    // (`lineExtrasForSellLines`, through lib/document-stages/paper-record):
+    // the release walk on f2f342723 found an undertaking "on file" on the
+    // placement and owed here, because this read only the line's own papers.
+    setsFor(lines.map((l) => l.id)).then((known) => lineExtrasForSellLines(lines.map((l) => l.id), prisma, on, known)),
     clientIds.length
       ? prisma.masterAgreement.findMany({
           where: { vendorId: companyId, clientId: { in: clientIds } },
@@ -1015,10 +1019,7 @@ async function whatThisFirmOwes(
     const held: HeldKeyRecord[] = [
       ...firmHeld,
       ...checks.filter((v) => v.personId && v.personId === line.personId).map(asHeld),
-      ...heldFromDocInstances(
-        papers.filter((d) => d.sellContractId === line.id),
-        set.items.map((i) => ({ key: i.key, label: i.label }))
-      ),
+      ...(extras.get(line.id)?.extraHeld ?? []).map((h) => ({ ...h, validFrom: h.validFrom ?? null })),
       // An MSA is its own row with its own term, never a `DocInstance`,
       // so a set that asks for one is answered from there rather than
       // reported missing forever.

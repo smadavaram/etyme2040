@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reportError } from '@/lib/alerts'
 import { prisma } from '@/lib/db'
+import { educationShown } from '@/lib/consultant-portfolio/education'
 import { addedSays, benchClosedSays, notAtACompany, benchStanding, consultantsReadBench } from '@/lib/bench-filter'
 import { addRefusalSays, askedExistingSays } from '@/lib/consultant-portfolio'
 import { askOntoBench } from '@/lib/consultant-portfolio/bench-ask'
 import { readAddConsultant } from '@/lib/consultant-portfolio/forms'
+import { mayAddConsultant, whoAddsSays } from '@/lib/consultant-portfolio/who-adds'
 import { readAsTheFirm, hasOwnAccount, recordKeptBy } from '@/lib/consultant-portfolio/firm-view'
 import { benchAt } from '@/app/api/today/reads'
 import { todayReads } from '@/lib/today-page'
@@ -192,7 +194,8 @@ export async function GET(request: NextRequest) {
             }
           : false,
       },
-      orderBy: { person: { name: 'asc' } },
+      // The id breaks a tie, so two people of one name never swap between pages.
+      orderBy: [{ person: { name: 'asc' } }, { id: 'asc' }],
       skip,
       take: limit,
     }),
@@ -268,6 +271,9 @@ export async function GET(request: NextRequest) {
       location: read.location,
       notes: read.notes,
       own: read.own,
+      // The résumé's education lines, read only: the person corrects them
+      // on their own page, and this firm has no door to change them.
+      education: educationShown(p.education, 'FIRM'),
       // Where they stand against the one bench list, and who changes their record.
       standing: benchStanding({ onBench: onBench ? onBench.has(p.personId) : null, listingState: listing?.state ?? null }),
       keptBy,
@@ -325,15 +331,16 @@ export async function GET(request: NextRequest) {
  * `termsPayRateCents`, what the firm would pay them when it places them,
  * checked by demand's `checkStatedTerms` and agreed only by their own yes.
  *
- * Requires consultants.write permission.
+ * Requires consultants.write permission (`ADDS_CONSULTANTS`, lib/consultant-portfolio/who-adds).
  */
 export async function POST(request: NextRequest) {
   const { caller, error } = await getCallerContext(request)
   if (error) return error
 
-  if (!hasPermission(caller.permissions, 'consultants.write')) {
+  // The one gate the button and the `?new=1` link read too (`mayAddConsultant`).
+  if (!mayAddConsultant(caller.permissions)) {
     return NextResponse.json(
-      { error: { code: 'FORBIDDEN', message: 'Adding a consultant is for the recruiters, the resource manager, HR or the owner. Ask one of them.' } },
+      { error: { code: 'FORBIDDEN', message: whoAddsSays({ kind: caller.company?.kind ?? null, companyName: caller.company?.name ?? null }) } },
       { status: 403 }
     )
   }

@@ -24,7 +24,8 @@ import {
   type RequiredLine,
 } from '@/lib/document-request'
 import type { EffectiveRequirement } from '@/lib/document-requirements'
-import { papersAsked, papersCounted, countWord, requestReasonNow, RENEWAL_PACKET_KEY } from '@/lib/contract-clearance'
+import { papersAsked, papersCounted, countWord, requestReasonNow, RENEWAL_PACKET_KEY, heldFrom } from '@/lib/contract-clearance'
+import { heldFromAcceptedItems, heldOnRecord, linesOfPerson } from '@/lib/document-stages/paper-record'
 
 const upperFirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 import {
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
     take: 200,
     select: {
       id: true, packetKey: true, label: true, purpose: true, direction: true,
-      recipientEmail: true, recipientName: true,
+      recipientEmail: true, recipientName: true, token: true,
       expiresAt: true, completedAt: true, reopenedReason: true, createdAt: true,
       subjectCompany: { select: { id: true, name: true } },
       subjectPerson: { select: { id: true, name: true } },
@@ -147,6 +148,10 @@ export async function GET(request: NextRequest) {
     : []
   const now = new Date()
 
+  // The link is the credential: shown only to a seat that may ask for
+  // papers, which is the seat that sends it on (2026-11-03: a row opened
+  // nothing, so a stuck request's link could not be found again).
+  const showsLinks = mayAskForDocuments(caller.permissions)
   const rows = packets.map((p) => {
     const progress = progressOf(
       p.items.map((i) => ({
@@ -179,6 +184,9 @@ export async function GET(request: NextRequest) {
       // act on, which looks identical to them ignoring it.
       linkExpired: daysLeft < 0,
       awaitingReview: p.items.filter((i) => i.state === 'RECEIVED').length,
+      link: showsLinks ? `/packet/${p.token}` : null,
+      // Every item and where it stands, so a row opens its request.
+      items: p.items.map((i) => ({ itemId: i.id, label: i.label, required: i.required, state: i.state, fileName: i.fileName })),
       // What arrived, so the page opens each one and accepts it or sends it
       // back through the one examine route (the Tapin walk, 2026-10-29:
       // "Waiting on you 4" had no way to look at any of the four).
@@ -422,21 +430,10 @@ export async function POST(request: NextRequest) {
     // `validFrom` as well as `expiresAt`: a packet that treats a policy
     // beginning in October as already held in September asks the supplier
     // for nothing and leaves the gap open.
-    select: { type: true, status: true, issuedAt: true, validFrom: true, expiresAt: true },
+    select: { type: true, status: true, issuedAt: true, validFrom: true, expiresAt: true, verifiedAt: true },
   })
 
-  const heldFromVerifications: HeldDocument[] = verifications.map((v) => ({
-    key: v.type,
-    // Where the paper does not say when cover begins, the day it was
-    // issued is the best floor there is — the same fallback clearance uses.
-    validFrom: v.validFrom ?? v.issuedAt,
-    expiresAt: v.expiresAt,
-    // Conditional counts as held — the client decided to accept it, and
-    // asking again would relitigate a decision already taken.
-    accepted: v.status === 'CLEAR' || v.status === 'CONDITIONAL',
-  }))
-
-  // Anything a previous packet already collected and somebody accepted.
+  // Anything a previous request collected and somebody accepted.
   const priorItems = await prisma.packetItem.findMany({
     where: {
       state: 'ACCEPTED',
@@ -446,15 +443,32 @@ export async function POST(request: NextRequest) {
         ...(subjectPersonId ? { subjectPersonId } : {}),
       },
     },
-    select: { key: true, validUntil: true },
+    select: { key: true, state: true, validUntil: true, verificationId: true },
   })
 
+  // Read the way the start reads it, so a request and the placement's
+  // checklist never disagree about a paper (the founder's tester,
+  // 2026-11-03): a recorded check through the clearance's own reading,
+  // and an accepted item only where the paper itself is what stands (an
+  // NDA). A background check accepted with no screening company's report
+  // behind it was "already on file" here and "needed" on the placement.
+  //
+  // And the papers on file the placement reads, through the one reader
+  // (`papersOnRecord`, `heldAbout`): the release walk on f2f342723 found an
+  // undertaking accepted on Paperwork "on file" on the placement and
+  // asked for again here, as "Not on file".
+  //
+  // Every line the asking firm and the person share, from either end, each
+  // read with both firms' names for their papers (`linesOfPerson`,
+  // `heldOnRecord`): the fourth screen walk found Rosa Delgado's
+  // undertaking, a paper Northbend's order names, accepted by Brightmoor and
+  // asked for again here, because only Brightmoor's names were read.
+  const askingFirms = [caller.company.id, ...(subjectCompanyId ? [subjectCompanyId] : [])]
+  const lines = await linesOfPerson(subjectPersonId, { firm: caller.company.id })
   const held: HeldDocument[] = [
-    ...heldFromVerifications,
-    // A packet item records the life of the document, not its start —
-    // there is no floor to read here, and claiming one would be inventing
-    // a date nobody typed.
-    ...priorItems.map((i) => ({ key: i.key, validFrom: null, expiresAt: i.validUntil, accepted: true })),
+    ...heldFrom(verifications),
+    ...heldFromAcceptedItems(priorItems),
+    ...(await heldOnRecord({ personId: subjectPersonId, firms: askingFirms, lines })),
   ]
 
   // ── What the lines actually require, over the packet's own floor ────

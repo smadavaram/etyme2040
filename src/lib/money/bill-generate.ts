@@ -34,7 +34,8 @@ import { prisma } from '@/lib/db'
 import { completeCycles } from '@/lib/cycle-complete'
 import { sortForBill, expenseLine, expenseTotal, type LeftOff } from '@/lib/expense-billing'
 import { billsOnLeg, payersOwn, APPROVED_BY_EMPLOYER } from '@/lib/money/expense-acceptance'
-import { legsOverMany, acceptancesOn } from '@/lib/money/expense-acceptance-read'
+import { legsOverMany, acceptancesOn, expenseCurrency } from '@/lib/money/expense-acceptance-read'
+import { LINE_CURRENCY_SELECT } from '@/lib/expense-currency'
 import { emit } from '@/lib/events'
 import { billableInPeriod, bandsOf, type Terms } from '@/lib/periods'
 import {
@@ -47,7 +48,6 @@ import { fromUnits, amount } from '@/lib/money-display'
 import { whereHoursLive, descend } from '@/lib/work-chain'
 import { ladderFor } from '@/lib/work-chain-read'
 import type { Rung } from '@/lib/work-chain'
-import { lineFor, type Decision } from '@/lib/overtime'
 import {
   ORDER_HEADER_SELECT, AGREEMENT_TERMS_SELECT, SELL_LINE_TERMS_SELECT, periodTermsFor, moneyTermsFor,
   type OrderLine, type AgreementTerms,
@@ -56,7 +56,7 @@ import { partiesOf, mayBillUnder } from '@/lib/money/invoice-parties'
 import { readWindow, billingWindow, inWindow } from '@/lib/money/invoice-window'
 import { whatTheRungBills } from '@/lib/money/rung-billing'
 import { billedElsewhere, type ReceiptOnRecord } from '@/lib/money/billed-elsewhere'
-import { carriedOvertime } from '@/lib/money/client-overtime'
+import { weekOvertimeTerms } from '@/lib/money/week-overtime-terms'
 import { topLegsOver } from '@/lib/money/client-overtime-read'
 import { nothingToBillSays } from '@/lib/money/nothing-to-bill'
 
@@ -241,6 +241,10 @@ const BILL_EXPENSE_INCLUDE = {
       billFrequency: true, billAnchor: true, billStraddle: true,
       workOrder: { select: ORDER_HEADER_SELECT },
       ...SELL_LINE_TERMS_SELECT,
+      // What an expense raised before `Expense.currency` existed is in:
+      // the pay currency of the line paying the worker (lib/expense-currency).
+      personId: true,
+      buyLinks: LINE_CURRENCY_SELECT.buyLinks,
     },
   },
 } as const
@@ -925,7 +929,10 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
         // Billed on our line, which is the employer's own where we are the employer.
         sellContractId: ours, personId: e.personId, personName: e.person.name,
         category: e.category, description: e.description, total: Number(e.total),
-        currency: e.sellContract.billCurrency, periodStart: e.periodStart, periodEnd: e.periodEnd,
+        // The currency it was spent in, never the line's bill currency read
+        // over it: an expense in another currency than the bill is left
+        // off, said (lib/expense-billing), because two currencies are never added.
+        currency: expenseCurrency(e), periodStart: e.periodStart, periodEnd: e.periodEnd,
         payerName: leg?.payerName,
         own: leg ? payersOwn(leg.payerId, expenseDecisions.get(e.id) ?? []) : { kind: 'NONE' as const },
         leg: leg ? billsOnLeg(e, chain, ours) : undefined,
@@ -1000,30 +1007,17 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
     // bill to the client, and every direct placement — prices from the
     // answer on its own leg at the multiplier chosen there, as before.
     const belowTop = ts.payer != null && ts.top?.sellContractId !== ts.sellContractId
-    const carried = belowTop ? carriedOvertime(rows, ts.top, ts.sellContract.overtimeMultiplierBps, ts.person.name) : null
-    const unreadable = carried && !carried.ok ? carried.says : null
-
-    const ownLeg = rows.filter((d) => d.sellContractId === ts.sellContractId)
-    const answering = carried?.ok ? carried.rows : ownLeg.length > 0 ? ownLeg : rows
-    // The line the week was decided against: the contract's own, else —
-    // where somebody decided the week — the job's hours, the same line
-    // the approval asked the question on. Pricing it against the
-    // contract's silence left decided overtime off the bill.
-    const policy = carried
-      ? carried.ok ? carried.policy : { afterHours: null, multiplierBps: ts.sellContract.overtimeMultiplierBps }
-      : lineFor(ts.sellContract, ts.sellContract.requirement, { stillToSign: false, decided: answering.length > 0 })
-
-    const decisions: Decision[] = carried
-      ? carried.ok ? carried.decisions : []
-      : answering.map((d) => ({
-          weekOf: d.weekOf.toISOString().slice(0, 10),
-          treatment: d.treatment as Decision['treatment'],
-          // The price comes from what was applied when somebody decided,
-          // never from the contract's multiplier as it stands today.
-          appliedBps: d.appliedBps,
-          overtimeHours: Number(d.overtimeHours),
-          accrualBps: d.accrualBps ?? undefined,
-        }))
+    // One reading of the week's terms, the one the order's posting reads
+    // at the client's signature too (lib/money/week-overtime-terms), so the
+    // bill and the order's drawn figure cannot disagree.
+    const { unreadable, policy, decisions, answering } = weekOvertimeTerms({
+      rows,
+      line: ts.sellContract,
+      requirement: ts.sellContract.requirement,
+      top: ts.top,
+      belowTop,
+      personName: ts.person.name,
+    })
     // Rows, not their copies: the client's answer reaching a bill below it
     // is billed too, and no longer changes without restating that bill.
     const idOfWeek = new Map(
@@ -1528,9 +1522,24 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
       // Their number where they self-bill. Never both.
       const number = self.number ?? `IN_${engFragment}_${String(n).padStart(3, '0')}`
 
+      // ── Where the customer pays it ─────────────────────────────────
+      //
+      // The firm's own payment details, and only ones a paying firm's
+      // Finance has checked (`RemitTo.verifiedAt`): a bill went out with
+      // no pay-to at all (the screen walk, 2026-11-03). Those checked by
+      // this bill's payer first, then the firm's default. None checked,
+      // none written: the bill says nothing rather than an address
+      // nobody stands behind, and the payment gate refuses until checked.
+      const remits = await tx.remitTo.findMany({
+        where: { companyId: caller.company.id, verifiedAt: { not: null } },
+        select: { id: true, isDefault: true, verifiedByCompanyId: true },
+      })
+      const payTo = payToFor(remits, partners.payer.party.id)
+
       // Create the invoice
       const invoice = await tx.invoice.create({
         data: {
+          remitToId: payTo,
           engagementId,
           number,
           periodStart: period.start,
@@ -1902,4 +1911,22 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
     reportError('Invoice generation failed:', err)
     return reply(500, { error: { code: 'INTERNAL', message: 'The bill could not be generated' } })
   }
+}
+
+/**
+ * Which of the firm's checked payment details a bill names, for the
+ * firm that pays it: one that payer's Finance checked, else the firm's
+ * default, else any checked one. Null where none is checked. Pure.
+ */
+export function payToFor(
+  remits: readonly { id: string; isDefault: boolean; verifiedByCompanyId: string | null }[],
+  payerId: string,
+): string | null {
+  return (
+    remits.find((r) => r.verifiedByCompanyId === payerId && r.isDefault)?.id ??
+    remits.find((r) => r.verifiedByCompanyId === payerId)?.id ??
+    remits.find((r) => r.isDefault)?.id ??
+    remits[0]?.id ??
+    null
+  )
 }

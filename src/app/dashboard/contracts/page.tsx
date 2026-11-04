@@ -7,6 +7,7 @@ import { contractsEmpty } from '@/lib/money/contracts-empty'
 import { scopeOf, ownContractsSay, type ListScope } from '@/lib/money/own-scope'
 import { compact, rate as rateText } from '@/lib/money-display'
 import { activeRateTotals } from '@/lib/money/rate-totals'
+import { readEveryContractPage, fetchPage } from '@/lib/money/contract-pages'
 import { sideFromQuery, sideHref, answerFits, rowsOfSide } from '@/lib/money/contract-side'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ListSurface, type Column } from '@/components/list-surface'
@@ -28,6 +29,8 @@ import { ENGAGEMENT_TYPES, ENGAGEMENT_WORDS } from '@/lib/award/hire-terms'
 import { callerCompanyIdFromMe } from '@/lib/money/caller-company'
 import { reasonAsked } from '@/lib/award/reason-asked'
 import { activateBody } from './activate-body'
+import { ActivatePanel } from './activate-panel'
+import { SignInLink } from '@/app/dashboard/conversations/sign-in-link'
 
 /**
  * The documents, and their lines.
@@ -314,7 +317,7 @@ function RecordPlacementModal({ onClose, onCreated }: { onClose: () => void; onC
         const [meRes, consultantsRes, contractsRes, registerRes, clientsRes] = await Promise.all([
           fetch('/api/me'),
           fetch('/api/consultants?limit=100'),
-          fetch('/api/contracts?side=sell&limit=100'),
+          readEveryContractPage('sell', fetchPage),
           fetch('/api/counterparties'),
           fetch('/api/clients'),
         ])
@@ -354,7 +357,7 @@ function RecordPlacementModal({ onClose, onCreated }: { onClose: () => void; onC
         // own sell contracts. Its first contract has no sell contracts to
         // read, so the register is the whole list (`lib/money/client-options`).
         const register = clientsRes.ok ? (await clientsRes.json()).data?.clients ?? [] : []
-        const contracts = contractsRes.ok ? (await contractsRes.json()).data?.contracts ?? [] : []
+        const contracts = contractsRes.ok ? contractsRes.body?.data?.contracts ?? [] : []
         setClientCompanies(clientOptions(register, contracts))
       } catch {
         // Options loading is best-effort
@@ -861,6 +864,8 @@ function ContractDetailDrawer({
               </span>
             </div>
             <p className="text-[11px] text-etyme-faint font-mono mt-1">{contract.id.slice(0, 12)}…</p>
+            {/* The placed person's one-time sign-in link, for a seat that manages the team, where they have no account. */}
+            {contract.personId && <SignInLink personId={contract.personId} className="mt-2" />}
           </div>
           <button onClick={onClose} className="text-etyme-muted hover:text-etyme-ink p-1">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -1050,15 +1055,6 @@ function ContractDetailDrawer({
               <div>
                 <p className="eyebrow mb-3">Contract lifecycle</p>
                 <div className="flex gap-3">
-                  {canActivate && (
-                    <button
-                      onClick={() => handleActivation('activate', 'Activate')}
-                      disabled={activating}
-                      className="btn-primary flex-1 disabled:opacity-50"
-                    >
-                      {activating ? 'Activating…' : '▶ Activate'}
-                    </button>
-                  )}
                   {canCancel && (
                     <button
                       onClick={() => handleActivation('cancel', 'Cancel')}
@@ -1069,6 +1065,13 @@ function ContractDetailDrawer({
                     </button>
                   )}
                 </div>
+                {/* Activate is drawn by the start's own route, for the seat it
+                    will take, with the reason box only where a reason clears it.
+                    After a start the drawer stays open on the route's own
+                    sentence while the list refreshes behind it. */}
+                {canActivate && tab === 'sell' && (
+                  <ActivatePanel contractId={contract.id} onDone={(says) => { onToast(says, 'success'); onRefresh() }} />
+                )}
               </div>
             </>
           )}
@@ -1329,10 +1332,13 @@ export default function ContractsPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/contracts?side=${asked}`)
+      // Every page of the route, never its first page as the whole list:
+      // the counts, the rate total and "1–20 of N" stand on every line
+      // (lib/money/contract-pages, the fourth screen walk's M5).
+      const res = await readEveryContractPage(asked, fetchPage)
       if (stale()) return
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
+        const body = res.body ?? {}
         // A refusal is not an empty book: the page draws the sentence
         // and no figure (sign-up walk, round four, #5).
         const refused = refusalOf(res.status, body)
@@ -1345,8 +1351,7 @@ export default function ContractsPage() {
         throw new Error(body.error?.message ?? `HTTP ${res.status}`)
       }
 
-      const body = await res.json()
-      if (stale()) return
+      const body = res.body
       setRefusedSaid(null)
       setScope(scopeOf(body))
       const rawContracts = body.data?.contracts ?? []

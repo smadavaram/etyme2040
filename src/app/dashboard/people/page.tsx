@@ -4,12 +4,16 @@ import { usePageSection } from '@/components/page-section'
 import { readJson } from '@/lib/read-response'
 import { DataTable, type Column } from '@/components/data-table'
 import { PageHead, Field, Input, Textarea, SubmitButton, FormMessage, RefusedState, LoadingState, ErrorState, EmptyState } from '@/components/ui'
-import { ViewToggle, FilterBar, Star, emptyWord, type View } from '@/components/network-view'
-import { applyFilter, locationsOf, isRecent, NETWORK_FILTERS, type NetworkFilter } from '@/lib/network-filters'
+import { ViewToggle, Star, emptyWord, type View } from '@/components/network-view'
+import { applyFilter, locationsOf, isRecent, NETWORK_FILTERS, filterOrderFor, openingFilter, type NetworkFilter } from '@/lib/network-filters'
+import { useSession } from '@/components/session-provider'
+import { OrderedFilterBar } from './filter-bar'
+import { peopleListWords } from './list-words'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { askFormSays } from './ask-words'
+import { SupplierPicker, type SupplierChoiceRow } from './supplier-picker'
 import { useRouter } from 'next/navigation'
 
 /**
@@ -57,11 +61,6 @@ interface Pending {
   askedAt: string
 }
 
-interface Supplier {
-  companyId: string
-  name: string
-  tier: string | null
-}
 
 interface Row {
   personId: string
@@ -118,9 +117,18 @@ const TONE: Record<string, string> = {
 export default function PeoplePage() {
   const section = usePageSection('/dashboard/people')
   const router = useRouter()
+  // A client, or a seat in a client's program (which reads the client's
+  // menu), reads this list as its Candidates; a firm keeps its own words.
+  // Unknown while the session loads, and this page is on a client's menu
+  // only, so the client's words are the ones drawn meanwhile.
+  const session = useSession()
+  const reader = session.company && session.company.kind !== 'CLIENT' && !session.seat ? 'FIRM' : 'CLIENT'
+  const words = peopleListWords(reader)
+  const order = filterOrderFor(reader)
   const [rows, setRows] = useState<Row[]>([])
   const [pending, setPending] = useState<Pending[]>([])
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [suppliers, setSuppliers] = useState<SupplierChoiceRow[] | null>(null)
+  const [suppliersSay, setSuppliersSay] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
   // Whether an email can leave this deployment, as the route answered it
   // (`mailLeaves`). Null until read: the form promises nothing meanwhile.
@@ -140,6 +148,11 @@ export default function PeoplePage() {
   const [refused, setRefused] = useState<string | null>(null)
   const [view, setView] = useState<View>('feed')
   const [filter, setFilter] = useState<NetworkFilter>('ALL')
+  // Whether a filter was chosen, by the address or by a press. Until one
+  // is, the page opens on the first filter in the reader's order that has
+  // rows (`openingFilter`), so it is never empty where anybody is on it.
+  const [chosen, setChosen] = useState(false)
+  const choose = useCallback((f: NetworkFilter) => { setChosen(true); setFilter(f) }, [])
   const [place, setPlace] = useState<string | null>(null)
   const [now] = useState(() => new Date())
 
@@ -149,7 +162,7 @@ export default function PeoplePage() {
       const res = await fetch('/api/people')
       if (res.status === 403) {
         const said = await res.json().catch(() => ({}))
-        setRefused(said.error?.message ?? 'Contractors are not part of your seat. Ask your company\'s owner if you need them.')
+        setRefused(said.error?.message ?? words.refused)
         return
       }
       const body = await readJson(res)
@@ -164,7 +177,7 @@ export default function PeoplePage() {
       setLoading(false)
       setReadOnce(true)
     }
-  }, [])
+  }, [words.refused])
 
   useEffect(() => { load() }, [load])
 
@@ -174,8 +187,8 @@ export default function PeoplePage() {
   // no Suspense boundary for it.
   useEffect(() => {
     const asked = new URLSearchParams(window.location.search).get('filter')
-    if (asked && (NETWORK_FILTERS as readonly string[]).includes(asked)) setFilter(asked as NetworkFilter)
-  }, [])
+    if (asked && (NETWORK_FILTERS as readonly string[]).includes(asked)) choose(asked as NetworkFilter)
+  }, [choose])
 
   // The star. Marked here, read by the Favorites filter, and by nobody
   // outside this company.
@@ -202,7 +215,7 @@ export default function PeoplePage() {
       }))
       setSaid(body.data.says)
       setAsking(false)
-      setFilter('PENDING')
+      choose('PENDING')
       await load()
     } catch (err: any) { setError(err.message) } finally { setBusy(false) }
   }
@@ -220,14 +233,21 @@ export default function PeoplePage() {
     } catch (err: any) { setError(err.message) } finally { setBusy(false) }
   }
 
-  /** Only fetched when somebody actually has to pick one. */
+  /**
+   * Only fetched when somebody actually has to pick one, and read from the
+   * rule `pick` refuses on, so a firm offered here is a firm it accepts.
+   */
   const loadSuppliers = useCallback(async () => {
-    if (suppliers.length > 0) return
+    if (suppliers !== null) return
     try {
-      const body = await readJson(await fetch('/api/suppliers'))
-      setSuppliers((body.data.suppliers ?? []).filter((x: Supplier) => x.tier === 'APPROVED' || x.tier === 'PREFERRED'))
-    } catch { /* the picker says so below */ }
-  }, [suppliers.length])
+      const body = await readJson(await fetch('/api/contractor-invites?choices=1'))
+      setSuppliers(body.data.choices ?? [])
+      setSuppliersSay(body.data.says ?? null)
+    } catch (err: any) {
+      setSuppliers([])
+      setSuppliersSay(err.message)
+    }
+  }, [suppliers])
 
   const places = useMemo(() => locationsOf(rows), [rows])
   const shown = useMemo(() => applyFilter(rows, filter, place, now), [rows, filter, place, now])
@@ -241,6 +261,15 @@ export default function PeoplePage() {
     ...(pending.length > 0 ? { PENDING: pending.length } : {}),
     BLOCKED: rows.filter((r) => r.blocked).length,
   }), [rows, pending, now])
+
+  // The opening filter, once the first read is back and nobody chose one.
+  // Decided once: a star pressed afterwards never moves the reader off
+  // the list they are reading.
+  useEffect(() => {
+    if (!readOnce || chosen || loading || refused) return
+    setFilter(openingFilter(order, counts))
+    setChosen(true)
+  }, [readOnce, chosen, loading, refused, order, counts])
 
   const columns: Column<Row>[] = [
     {
@@ -287,11 +316,8 @@ export default function PeoplePage() {
     <div className="mx-auto max-w-[980px] space-y-6 px-4 py-6">
       <PageHead
         eyebrow={section}
-        title="Contractors"
-        subtitle={<>
-          Everyone who has been put in front of you, one entry each, merged across suppliers.
-          Every fact here sits in a different vendor&rsquo;s system and none of them can see the others.
-        </>}
+        title={words.title}
+        subtitle={words.subtitle}
         actions={<>
           <button
             onClick={() => { setAsking((v) => !v); setSaid(null) }}
@@ -311,10 +337,10 @@ export default function PeoplePage() {
 
       {/* Counts only once the first read is back and answered. */}
       {readOnce && !error && (
-        <FilterBar filter={filter} onFilter={setFilter} counts={counts} places={places} place={place} onPlace={setPlace} />
+        <OrderedFilterBar order={order} filter={filter} onFilter={choose} counts={counts} places={places} place={place} onPlace={setPlace} />
       )}
 
-      {loading && <LoadingState says="Opening your contractors…" />}
+      {loading && <LoadingState says={words.loading} />}
 
       {error && <ErrorState says={error} />}
 
@@ -385,18 +411,13 @@ export default function PeoplePage() {
                     </button>
                   )}
                   {picking === p.inviteId ? (
-                    <select
-                      autoFocus
-                      aria-label={`A supplier to take ${p.name} on`}
-                      disabled={busy}
-                      defaultValue=""
-                      onChange={(e) => e.target.value && act(p.inviteId, { action: 'pick', supplierCompanyId: e.target.value })}
-                      className="rounded-lg border border-etyme-rule bg-etyme-surface px-2 py-1.5 text-[12px]"
-                    >
-                      <option value="" disabled>Which of your suppliers?</option>
-                      {suppliers.map((sup) => <option key={sup.companyId} value={sup.companyId}>{sup.name}</option>)}
-                      {suppliers.length === 0 && <option value="" disabled>No approved suppliers yet</option>}
-                    </select>
+                    <SupplierPicker
+                      personName={p.name}
+                      choices={suppliers}
+                      says={suppliersSay}
+                      busy={busy}
+                      onPick={(supplierCompanyId, reason) => act(p.inviteId, { action: 'pick', supplierCompanyId, ...(reason ? { reason } : {}) })}
+                    />
                   ) : (
                     <button
                       disabled={busy}
@@ -426,7 +447,7 @@ export default function PeoplePage() {
       {!loading && filter !== 'PENDING' && rows.length > 0 && shown.length === 0 && (
         <EmptyState
           says={emptyWord(filter, place, 'people')}
-          action={{ label: 'Show everyone', onClick: () => { setFilter('ALL'); setPlace(null) } }}
+          action={{ label: 'Show everyone', onClick: () => { choose('ALL'); setPlace(null) } }}
         />
       )}
 
@@ -442,7 +463,7 @@ export default function PeoplePage() {
           searchPlaceholder="Search by name, supplier or job…"
           searchFilter={(r, q) => `${r.name} ${r.vendorNames.join(' ')} ${r.firms?.says ?? ''} ${r.roles.join(' ')} ${r.location ?? ''}`.toLowerCase().includes(q.toLowerCase())}
           onRowClick={(r) => router.push(`/dashboard/people/${r.personId}` as any)}
-          exportName="contractors"
+          exportName={reader === 'CLIENT' ? 'candidates' : 'contractors'}
           defaultPageSize={50}
           emptyMessage={emptyWord(filter, place, 'people')}
           rowClassName={(r) => (r.blocked ? 'opacity-70' : '')}

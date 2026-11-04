@@ -4,8 +4,8 @@
  * CLAUDE.md, "One Ask Etyme conversation per person, saved").
  *
  * It answers about this company's own work on the record — its jobs,
- * candidates, timesheets, bills, invoice receipts, payroll, papers and
- * people — and refuses anything else in one sentence that says what it
+ * submissions, contracts, timesheets, bills, invoice receipts, payroll,
+ * papers and people — and refuses anything else in one sentence that says what it
  * can help with. A question about another company's book, or a general
  * question with no record behind it, is refused here, by rules, before
  * any model is called; never answered from a model's own knowledge.
@@ -25,7 +25,7 @@
 
 /** Refused: no record behind the question. One sentence, under twenty words, saying what Ask Etyme helps with. */
 export const ONLY_THE_RECORD =
-  'I answer only about your company’s own record: jobs, candidates, timesheets, bills, invoice receipts, payroll, papers and people.'
+  'I answer only about your company’s own record: jobs, submissions, contracts, timesheets, bills, invoice receipts, payroll, papers and people.'
 
 /** Refused: another company's book, or a benchmark across companies. */
 export const NOT_ANOTHER_BOOK =
@@ -49,6 +49,25 @@ const GENERAL: readonly RegExp[] = [
   /\bwrite (me )?(an? |the )?(essay|story|blog|tweet|post|speech|cover letter)\b/,
   /\b(news|headlines)\b/,
 ]
+
+/**
+ * A writing job, whatever record sits in it: "write me a short poem about
+ * our bench" is a poem, not a bench question (release walk three,
+ * 2026-11-03: it was answered with the bench table). Narrower than
+ * GENERAL on purpose, because it is read before any intent: "any news on
+ * Rajesh's start?" is a question about the record and is left to the rules.
+ */
+const WRITING: readonly RegExp[] = [
+  /\b(poems?|poetry|jokes?|haikus?|limericks?|riddles?|lyrics|sonnets?|raps?|rhymes?|verses?)\b/,
+  /\b(write|compose|make up)\b.*\b(story|stories|song|essay|fairy ?tale|bedtime)\b/,
+  /\bwrite (me )?(an? |the )?(essay|story|blog|tweet|speech|cover letter)\b/,
+]
+
+/** A writing job (a poem, a joke, a story), refused before any intent is read, whatever the record words in it. */
+export function writingAsk(text: string): boolean {
+  const t = lowerOf(text)
+  return WRITING.some((re) => re.test(t))
+}
 
 /** Another company's book, a rival's, or a benchmark across companies — never the reader's own. */
 const ANOTHER_BOOK: readonly RegExp[] = [

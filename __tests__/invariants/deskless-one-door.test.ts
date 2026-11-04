@@ -31,12 +31,12 @@ function routes(dir = API, out: string[] = []): string[] {
 }
 
 describe('a seat with no desk opens only what its menu shows it', () => {
-  it('the firm’s Today, candidates, jobs, contractors and past contractors are refused by URL, each named as the menu names it (round four, problems 1 and 2)', () => {
+  it('the firm’s Today, submissions, jobs, candidates and past contractors are refused by URL, each named as the menu names it (round four, problems 1 and 2)', () => {
     const says: Record<string, string> = {
       '/api/program': 'Today',
-      '/api/submissions': 'Candidates',
+      '/api/submissions': 'Submissions',
       '/api/requisitions': 'Jobs',
-      '/api/people': 'Contractors',
+      '/api/people': 'Candidates',
       '/api/alumni': 'Past contractors',
     }
     for (const [path, page] of Object.entries(says)) {
@@ -127,7 +127,7 @@ describe('the door stops nobody else', () => {
     for (const method of ['POST', 'PATCH', 'DELETE', undefined]) {
       const v = desklessDoor({ ...MEMBER, path: '/api/submissions', method })
       expect(v.open, String(method)).toBe(false)
-      if (!v.open) expect(v.says).toBe('Candidates is not part of your seat at Northbend Athletic. Ask your company’s owner if you need it.')
+      if (!v.open) expect(v.says).toBe('Submissions is not part of your seat at Northbend Athletic. Ask your company’s owner if you need it.')
     }
   })
 
@@ -431,9 +431,10 @@ describe('the demo door counts a demo start once per visit', () => {
     expect(picker).toContain("...(visit ? { visit, page: '/demo' } : {})")
     const route = readFileSync(join(API, 'demo/route.ts'), 'utf8')
     expect(route).toContain("import { countDemoStarted } from '@/lib/events'")
-    // One count before each of the four answers that seat somebody: a
-    // resume, a person, a world desk, a private sandbox.
-    expect(route.match(/await countTheSeat\(body\)/g)?.length).toBe(4)
+    // One count before each of the five answers that seat somebody: a
+    // resume, a person, a worker door (2026-11-03), a world desk, a
+    // private sandbox.
+    expect(route.match(/await countTheSeat\(body\)/g)?.length).toBe(5)
     // And none on a refusal: no count precedes an error answer.
     for (const m of route.matchAll(/await countTheSeat\(body\)\n\s*(?:const res = )?(?:return )?NextResponse\.json\(\{\n\s*(\w+)/g)) {
       expect(m[1]).toBe('data')

@@ -74,7 +74,20 @@ import {
 import { prisma } from '@/lib/db'
 import { plainDate } from '@/lib/plain-date'
 import { requirementsFor, requirementsForLines, type LineRequirements } from '@/lib/document-requirements'
+import type { WorkAuthorizationRule } from '@/lib/document-stages/countries'
+import { workCountryOf, lineWorkCountry, NO_SITE_COUNTRY } from '@/lib/work-country'
+import {
+  forWorkCountry,
+  notAskedHere,
+  workAuthorizationOf,
+  requirementsWhereWorkIsDoneForSellLines,
+  type LineWorkCountry,
+} from '@/lib/document-stages/where-work-is-done'
+
+export { forWorkCountry, workAuthorizationOf, requirementsWhereWorkIsDone, requirementsWhereWorkIsDoneForSellLines } from '@/lib/document-stages/where-work-is-done'
+export type { LineWorkCountry, SetWhereWorkIsDone } from '@/lib/document-stages/where-work-is-done'
 import { heldFromDocInstances } from '@/lib/document-request'
+import { acceptedRequestPapers, heldFromAcceptedItems, heldAbout, paperInstancesWhere, PAPER_ON_FILE_SELECT, type PaperOnFile } from '@/lib/document-stages/paper-record'
 import {
   typesFor,
   typeByKey,
@@ -107,6 +120,11 @@ export const AUTHORISATION_KEYS = ['I9_EVERIFY', 'RIGHT_TO_WORK'] as const
  */
 const SATISFIED_BY: Record<string, readonly string[]> = {
   RIGHT_TO_WORK: ['I9_EVERIFY'],
+}
+
+/** The checks whose record answers an item: its own kind, and what stands in for it here. Pure. */
+export function checksThatAnswer(key: string): readonly string[] {
+  return [key, ...(SATISFIED_BY[key] ?? [])]
 }
 
 /**
@@ -251,6 +269,12 @@ export interface Clearance {
    * no recorded edition at all. An audit finding, not a bar to work.
    */
   editions: EditionFinding[]
+  /**
+   * The work-authorization paper of the country the work is done in, and
+   * the sentence where none is enforced there yet. Null where the caller
+   * named no work country (the US set, as before).
+   */
+  workAuthorization: WorkAuthorizationRule | null
   says: string
   /** What to do about it, where there is one thing to do. */
   fix: string | null
@@ -629,6 +653,12 @@ export function contractClearance(input: {
    * reads it is inert — the verdict is the packet's, exactly as before.
    */
   requirements?: LineRequirement[]
+  /**
+   * Where the line's work is done (`lib/work-country`). Decides which
+   * work-authorization paper the start asks for. Omitted means the US
+   * set, exactly as before.
+   */
+  workCountry?: LineWorkCountry | null
 }): Clearance {
   const credentials = credentialKeys(input.documentTypes ?? [])
   const basePacket = packetByKey(input.packetKey ?? startPacketFor(input.role))
@@ -644,17 +674,21 @@ export function contractClearance(input: {
   // placement checklist and inside a refusal a hiring manager was meant
   // to act on. The key is for the machine; the sentence is the product.
   // Nothing is invented — the words inside the key are all we know.
-  const required = (input.requirements ?? []).map((r) =>
+  const required = forWorkCountry(input.requirements ?? [], input.workCountry).map((r) =>
     r.label === r.key ? { ...r, label: humanKey(r.key) } : r
   )
+  const workAuthorization = workAuthorizationOf(input.workCountry)
   const standing = required.filter(isSupplierStanding)
   const personSide = required.filter((r) => !isSupplierStanding(r))
   const byKey = new Map(personSide.map((r) => [r.key, r]))
 
-  const spec = basePacket ? withRequirements(basePacket, personSide) : null
+  const spec = basePacket
+    ? withRequirements({ ...basePacket, items: forWorkCountry(basePacket.items, input.workCountry) }, personSide)
+    : null
   const resolved = spec ? resolveItems(spec, held, input.on) : []
 
   const blockingKeys = blockingKeysFor(input.documentTypes ?? [])
+  for (const k of notAskedHere(input.workCountry)) blockingKeys.delete(k)
 
   // ── Which license, issued by whom ──
   //
@@ -921,7 +955,12 @@ export function contractClearance(input: {
     license,
     unsupported,
     editions,
-    says: oneStop(sayIt(input.personName, outcome, blocking, chasing, cover, license, unsupported, editions, waived, adverse)),
+    workAuthorization,
+    says: oneStop(
+      [sayIt(input.personName, outcome, blocking, chasing, cover, license, unsupported, editions, waived, adverse), workAuthorization?.says ?? '']
+        .filter(Boolean)
+        .join(' ')
+    ),
     fix: fixFor(blocking, chasing, cover, license, unsupported, editions),
   }
 }
@@ -1205,6 +1244,22 @@ function sayIt(
   }
   const warned = `${joinClauses(parts)} The contract can start with a reason recorded.`
   return reported.length === 0 ? warned : `${warned} ${reported.join(' ')}`
+}
+
+/**
+ * The fix, said to the person reading it. "Then activate" is said to a
+ * seat that may start a placement; a seat that may not (HR, whose route
+ * refuses the start) reads who does, by the role names its own firm
+ * holds: "Get an I-9 on file; then the contract manager or delivery
+ * manager activates." Release walk three, 2026-11-03. Pure.
+ */
+export function fixForReader(fix: string | null, reader: { mayStart: boolean; startedBy: string[] }): string | null {
+  if (!fix || reader.mayStart || reader.startedBy.length === 0) return fix
+  const who = reader.startedBy.map((r) => r.toLowerCase())
+  const named = `the ${who.length === 1 ? who[0] : `${who.slice(0, -1).join(', ')} or ${who[who.length - 1]}`}`
+  return fix
+    .replace(/, then activate\.$/, `; then ${named} activates.`)
+    .replace(/, or activate with a reason\.$/, `; or ${named} activates with a reason.`)
 }
 
 function fixFor(
@@ -1564,6 +1619,7 @@ export async function lineExtras(
   extraHeld?: HeldDocument[]
   supplierCertificates?: CoverCertificate[]
   documentTypes?: DefinedType[]
+  workCountry?: LineWorkCountry | null
 }> {
   // A sell line is answered by the many-lines read, so one line and many
   // lines cannot come to different answers, and a caller holding several
@@ -1631,20 +1687,15 @@ export async function lineExtras(
     // Papers signed against this line, or about this person, or about
     // either firm. A signed NDA is a fact about the person and the firm,
     // not about the row it happened to be raised from.
+    // One reader of what is on file (lib/document-stages/paper-record),
+    // the same the request builder and the Compliance page read.
     db.docInstance.findMany({
-      where: {
-        status: { in: ['SIGNED', 'UPLOADED'] },
-        OR: [
-          sellContractId ? { sellContractId } : { buyContractId: buyContractId! },
-          ...(personId ? [{ subjectType: 'PERSON', subjectId: personId }] : []),
-          { subjectType: 'COMPANY', subjectId: supplierCompanyId },
-          ...(customerCompanyId ? [{ subjectType: 'COMPANY', subjectId: customerCompanyId }] : []),
-        ],
-      },
-      select: {
-        id: true, status: true, validFrom: true, expiresAt: true, signedAt: true,
-        countersignedAt: true, template: { select: { name: true, needsSignature: true } },
-      },
+      where: paperInstancesWhere({
+        ...(sellContractId ? { sellContractIds: [sellContractId] } : { buyContractIds: [buyContractId!] }),
+        personIds: personId ? [personId] : [],
+        companyIds: [supplierCompanyId, customerCompanyId].filter((v): v is string => !!v),
+      }) as never,
+      select: PAPER_ON_FILE_SELECT,
       orderBy: { id: 'asc' },
     }),
     // The agreement between the two firms. An MSA is not a `DocInstance`
@@ -1684,11 +1735,23 @@ export async function lineExtras(
       }))?.sellLinks[0]?.sellContract ?? null)
 
   void now
+  const wc = await lineWorkCountry({ buyContractId: buyContractId! }, db as never).catch(() => null)
+  // Papers a firm on this line asked the person for and accepted, which
+  // stand on the paper itself (an NDA): the rows the request reads.
+  const lineFirms = [supplierCompanyId, customerCompanyId].filter((v): v is string => !!v)
+  const requested = personId ? await acceptedRequestPapers([personId], lineFirms, db as never) : []
   return extrasFrom({
+    requestPapers: heldAbout({ papers: instances as unknown as PaperOnFile[], accepted: requested }, {
+      personId, companyIds: lineFirms,
+      ...(sellContractId ? { sellContractId } : { buyContractId: buyContractId! }),
+      types: (types as { key: string; label: string }[]).map((t) => ({ key: t.key, label: t.label })),
+    }),
+    instances: [],
     setItems: set.items as LineRequirement[],
     workerSets,
     site: siteOf?.workLocation ?? null,
-    certificates, types, instances, agreements,
+    workCountry: wc ? { country: wc.country, offshore: wc.offshore } : null,
+    certificates, types, agreements,
   })
 }
 
@@ -1704,18 +1767,28 @@ function extrasFrom(input: {
   /** The WORKER items of each buy line linked to this sell line, in link order. */
   workerSets: LineRequirement[][]
   site: { country: string | null; state: string | null } | null
+  /** Where the line's work is done; null keeps the US set. */
+  workCountry?: LineWorkCountry | null
   certificates: unknown[]
   types: unknown[]
   instances: Parameters<typeof heldFromDocInstances>[0]
   agreements: { status: string; effectiveDate: Date | null; expiresAt: Date | null; signedAt: Date | null }[]
+  /**
+   * Papers a firm on the line asked the person for through a request and
+   * accepted, which stand on the paper itself (lib/document-stages/
+   * paper-record). Until 2026-11-03 nothing here read them, so an NDA
+   * accepted on Paperwork stayed "not on file" on the placement.
+   */
+  requestPapers?: HeldDocument[]
 }): {
   requirements: LineRequirement[]
   extraHeld: HeldDocument[]
   supplierCertificates: CoverCertificate[]
   documentTypes: DefinedType[]
+  workCountry: LineWorkCountry | null
 } {
   const known = (input.types as { key: string; label: string }[]).map((t) => ({ key: t.key, label: t.label }))
-  const extraHeld: HeldDocument[] = heldFromDocInstances(input.instances, known)
+  const extraHeld: HeldDocument[] = [...heldFromDocInstances(input.instances, known), ...(input.requestPapers ?? [])]
 
   for (const a of input.agreements) {
     // DRAFT is a paper nobody has executed and EXPIRED is one that ran
@@ -1737,8 +1810,10 @@ function extrasFrom(input: {
     items = [...items.filter((i) => !keys.has(i.key)), ...hers]
   }
   items = withoutVoidNonCompete(items, input.site)
+  items = forWorkCountry(items, input.workCountry)
 
   return {
+    workCountry: input.workCountry ?? null,
     requirements: items,
     extraHeld,
     supplierCertificates: input.certificates as CoverCertificate[],
@@ -1777,7 +1852,9 @@ export async function requirementsForSellLines(
   db: LineDb = prisma
 ): Promise<Map<string, LineRequirements | null>> {
   const ids = [...new Set(sellContractIds.filter(Boolean))]
-  const sets = ids.length ? await requirementsForLines({ sellContractIds: ids }, db) : new Map<string, LineRequirements>()
+  // Read where each line's work is done, so the compliance page and the
+  // start ask one set (2026-11-03).
+  const sets = ids.length ? await requirementsWhereWorkIsDoneForSellLines(ids, db) : new Map<string, LineRequirements>()
   return new Map(ids.map((id) => [id, sets.get(id) ?? null]))
 }
 
@@ -1798,6 +1875,10 @@ export async function lineExtrasForSellLines(
     select: {
       id: true, companyId: true, personId: true, clientCompanyId: true,
       workLocation: { select: { country: true, state: true } },
+      // The three facts of the work country, read with the line so the
+      // nightly read of every line asks nothing more per line.
+      requirement: { select: { workMode: true, site: { select: { country: true } } } },
+      person: { select: { consultant: { select: { country: true } } } },
     },
   })
   if (lines.length === 0) return out
@@ -1822,19 +1903,8 @@ export async function lineExtrasForSellLines(
     }),
     db.documentType.findMany({ where: { companyId: { in: firmIds } }, orderBy: { id: 'asc' } }).catch(() => []),
     db.docInstance.findMany({
-      where: {
-        status: { in: ['SIGNED', 'UPLOADED'] },
-        OR: [
-          { sellContractId: { in: lineIds } },
-          ...(personIds.length ? [{ subjectType: 'PERSON', subjectId: { in: personIds } }] : []),
-          { subjectType: 'COMPANY', subjectId: { in: firmIds } },
-        ],
-      },
-      select: {
-        id: true, status: true, validFrom: true, expiresAt: true, signedAt: true,
-        countersignedAt: true, template: { select: { name: true, needsSignature: true } },
-        sellContractId: true, subjectType: true, subjectId: true,
-      },
+      where: paperInstancesWhere({ sellContractIds: lineIds, personIds, companyIds: firmIds }) as never,
+      select: PAPER_ON_FILE_SELECT,
       orderBy: { id: 'asc' },
     }),
     customerIds.length
@@ -1846,6 +1916,8 @@ export async function lineExtrasForSellLines(
       : Promise.resolve([] as { vendorId: string; clientId: string; status: string; effectiveDate: Date | null; expiresAt: Date | null; signedAt: Date | null }[]),
     db.contractLink.findMany({ where: { sellContractId: { in: lineIds } }, select: { sellContractId: true, buyContractId: true }, orderBy: { id: 'asc' } }),
   ])
+  // Papers the firms on these lines asked the people for and accepted, in one read.
+  const requested = await acceptedRequestPapers(personIds, firmIds, db as never)
 
   const setOf = (id: string): LineRequirements | null => (known?.has(id) ? known.get(id) ?? null : read.get(id) ?? null)
 
@@ -1861,21 +1933,28 @@ export async function lineExtrasForSellLines(
     const set = setOf(line.id)
     if (!set) return
     const firms = new Set([line.companyId, line.clientCompanyId].filter((v): v is string => !!v))
+    const lineTypes = (types as { companyId: string | null; key: string; label: string }[]).filter((t) => !!t.companyId && firms.has(t.companyId))
     out.set(line.id, extrasFrom({
+      requestPapers: heldAbout({ papers: instances as unknown as PaperOnFile[], accepted: requested }, {
+        personId: line.personId, companyIds: [...firms], sellContractId: line.id,
+        types: lineTypes.map((t) => ({ key: t.key, label: t.label })),
+      }),
+      instances: [],
       setItems: set.items as LineRequirement[],
       workerSets: links.filter((l) => l.sellContractId === line.id).map((l) => workerOf.get(l.buyContractId) ?? []),
       site: line.workLocation ?? null,
+      workCountry: (() => {
+        const wc = workCountryOf({
+          workMode: line.requirement?.workMode ?? null,
+          siteCountry: line.workLocation?.country ?? line.requirement?.site?.country ?? NO_SITE_COUNTRY,
+          personCountry: line.person?.consultant?.country ?? null,
+        })
+        return { country: wc.country, offshore: wc.offshore }
+      })(),
       certificates: certificates
         .filter((c) => c.companyId === line.companyId)
         .map(({ companyId: _c, ...rest }) => { void _c; return rest }),
       types: (types as { companyId: string | null }[]).filter((t) => !!t.companyId && firms.has(t.companyId)),
-      instances: instances
-        .filter((d) =>
-          d.sellContractId === line.id ||
-          (!!line.personId && d.subjectType === 'PERSON' && d.subjectId === line.personId) ||
-          (d.subjectType === 'COMPANY' && (d.subjectId === line.companyId || (!!line.clientCompanyId && d.subjectId === line.clientCompanyId)))
-        )
-        .map(({ sellContractId: _s, subjectType: _t, subjectId: _i, ...rest }) => { void _s; void _t; void _i; return rest }),
       agreements: line.clientCompanyId
         ? agreements
             .filter((a) => a.vendorId === line.companyId && a.clientId === line.clientCompanyId)
@@ -2001,11 +2080,22 @@ export function extensionPapers(input: {
   from?: Date
   person: PaperDates[]
   supplier: PaperDates[]
+  /**
+   * Where the line's work is done. A US form is not this check's business
+   * for work done elsewhere: an offshore line's extension checks no I-9
+   * and no I-94. Omitted means every paper is checked, as before.
+   */
+  workCountry?: LineWorkCountry | null
 }): ExtensionPapers {
   const newEnd = plainDate(input.newEnd.toISOString())
   const from = input.from ?? new Date()
   const items: ExtensionPaper[] = []
+  const drop = notAskedHere(input.workCountry)
+  // The I-94 is the US's own record of an arrival; it answers nothing for
+  // work done in another country.
+  if (drop.has('I9_EVERIFY')) drop.add('I94')
   for (const [key, rule] of Object.entries(EXTENSION_PAPERS)) {
+    if (drop.has(key)) continue
     const held = (rule.about === 'PERSON' ? input.person : input.supplier).filter((r) => r.type === key && HELD_STATUSES.includes(r.status))
     if (held.length === 0) continue
     const gap = firstGap(held, from, input.newEnd)

@@ -1,5 +1,6 @@
 'use client'
 
+import { educationEmptySays, type EducationShown } from '@/lib/consultant-portfolio/education'
 import { useEffect, useState, useCallback } from 'react'
 import { compact } from '@/lib/money-display'
 import Link from 'next/link'
@@ -8,7 +9,10 @@ import { ListSurface, type Column } from '@/components/list-surface'
 import { hasPermission } from '@/lib/permissions'
 import { useSession } from '@/components/session-provider'
 import { ProfileEditor } from './profile-editor'
+import { SignInLink } from '@/app/dashboard/conversations/sign-in-link'
 import { addConsultantBody } from '@/lib/consultant-portfolio/forms'
+import { mayAddConsultant, whoAddsSays } from '@/lib/consultant-portfolio/who-adds'
+import { consultantsPageUrl, pagesAfterFirst } from '@/lib/consultant-portfolio/list-pages'
 import { wordFor, listingRates, ADD_TIER_OPTION, savingSays, addSkillTags, payShown, STANDING_WORD, type BenchStanding } from '@/lib/bench-filter'
 import { usePageSection } from '@/components/page-section'
 import { ENGAGEMENT_WORDS } from '@/lib/award/hire-terms'
@@ -59,6 +63,8 @@ interface Consultant {
   keptBy?: 'FIRM' | 'THEM'
   /** Whether this firm has a listing for them, where its own words are kept. */
   listed?: boolean
+  /** The résumé's education lines, read only; null where the résumé was never read for them. */
+  education?: EducationShown[] | null
 }
 
 /** The firm's bench as Today and Ask Etyme count it (`benchAt`), and who was asked and has not answered. */
@@ -652,6 +658,7 @@ function ConsultantDrawer({ consultant, onClose, mayEdit, mayRate, onSaved }: {
           <div>
             <p className="eyebrow mb-2">Contact</p>
             <p className="text-sm">{consultant.email}</p>
+            <SignInLink personId={consultant.personId} className="mt-2" />
           </div>
 
           {/* Skills */}
@@ -665,6 +672,30 @@ function ConsultantDrawer({ consultant, onClose, mayEdit, mayRate, onSaved }: {
               </div>
             ) : (
               <p className="text-sm text-etyme-muted">No skills listed</p>
+            )}
+          </div>
+
+          {/* Education, from the résumé: what the person's own résumé says,
+              each line with the line it came from. Read only here; the
+              person corrects it on their own page. Never a verdict. */}
+          <div>
+            <p className="eyebrow mb-2">Education, from the résumé</p>
+            {consultant.education && consultant.education.length > 0 ? (
+              <ul className="space-y-1.5">
+                {consultant.education.map((e, i) => (
+                  <li key={i} className="text-sm">
+                    <details>
+                      <summary className="cursor-pointer">
+                        {e.says}
+                        <span className="text-[12px] text-etyme-faint ml-1.5">{e.from}</span>
+                      </summary>
+                      <p className="text-[12px] text-etyme-muted mt-1 whitespace-pre-line">“{e.quote}”</p>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-etyme-muted">{educationEmptySays(consultant.education ?? null, 'FIRM')}</p>
             )}
           </div>
 
@@ -985,19 +1016,29 @@ export default function ConsultantsPage() {
    */
   const [firstRead, setFirstRead] = useState(false)
 
-  // Open the add modal when navigated with ?new=1
+  // Whether the route would take this seat's Add consultant: the button is
+  // drawn only where it would, read off the route's own gate (second screen
+  // walk, 2026-11-03: a delivery manager was offered it and refused).
+  const mayAdd = mayAddConsultant(session.permissions)
+  /** Who may add, said where somebody without the role followed a link to the form. */
+  const [addRefused, setAddRefused] = useState<string | null>(null)
+
+  // Open the add modal when navigated with ?new=1, or say who adds.
   useEffect(() => {
     if (searchParams.get('new') === '1') {
-      setShowAdd(true)
+      if (mayAdd) setShowAdd(true)
+      else setAddRefused(whoAddsSays({ kind: session.company?.kind ?? null, companyName: session.company?.name ?? null }))
       router.replace('/dashboard/consultants', { scroll: false })
     }
-  }, [searchParams, router])
+  }, [searchParams, router, mayAdd, session.company?.kind, session.company?.name])
 
   const fetchConsultants = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/consultants')
+      // Every page of the list, not the route's first 25 (third screen walk,
+      // S1): the count, the search and the paging stand on the same rows.
+      const res = await fetch(consultantsPageUrl(1))
       if (res.status === 403) {
         const body = await res.json().catch(() => ({}))
         setRefused(body.error?.message ?? 'Consultants are not part of your seat. Ask your company\'s owner if you need them.')
@@ -1012,8 +1053,17 @@ export default function ConsultantsPage() {
       }
 
       const body = await res.json()
+      const rest = await Promise.all(pagesAfterFirst(body.data?.pagination?.pages).map(async (p) => {
+        const r = await fetch(consultantsPageUrl(p))
+        const b = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(b.error?.message ?? `HTTP ${r.status}`)
+        return (b.data?.consultants ?? []) as any[]
+      }))
+      // A record on two pages (the list moved between two reads) is one row.
+      const seen = new Set<string>()
+      const every = [...(body.data?.consultants ?? []), ...rest.flat()].filter((c: any) => !seen.has(c.id) && Boolean(seen.add(c.id)))
       // API returns nested person object; flatten for the table
-      const mapped = (body.data?.consultants ?? []).map((c: any) => ({
+      const mapped = every.map((c: any) => ({
         ...c,
         name: c.person?.name ?? c.name ?? 'Unknown',
         email: c.person?.email ?? c.email ?? '',
@@ -1228,10 +1278,19 @@ export default function ConsultantsPage() {
             <p>Consultant records — the people on your bench, kept to you or shown to your partners, with skills, availability and work authorization at a glance.</p>
           )}
         </div>
-        <button onClick={() => setShowAdd(true)} className="btn-primary self-start md:mt-3 md:shrink-0">
-          Add consultant
-        </button>
+        {mayAdd && (
+          <button onClick={() => setShowAdd(true)} className="btn-primary self-start md:mt-3 md:shrink-0">
+            Add consultant
+          </button>
+        )}
       </div>
+
+      {addRefused && (
+        <p role="status" className="panel text-body-sm text-etyme-ink mb-6">
+          {addRefused}{' '}
+          <button className="text-etyme-action hover:underline" onClick={() => setAddRefused(null)}>Close</button>
+        </p>
+      )}
 
       {added && (
         <p role="status" className="panel text-body-sm text-etyme-ink mb-6">
@@ -1307,7 +1366,7 @@ export default function ConsultantsPage() {
       )}
 
       {/* Modals */}
-      {showAdd && <AddConsultantModal onClose={() => setShowAdd(false)} onCreated={(says) => { setAdded(says); fetchConsultants() }} />}
+      {showAdd && mayAdd && <AddConsultantModal onClose={() => setShowAdd(false)} onCreated={(says) => { setAdded(says); fetchConsultants() }} />}
       {selected && (
         <ConsultantDrawer
           consultant={selected}

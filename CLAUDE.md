@@ -1460,6 +1460,500 @@ role contract, the setup checklist):
   unfinished item for an Owner (conversation). Tests as sentences; the
   walk as a new Owner on screens; the fifty-question score unchanged.
 
+## Ask Etyme is full screen, keeps its conversations, and shows an answer as data — the founder, 2026-11-03
+
+*"Ask Etyme should work like Claude harness model with conversations
+history; chat and display outcomes like dashboard or data and probably
+full screen."* Said on seeing Tapin's Owner seat: a two-column page
+with "No conversations yet" on the left and the chat squeezed on the
+right, a refusal where a table should have been. Three things, and one
+of them reverses an earlier line on purpose:
+
+- **Full screen.** Ask Etyme takes the whole content area. The threads
+  with other companies fold into a left rail that collapses (a back
+  arrow on the phone). The header stays the logo and the flip.
+- **Conversations are kept and listed.** This reverses "there is no
+  list of old chats" (2026-10-18). Each seat keeps every conversation,
+  titled by its first question, newest first, searchable, with "New
+  conversation" at the top. What does not change: the greeting (what
+  needs you, by name) opens every new conversation, and the mark and
+  the queue read the one decisions list, not the threads, so several
+  conversations never split one queue. A conversation stays inside the
+  tenant and the transaction exactly as the one thread did.
+- **An answer that is a list or a figure is shown as data, beside the
+  chat.** "Which bills are unpaid?" draws the bills as a table with the
+  list's own filters and a total; "spend by region" draws the regions
+  and a chart from `lib/chart-colors`; a card stays a card. The panel
+  is the same reader the dashboard page uses (one list, read by both
+  doors), with "Open Bills" to the full page behind it. On the phone
+  the panel is a sheet under the reply. Nothing new is computed for
+  the panel; a figure the page already computes is the only figure.
+- **The harness is unchanged underneath**: rules first, the model only
+  where the company turned it on, every act a card through the one
+  approval route, every read logged, "checked just now" on every
+  answer, the why on tap.
+- **Drawn before it is built**, because the founder has corrected the
+  chat three times: a prototype of the full screen with the rail, a
+  conversation, a data panel and a card, in the seed's own names
+  (https://claude.ai/artifact/VHwGBBhtQ2soYXJScnYe86), and his answer
+  the same hour: *"Claude chat works really well."* Read as "build it",
+  with Claude's own chat as the reference: the rail of conversations,
+  the composer fixed at the bottom, an answer's table inside the reply
+  and the fuller data beside it, keyboard first, one screen on a phone.
+  Built in this order: the conversation list and
+  "New conversation" on the saved thread (conversation, with the
+  architect for the thread table's `title` and the list's read); the
+  full-screen layout and the rail (architect); the data panel reading
+  the page's own reader per question kind (conversation, with demand
+  and money for the readers); the phone sheet (architect).
+
+## One person, two hats, switched in the account menu — the founder, 2026-11-03
+
+On Tapin's Owner seat, whose menu read the firm's nine links and then
+"YOU" with five more underneath: *"I think company user and individual
+can be switched on the top right menu and focus on business side of
+things when in owner mode and switch to individual mode for taking
+care of candidate side of responsibilities."* Decided, and it
+supersedes the menu half of "A person who is also a worker keeps their
+firm's links and gains You at the end" (2026-09-17); the rule that who
+is a worker is read off the work, never off a seat type, stands.
+
+- **The account menu lists the person's hats**, one line each: every
+  firm seat they hold ("Tapin · Owner", "Brightmoor · Recruiter") and
+  "You · Sharath" where the work makes them a worker (a placement, a
+  submission, a line that pays them, a bench listing). The current hat
+  is marked. Switching is one click, remembered on the device.
+- **The left menu shows one hat's links and nothing else.** In a firm
+  hat, that firm's nine; in the You hat, the worker's five (Your work,
+  Your page, Who has you, Your data, Your paperwork). The "YOU" list
+  appended under the firm's links goes.
+- **Ask Etyme, the mark and Today follow the hat.** In a firm hat the
+  greeting is the firm's queue; in the You hat it is the person's own
+  week, pay and papers, and the chips are a worker's. One person never
+  sees two numbers for one hat.
+- **Nothing is lost by the switch.** Every page keeps its address;
+  search and the + button offer the current hat's pages; a link from a
+  notice opens the hat it belongs to. A one-person firm already reads
+  her two hats as two tabs under Paperwork (2026-09-21) and keeps that;
+  her account menu shows one firm hat and no You hat, because she is
+  the firm.
+- **Built without a drawing**, because the sentence is the drawing: a
+  list in a menu that already exists. Architect (the shell, the account
+  menu, lib/nav-table's hat), conversation (the greeting and chips per
+  hat), in the wave after the 2026-11-03 retest deploy, before the Ask
+  Etyme full screen, since both touch the shell.
+- **Built 2026-11-03 (architect).** The account menu lists the hats
+  (`hatsFor` in `lib/nav-table`, drawn by `components/shell/hat-list`
+  in the desktop account menu and at the foot of the phone menu); the
+  left menu, search, the + button, the tab row and the eyebrows read
+  one hat (`hat` on the menu's seat facts). The hat is remembered in
+  one cookie, `etyme_hat` (`firm` or `you`, and the seat after a colon
+  where the person holds more than one), which `getCallerContext`
+  reads only to choose among the person's own live seats when no
+  header names one, and which Ask Etyme reads for the greeting and
+  chips per hat (`readHatCookie`); the words per hat are
+  conversation's. A link into a worker's own page opens the You hat
+  (`hatForPath`). Four coordinator's calls, each reversible in a
+  sentence: a worker whose seat holds no desk at the firm (Karthik
+  Menon) opens in the You hat, because the firm hat holds only what is
+  addressed to them; a Member with no desk and no work keeps their own
+  pages beside what is addressed to them, because that is not a second
+  hat; the You hat keeps the threads addressed to the person inside Ask
+  Etyme; and switching hats reloads the page on Ask Etyme, so the
+  greeting and the mark are read again for the hat now worn.
+
+## On a firm's menu, People reads Candidates and Candidates reads Submissions — the founder, 2026-11-03
+
+*"People = candidates. And Candidates = submissions."* Said from
+Tapin's Owner seat. At a staffing firm the people on its bench, in its
+training and on its roster are its **candidates**, and the ones it put
+forward to a job are its **submissions**; "People" is nobody's word
+there. So on the supplier's, integrator's and MSP's menus the link that
+read "People" reads **Candidates** (Bench, Bench pay, Bench check-ins,
+Training, Consultants fold under it as before), and the link that read
+"Candidates" reads **Submissions** (Interviews folds under it). Machine names, routes and keys do not move. The eyebrows, the chips,
+the greeting ("who is on the bench", "who applied") and the
+documentation's party table follow the labels. Architect (lib/nav-table,
+lib/page-framing, the two tables below) with conversation for the
+words, in the wave after the 2026-11-03 retest deploy, with the hat
+switch.
+
+**Corrected by the founder the same hour: the client's menu too.**
+*"Hiring managers also see submissions as submissions or applications.
+Candidates is a memory of candidates they would like to reach out to."*
+So one word means one thing on every menu. **Submissions** is who was
+put forward to a job, on a client's menu as on a supplier's (a hiring
+manager says submissions or applications; Interviews folds under it).
+**Candidates** is the people a firm keeps: a supplier's bench, roster
+and trainees; a client's memory of the people it would like to reach
+out to, which the record already holds as the people put in front of
+it, the ones it starred (`Favorite`) and its past contractors, each
+with "Ask for them" to the supplier holding their consent. So the
+client's menu reads Ask Etyme · Today · Jobs · Submissions · Timesheets
+· Invoice receipts · Contractors · Candidates · Suppliers · Settings:
+the four steps, then the three lists a hiring manager keeps (who is on
+site, who I would like, who supplies), then Settings. Two coordinator's
+calls, each reversible by the founder in a sentence: the client's menu
+grows to ten links rather than folding the memory under Contractors,
+because the founder named it as its own noun; and the home page's four
+chips keep "Candidates" for the step until the founder says the word,
+because the chips are the buyer's four nouns of 2026-10-14 and a chip
+is a step, not a list. **Built 2026-11-03**: `lib/nav-table` draws
+these words in the process order below, and the table under
+"Navigation per company type" moved in the same commit, so
+`sidebar-nav.test.ts` reads the truth.
+
+**"What is the use of You for an Owner?" The founder, the same hour,
+on Tapin's Owner seat reading a "YOU" list under the firm's links.**
+None, unless the Owner is also on a placement. The list is the
+person's own pages as a worker (Your work, Your page, Who has you,
+Your data, Your paperwork), and the menu draws it whenever the work
+makes the person a worker (`ownPage` in `lib/consultant-portfolio`,
+read off a placement, a submission, a bench listing or a line that
+pays them), never off the seat. Under the two-hats decision above it
+leaves the left menu: it becomes the "You" hat in the account menu,
+offered only where that work exists, so an Owner on no placement sees
+no You at all, and an Owner who is also placed switches to it on
+purpose. Where Tapin's Owner sees it today, the record holds a
+worker's row for that address (the candidate seat made by the account
+mix-up of 2026-10-20 is the likely one); the hat switch takes the list
+off the Owner's menu either way, and the architect reads which row it
+is and says so before anything is ended.
+**Confirmed by the founder the same hour:** *"You can go under
+profile and they switch to worker account."* So the worker's pages
+live under the profile, the account menu at the top right, as the
+switch to the worker account, and nowhere on the firm's left menu.
+Switching there is switching the whole app to the worker's view (the
+menu, Ask Etyme, the mark and Today), and switching back is the same
+one click; the person is never shown both at once.
+
+**Contracts, not Contractors, and Contracts stands between Submissions
+and Timesheets on every firm's menu. The founder, the same hour:**
+*"What is contractors — is it Contracts Buy or sell? We already have
+candidates, so don't see a need for contractors — but see a utility for
+contracts on sell side or buy where documentation happens and hiring
+happens, followed by timesheet and expense submit, sometimes to client
+or sometimes to employer."* So the noun is the document, not the
+person: a person is a candidate until the award, and from the award on
+the thing a firm holds is a **contract**, the line that carries the
+papers, the start, the rate and the dates, with the weeks and the
+expenses hanging off it. Decided, each a coordinator's call reversible
+by the founder in a sentence:
+- **The client's menu reads Contracts where it read Contractors**: its
+  buy side, one row per person placed, with the supplier, the order
+  line, the rate it pays, the papers, the start and the time on site,
+  and the tabs that folded under Contractors (Ending soon, Past, Tenure,
+  Duplicate check) folding under Contracts instead. "Contractors" leaves
+  every menu. It stays the buyer's word for the person on the public
+  pages ("Know what every contractor costs"), because a page speaks of
+  people and a menu names what the firm holds.
+- **A supplier's, integrator's and MSP's Contracts is a link of its
+  own**, no longer three tabs under Companies, with **Sell** (the line
+  that bills the client or the prime) and **Buy** (the line that pays a
+  sub-vendor by order or the firm's own employee by payroll) side by
+  side and the POs beside them; Companies keeps who the firm trades
+  with (clients, suppliers, contacts, agreements). This answers the
+  founder's "Where are the contracts for Buy and sell" of the same
+  morning.
+- **The order on every firm's menu is the process order:** Jobs ·
+  Submissions · Contracts · Timesheets · then the money document
+  (Invoice receipts for a client, Bills for a supplier), then the two
+  lists the firm keeps (Candidates and Suppliers for a client;
+  Candidates and Companies for a supplier), then Settings. Ten links
+  with Ask Etyme and Today; the one-person firm already reads Contracts
+  and is unchanged.
+- **An expense follows the contract the way a week does**: filed once
+  by the worker against the line, reimbursed by the employer on the buy
+  line, and billed to the client on the sell line only where the
+  agreement between that pair says the kind is billable (the
+  2026-10-19 rule); "sometimes to client or sometimes to employer" is
+  that rule read from the worker's side, and nothing new is built for
+  it.
+Built with the hat switch and the Submissions and Candidates rename,
+in one commit per domain, the two tables below moving with
+`lib/nav-table` so `sidebar-nav.test.ts` stays green. Machine names,
+routes and keys do not move.
+
+**Built the same evening (architect, 745397fa8, 827ba166b, 06455f31a).**
+Every firm's menu reads the process order (client: Ask Etyme · Today ·
+Jobs · Submissions · Contracts · Timesheets · Invoice receipts ·
+Candidates · Suppliers · Settings; supplier and integrator the same
+with Bills and Companies; an MSP with no Candidates, nine); "People"
+and "Contractors" are on no menu; no route, key or file name moved;
+the navigation table below matches the code and the test reads it.
+The account menu lists every firm seat as "Company · Role" and "You ·
+<first name>" only where `ownPage` says the person is a worker; the
+current hat is marked; one click switches; the left menu, search, the
++ button, the tab row and the page headings read one hat; a link into
+a worker's own page opens the You hat and a page only the firm's menu
+holds opens the firm hat; the hat is remembered in one cookie
+(`etyme_hat`, `firm` or `you`, with the seat id after a colon where
+the person holds more than one seat), read on the server through
+`readHatCookie` in `lib/nav-table`, so Ask Etyme can greet the hat
+being worn; a seat chosen in the account menu is used only where it is
+the person's own and live, and a switch between firm seats is logged
+by the route that always logged one. Twenty-six test sentences in
+`__tests__/invariants/two-hats.test.ts`. Coordinator's calls on the
+way, each reversible in a sentence: a worker whose seat holds nothing
+beyond their own work (Karthik Menon) opens in the You hat, because
+the firm hat would show only Ask Etyme; a Member with no permissions
+and no work keeps their own pages beside Ask Etyme as one hat; the
+You hat keeps the person's conversations inside Ask Etyme and offers
+nothing on the + button; switching hats reloads Ask Etyme so the
+greeting and the number are read again; the client's Candidates link
+opens the people page on Everyone until demand orders Favorites and
+Recent engagement first; a supplier's Companies carries no Agreements
+tab because no supplier agreements page exists. One lesson, so it is
+not paid for twice: the words commit was pushed red on `map.test.ts`
+alone, because a matrix line was added without regenerating the
+matrix page; the fix followed in the next commit, and a commit that
+touches `src/lib/matrix.ts` runs `npm run matrix` and the map test
+before it is pushed. **Where the founder's own worker row at Tapin
+is**, to be read on production: `ownPage` says worker for the Person
+whose email is the Owner's if any of a `ConsultantProfile`, a
+`SellContract`, a `Submission` or a `BuyContractCandidate` row carries
+that `personId`; a `ConsultantProfile` alone is enough and is the
+likeliest (a "Your page" edit or a bench listing). From this build the
+Owner's firm menu shows no You list either way; the row only decides
+whether "You · Sharath" is offered in the account menu. The words
+around the new nouns (the greeting and chips per hat, page-framing's
+titles, the nav answers, the client's Candidates page heading and
+filter order, the alumni sentences, the documentation's party table)
+are conversation's, demand's and market's, built in the same wave.
+**Conversation (f7692126c, 4e407c70b, 0255a0be0, 33158bb93) and market
+(d390e6f2a), the same evening.** Ask Etyme's greeting, chips and mark
+follow the hat through one function (`asYou` in the twin route, read
+off the account menu's own cookie and its own rule `offersYouHat`), so
+one hat never shows two numbers: an Owner who is also a worker is
+greeted as the firm until they put on the You hat, and an Owner on no
+placement is greeted as the firm whatever the cookie says; "Where are
+my contractors?" answers Contracts, "Where are my candidates?" the
+memory at a client and the bench at a supplier, "Who applied?" opens
+Submissions, and "on site today" opens Contracts; the client's people
+page is headed Candidates; a notice written before 2026-11-03 that
+said "<supplier>'s bill" is read in the client's greeting as the
+supplier's invoice through one reader; and who hears that a paper
+arrived is HR and the compliance officer, else the Owner, else the
+Admin, never the sender or a colleague (`paperExaminersAt`), wired
+into the documents route by regulatory. Coordinator's calls, each
+reversible in a sentence: a seat with no role of its own is greeted
+as a worker in either hat; in the You hat only a notice that opens a
+page on the You menu is said, so the person's own week notices stay in
+the firm hat as before; threads other companies wrote to the firm wait
+for the firm hat; both hats share the one saved Ask Etyme thread (a
+thread per hat is a schema change); the compliance officer hears a
+paper beside HR. The documentation names the menu links where they
+help ("On a client's menu, people it may ask for again are under
+Candidates. People working there now are under Contracts.") and keeps
+"Contractors" as the heading of the people page, the buyer's word for
+a person. **One word, said by the founder on 2026-11-04 ("Update
+it"):** the home page's second step reads **Submissions**, so the four
+steps are Job · Submissions · Timesheets · Invoices on the chips, the
+product pages, the documentation spine, the flow charts and the door
+maps, and "Candidates" means one thing everywhere a buyer reads it:
+the people a firm keeps. This supersedes the second noun of 2026-10-14
+and the coordinator's call of the day before; market builds it.
+
+**Master data sits under Network. The founder, 2026-11-04:** *"Also
+bring all master data under network hierarchy."* The master data is
+what the documentation split named on 2026-09-30: the business partners
+(customers and suppliers) and the consultants. So on every firm's menu
+the two lists it keeps fold under one link, **Network**: for a supplier,
+integrator or MSP the tabs **Candidates** (Bench, Bench pay, Bench
+check-ins, Training, Consultants under it) and **Companies** (Clients,
+Suppliers, Contacts, Agreements, Scorecards); for a client the tabs
+**Candidates** (its memory of people) and **Suppliers** (Contacts,
+Agreements, Supplier scorecards). The menu reads Ask Etyme · Today ·
+Jobs · Submissions · Contracts · Timesheets · the money document ·
+Network · Settings, nine links again, in the process order with the
+network after the money. The shell draws Network's two groups as one
+grouped tab row (the group's name, then its pages), so a person reaches
+Bench or Contacts in one click from the link; every page keeps its
+address. Two coordinator's calls, each reversible in a sentence: Sites
+stay under Settings, because a site is the firm's own place and a
+setup item, not its network; and an MSP's Network holds Companies
+alone. Built by the architect from the sentence, the CLAUDE.md table
+moving in the same commit, with conversation (`NAV_TOPICS`, the
+greeting's links) and market (the documentation's menu words) after.
+
+**Paperwork is a tab of Contracts, not a thing of its own. The founder,
+2026-11-04:** *"Let's fix all navigation and then update screenshot.
+Should the paperwork be connected to contracts — why is it
+navigationally independent? Does it make it easier?"* It should, and
+it does: a paper lives on the line, on the side it protects
+(2026-09-18), and documentation happens on the contract (his own words
+of 2026-11-03). What was still independent is HR's working list and
+the firm's own papers, filed under Settings (Paperwork, Missing
+paperwork, Document requests, Screening packs, Compliance, Check queue)
+and, at a client, Compliance and Document requests under Settings too.
+So **Contracts** carries the tabs **Sell · Buy · POs · Paperwork**, and
+Paperwork is one list across every line, each row a line (the person
+or the firm, the paper, asked · arrived · examined · on file, who owes
+it, the start it holds), opening the line; Document requests, Missing
+paperwork, Screening packs, Compliance's starts and the check queue
+fold into it, and a client's Compliance and Document requests the same;
+the firm's own papers (its W-9, insurance, good standing, the papers a
+customer holds it to) sit on the same tab as the firm's own rows,
+because they are the sell side's papers. Settings keeps **Papers you
+require** (the sets, a setup item), the DNR list and the automation
+ladder. Every page keeps its address. Two coordinator's calls, each
+reversible in a sentence: the one-person firm's Paperwork link stays
+as it is (her two hats as two tabs, decided 2026-09-21); and the
+worker's "Your paperwork" stays on her own list. Built by the architect
+after Network, in the same navigation wave; the walk then retakes every
+screenshot on the fixed navigation before the deploy, per "fix all
+navigation and then update screenshot".
+
+**The morning of 2026-11-04, after the box restart.** The three
+agents cut off by the hourly limit were finished by fresh agents of
+the same domain from the diffs in the tree: regulatory (eded7ecdc) made
+the request builder, the backfill and the worker's page read what the
+placement reads through one reader (`heldOnRecord`, `heldAcross` in
+`lib/document-stages/paper-record`, typed by every firm on the person's
+lines, with `checksThatAnswer` closing proof of right to work by the
+I-9 behind it), closing R1, R1b and R3 in tests; conversation
+(e0a4e2fa7) reversed f7692126c's call so a seat with no role of its own
+wears the hat the account menu says (Karthik Menon's firm hat reads
+"Nothing of Teleworld's is addressed to you; your own work is under
+You"), and a colleague's paper is never said to a seat without the
+paper's permission in either hat (`hearsPaperNotice`); the architect
+(c3a397f3c) made a one-person firm's account menu offer no You hat
+through the same code the screen reads (`seatLinesFrom`,
+`hatsForSession`; the old test fed the menu a hand-made seat list the
+screen never receives, which is why it passed while the screen did
+not); market (ceba23d4a) made the second step read Submissions on every
+public page (the step name in one place, `steps.ts`, read by the chips,
+the step pages, the panels' table titles, the "In it" line, About and
+the MSP door map), with the address `/docs/candidates` kept because
+routes do not move. Open from it: the worker's page reads an
+unexamined upload as "sent, waiting" while the placement reads it as
+held (the founder's open line); Ask Etyme's own sentence still says
+"jobs, candidates, timesheets and invoices" (conversation, with the
+Network words); the backfill's wider reach has run on no database.
+
+**The process order, in the founder's words, 2026-11-04:** *"Jobs,
+Submissions, Contracts for Buy & Sell, Timesheets, expenses, Billing
+(AR), Invoice Receipt (AP), Payment in, Payment out and Payroll.
+Remember even bench vendor can have c2c contracts and restricted only
+to bench business."* So the menu follows that sequence, each station
+a noun or a tab of the noun before it, in this order: **Jobs ·
+Submissions · Contracts** (Sell · Buy · POs · Paperwork) **· Timesheets**
+(Timesheets · Expenses) **· Bills** (the firm's billing upward, AR:
+Bills · Payments in) **· Invoice receipts** (what it receives from
+below, AP: Invoice receipts · Payments out) **· Payroll** (its own
+employees) **· Network · Settings**, with Ask Etyme and Today first. A
+supplier, integrator or bench vendor reads all of them, eleven links;
+a client reads no Bills and no Payroll (it sells nothing and employs
+no contractor), nine; an MSP reads no Payroll. Two coordinator's calls,
+each reversible by the founder in a sentence: Expenses, Payments in
+and Payments out are tabs of the noun before them rather than links
+of their own, so the menu stays short while every station is one
+click away in his order (say "each its own link" and they become
+links); and Payroll is a link of its own because it is neither a bill
+nor an invoice receipt (the party who issues a document names it).
+**A bench vendor is never restricted to its bench**: it reads the
+supplier's whole menu, its Contracts carry its corp-to-corp buy lines
+paid by invoice receipt beside its W2 lines paid by payroll, and
+nothing on a menu, a chip or a greeting is hidden by a firm's posture
+(prime, sub-vendor, bench are positions on a deal, never a kind). Built
+by the architect in the same navigation wave, after Network and the
+Paperwork tab, the CLAUDE.md table moving with the code.
+**Network sits above Jobs. The founder, the same hour:** *"Network
+can stay above the jobs."* The master data comes first and the process
+follows it, so every firm's menu reads **Ask Etyme · Today · Network ·
+Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts ·
+Payroll · Settings**, a client's without Bills and Payroll, an MSP's
+without Payroll. This replaces "the network after the money" in the
+Network paragraph above.
+
+**The navigation wave is built (architect, 36b0408e2, e9241d9e7,
+730d712fb), the same morning.** Supplier and integrator read Ask Etyme
+· Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills
+· Invoice receipts · Payroll · Settings (eleven); an MSP the same with
+no Payroll (ten); a client Ask Etyme · Today · Network · Jobs ·
+Submissions · Contracts · Timesheets · Invoice receipts · Settings
+(nine). Network's groups: a supplier's Candidates (Candidates, Bench,
+Bench pay, Bench check-ins, Training) and Companies (Companies,
+Suppliers, Contacts); a client's Candidates and Suppliers (Suppliers,
+Contacts, Agreements, Supplier scorecards); an MSP's Companies alone.
+Contracts' groups: the lines (Sell contracts · Buy contracts · POs) and
+Paperwork (Paperwork · Missing paperwork · Document requests · Screening
+packs · Compliance · Check queue; a client's Compliance · Document
+requests). Bills holds AR, Invoice receipts is the AP page, Payroll
+holds Commissions; Rolloff stays under Timesheets and Reports under
+Today; Sites stay under Settings. The grouped tab row is
+`GroupedTabRow` in `components/shell/section-pills`, the grouping
+`NavItem.group` through `tabsFor().groups`; a group with a page named
+after it links to that page, otherwise the name is plain text. The
+foot of the menu names the role a seat actually holds, or "Member"
+(Karthik Menon reads "Integrator · Member", never "Delivery";
+`footerRole` in `components/shell/sidebar-props`). Every page keeps its
+address; `lib/page-framing` was not changed. Coordinator's calls on the
+way, each reversible in a sentence: no separate payments pages exist,
+so "Payments in" is the AR page and "Payments out" the AP page under
+their own labels; "Papers you require" has no Settings link of its own
+(its address is the setup checklist's dynamic one, reached from the
+checklist, Today and the greeting); a supplier's Network carries no
+Scorecards or Agreements tab because those pages are a client's; the
+tab labels stay "Sell contracts" and "Buy contracts". One lesson, so
+it is not paid for twice: the coordinator's CLAUDE.md commit 2e2bfb5cc
+swept the architect's uncommitted edit of the navigation table into
+itself, because `git add CLAUDE.md` stages the whole file; a CLAUDE.md
+commit made while an agent may be editing the table checks `git diff
+--cached` first, or waits. Conversation (`NAV_TOPICS`, the four steps'
+sentence) and market (the documentation's menu words) follow in the
+same hour, then the matrix rows, release pass 36, the walk with the
+navigation screenshots, and the deploy.
+**Conversation (a46289407, 0d69fbd25), market (09b5cdc41) and the matrix
+(56eca337b), the same hour.** Ask Etyme says where a page is on the new
+menu: "Where is our master data?" and "Where is our network?" answer
+Network with its two groups, "Where is our paperwork?" and "Where is
+compliance?" the Paperwork tab under Contracts, "payments in" the AR
+tab under Bills, "payments out" and "what suppliers sent" Invoice
+receipts, "payroll" and "commissions" Payroll, and a client asking for
+payments in or payroll is told no page of hers shows them, because a
+client bills nobody and employs no contractor; Ask Etyme's own sentence
+names the steps the way the public pages do ("jobs, submissions,
+timesheets and invoice receipts") and its refusal lists "jobs,
+submissions, contracts, timesheets, bills, invoice receipts, payroll,
+papers and people". The documentation's master-data pages say "under
+Network", "under Contracts, their papers on the Paperwork tab", and the
+time-and-money page says Bills, Invoice receipts and Payroll. Open from
+it, conversation's: when a supplier asks Ask Etyme to pay an invoice,
+the refusal's "Open Invoice receipts" link opens `/dashboard/invoices`
+(its Bills) rather than `/dashboard/ap`, because `neverSays` is not
+told whether the seat is in a client's program; money's `receiptsLink`
+already decides it and is the fix.
+**Release pass 36 on 0d69fbd25:** type check clean, 13,605 of 13,612
+unit, 2,642 of 2,645 integration, build clean. The seven unit reds were
+old assertions naming the eyebrows and links the navigation moved
+(Candidates, Companies and Settings, now Network and Contracts; a
+nav-table comment that wrapped), brought up to the code in cd4f95f5c
+with no product file touched, each green alone. **The three integration
+reds were a real regression from eded7ecdc, found by the pass and not
+by any walk:** the papers fix stopped listing any request item asking
+for a kind already on file and in date, and the nightly license renewal
+asks for exactly that, so Colleen Byrne's renewal ask vanished from her
+page and her greeting and "who asked" read the Wisconsin Board of
+Nursing, the issuer of the only license row left. Fixed in 4cf29d862: a
+renewal request (`CREDENTIAL_RENEWAL`) is marked as a renewal by
+`/api/me/papers` and `myPapers` never treats the paper being renewed as
+its answer; every other request keeps eded7ecdc's rule; "who asked" is
+the firm that raised it. One gap, said once: a renewal is recognized
+by its packet key, so a route asking for a renewal under another key
+would need to set the same flag. Release pass 37 runs on the quiet
+tree after both.
+**Release pass 37 on 4cf29d862:** type check clean, 13,613 of 13,613
+unit, 2,644 of 2,645 integration, build clean. The one red,
+`__integration__/sign-in-link.test.ts`, was the test's own pick: it
+drew Brightmoor's "placed person" with no order, the seed pays Lucía
+Fernández and Tobias Lindqvist from Pinnacle too, and a firm that pays
+a person direct may hand them a sign-in link, so Pinnacle rightly read
+it; the test now asks for a person nobody at Pinnacle pays, lists or
+seats (77c5c2b40, test only, green alone). The fifth walk runs on this
+build with the navigation screenshots the founder asked for, and the
+deploy follows its yes.
+
 ## Onboarding is tested as every party and fills itself from what the company already has — decided by the founder, 2026-10-27
 
 *"So test and ease onboarding for every party; fetch from any source of
@@ -2112,6 +2606,10 @@ home page's own: Jobs, Candidates, Timesheets and the money document.
 | One-person firm | Ask Etyme · Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Seven: she has no jobs or candidates. |
 | Worker | Ask Etyme · Your work · Your page · Your paperwork · Your data | Already five. Unchanged; a worker who also holds a seat at a firm finds its Conversations inside Ask Etyme. |
 
+(History: this table is what 2026-10-19 decided. The words and the
+order moved on 2026-11-03; the table under "Navigation per company
+type" is the one the code draws.)
+
 Nothing behind the menu is deleted: every page keeps its address,
 search still finds it, and every link in a card or a table still lands
 on it. The menu stops listing them, and each page gains the tabs that
@@ -2718,6 +3216,375 @@ route refuses it (supply). Not proven: a non-dollar expense on a
 client's Approvals row (no Corvane agreement names billable expense
 kinds, so none reaches a client), and the 390 px phone pass. Report:
 `scratchpad/walk-saves/report2.md`, shots under `shots2/`.
+
+**Shipped to production 2026-11-03 (3a35d888d on the deploy branch,
+source b30ab360b):** the screen-walk wave, 360 files. The I-9 class
+closed on screens: every door that credits an I-9 asks for the
+document shown (Document requests, Paperwork, Compliance's Record the
+I-9, offered wherever the firm owes it as the employer), a firm's own
+name for the I-9 is read as the I-9 and an I-94 never is, one edition
+rule every door reads (`editionToRecord`) refuses an edition the issuer
+never printed, one retired before the day the form was completed, or
+one dated after it, Compliance reads the backing the way the start
+does, and a passport shown again on an I-9 already on file is kept.
+"Every question a route asks, its screen has a field for" as a contract
+test in five domains; money's screens ask on the page, never in a
+browser prompt; a button is drawn only where its route will take it
+(Today, Candidates, Timesheets; Roll off and Accept-expense never for a
+program manager; Send on by `maySendOn`); the Owner changes the kind of
+company from Settings and the menu, the chat and the checklist follow;
+a setup question is answered with the next item and its link; an
+expense carries the currency it was spent in; a seated firm writes to
+the client's suppliers as the program and sees "Message <supplier>" on
+Candidates; a candidate card tells two jobs with one title apart and
+opens that job's candidates; the compliance page reads every line's set
+in one call; the generated world's papers grow with it; an approval
+stands when its posting fails; every machine sentence the first walk
+found reworded; the cron sweep reads route files only; and the load
+wave's performance fixes above. Release pass 31 on f84db49d9 (type
+check clean, 13,127 of 13,131 unit, 2,606 of 2,608 integration, build
+clean; the six reds test strings and ledger entries behind the wave,
+fixed and green alone), pass 32 on 12cf8d106 after the walk's two
+fixes (type check clean, 13,136 of 13,138 unit, 2,608 of 2,608
+integration, build clean; the two reds the posture's ladder counts and
+a hand-formatted date, fixed), and on b30ab360b generate, type check,
+the four fixed files (173 of 173) and the build, all clean. Gates on
+the replay: no Ruby, brand kit present, no source difference. Four
+additive columns land through `DB_PUSH_ON_BUILD`, which the founder
+sets back to 0 after this deploy: `Expense.currency`,
+`Company.kindSetById` and `kindSetAt`, `AccessLog.subjectCompanyId`, and
+the index on `Notification(personId, createdAt)`. **The founder's one
+step:** sign in to Tapin as the Owner and set its type to Bench vendor
+from Settings. Three lessons from the wave, so they are not paid for
+twice: a worker restart loses every agent and its context, and the
+handover that works is the diff itself (`git diff -- <files>`), which
+a fresh agent of the same domain finishes from; two agents running
+integration files while a third changes the schema cut each other's
+connections (Postgres 57P01, the template rebuild), so the release
+pass runs alone and agents run unit files only while it runs; and a
+`src/lib/matrix.ts` left staged by a dead agent rode into two commits
+and each had to be undone, so a committer checks `git diff --cached`
+holds only its own files before `git commit`. Coordinator's calls on
+the way, each reversible in a sentence: the candidate card draws no
+act until an act kind in the role contract decides a candidate; the
+no-email ask sentence drops "has not answered yet", because she was
+never sent the link; an I-9 edition dated after the completion day is
+refused with the other two; the retirement day prints as the issuer
+prints it. **Open, with owners:** a client's typed-in invoice receipt
+lists no supplier, the last of the class "the screen cannot reach the
+rule", and the order's drawn figure posted at straight time after a
+premium was chosen, a money figure, both first in money's next wave,
+with a bill generated from Bills carrying no pay-to, "₫170.00" showing
+cents, and the acceptance read on `billCurrency` (money); Paperwork
+saying "On file" for a paper nobody examined (regulatory); nine notices
+on a worker's own upload, identical candidate cards, "bill" for an
+invoice receipt in a client's greeting (conversation); Grant the seat
+with empty fields saying nothing, Activate offered to HR, "due to
+start" on a past day, the bill picker naming jobs (demand); Add
+consultant offered to a delivery manager (supply). The three pieces
+decided this day (work country, the degree, setup as a conversation)
+start on this source, the setup conversation on the founder's read of
+https://claude.ai/artifact/3VnXSMPHtFu2uXhSZR1HmM. **Smoke on
+production after the deploy:** health says "Serving 3a35d888 from
+main" with the database reachable and the schema there, so the four
+columns landed; the home page, the demo, all four doors
+(`/for/program-offices`, `/for/integrators`, `/for/suppliers`,
+`/for/contractors`), documentation, about, contact, security, privacy,
+terms, the DPA, sign-up and `/site/tapin` answer 200; the inbound
+email door answers 404 to a POST.
+
+**The founder's own retest of production 3a35d888d, 2026-11-03: partial
+pass on the I-9, still no-go for activation.** His tester reused Rajesh
+Iyer's placement (Brightmoor → Northbend, $95/hr, PO-2026-ADIVD line 4).
+What passed: the demo opens with no account; the I-9 accepted on
+Document requests now flips the placement's chip to "on file" for the
+I-9 and E-Verify, which on Nov 1 did not propagate at all. What still
+fails, in his order: the placement page has no Activate button in
+either seat, only the prose "Get an I-9 and E-Verify on file, then
+activate" and "activate with a reason" with no control behind it, so
+the placement stays draft two days past its start with $0 billed;
+**every paper but the I-9 does not propagate**: background check, drug
+screening, NDA and confidentiality are Accepted on Brightmoor's
+Paperwork page through Nov 1, 2027 and still read "needed / Not on
+file" on the placement, while a fresh W-2 packet request refuses with
+"everything is already on file and current", two truths about one
+worker, the class "success said, nothing the gate reads" again, closed
+for the I-9 in 128465a12 and open for every other kind; "No buy line
+behind this placement", so no pay line and no timesheet; Rajesh has no
+way to sign in, so no week can be filed; Helena Marsh's approved Oct
+4–10 week ($5,800) still has no draft bill and her week page no bill
+section; the I-9 dialog pre-filled edition 01/20/25 for a paper that
+prints "Rev. March 2024", "Passport Card" is missing from the list,
+expiry is typed segment by segment and a disabled Accept says nothing;
+packet rows do nothing when clicked and a stuck packet cannot be
+re-sent in-app; "Ask somebody" disables every person with no reason;
+Ask Etyme says the model is not set up on this deployment (no key on
+production). His order, taken as the build order: Activate as a real
+button and every acceptance read by the placement first, deploy, and
+he retests the same day; then the buy line, Bill this week on an
+approved week, the I-9 dialog, the packet rows, the picker's reasons,
+and a placed person's sign-in link on the row for the employer where
+no email can leave. His separate rating of the harness (design 7.5,
+live 4.5 as of Oct 30; context, actions, boundaries, persistence,
+evals) is answered by three pieces queued after this: a post-check at
+runtime that every act's downstream record exists, the model on behind
+the deterministic checks (the founder's key), and the fifty-question
+set graded against the ledger in every release pass.
+
+**Built in his order the same day, release pass 34 fully green on
+f2f342723 (type check, 13,318 unit, 2,645 integration, build), and the
+third screen walk on that build said: do not ship yet.** What works
+on screens now, in the founder's order: Activate is a real button on
+the placement page, "Activate with a reason" draws its box, two
+placements moved from draft to started and a blocked start was refused
+in a sentence; every paper accepted on Document requests reaches the
+placement, the verdict fields work and a disabled Accept says what is
+missing; stating the pay from the placement wrote the buy line, the
+worker signed the terms and a week was filed against it; Rajesh Iyer's
+worker door on /demo opens, his Sunday-to-Saturday week was filed,
+signed by the client on Today, accepted by his firm and billed at
+40 × $130 = $5,200; the I-9 dialog reads the edition printed on the
+paper ("Rev. March 2024", not 01/20/25), offers a passport card, takes
+the expiry in one box and refuses a bad edition in a sentence; packet
+rows open and "Send again" works; the supplier picker says why a firm
+is held back; Ask Etyme's model refusal links to the switch, "Where do
+I see unpaid bills?" answers with the link and "take me there" opens
+it; the candidate card offers no act and "Open who applied" lists the
+job's candidates. 65 presses on 21 seats: 39 saved and proven, 18
+refused or answered rightly, 5 failed, 3 not proven. **The two that
+stop the ship, each with its owner:** "Bill this week" was offered on
+a week whose hours were already billed and the press drafted a $412.60
+bill holding only a travel expense and no hours, saying the week was
+already billed only afterwards (money: the check runs before the
+button is drawn and a press that bills none of the week's hours
+refuses); and papers are read two ways again, the class the founder
+named: a confidentiality undertaking accepted on Paperwork reads "on
+file" on the placement while a fresh W-2 request asks for it as "Not
+on file" and Compliance lists it as owed, the older requests still read
+"0 of 4" for papers the placement holds, and the backfill finds nothing
+(regulatory: one reader of what is on file, read by the placement, the
+request builder, Compliance and the backfill alike). Also found, each
+with its owner: the week's own page has no bill section, one bill page
+gives two "left on the order" figures, an employer's acceptance of a
+W2's week says the client's $5,200 "to pay" (money); seats that may
+not start read "…or activate with a reason" with no button and no
+sentence saying who may, the route's sentence is lost on the reload,
+"Send the request" is disabled with no reason, a supplier on probation
+is held back where Addendum E says warn and proceed (demand); the
+Owner's greeting misses the setup items and carries pasted act
+descriptions, a poem is answered instead of refused, "Sent again to
+<address>" where no email can leave, a firm's own margin refused to
+its Owner (conversation); the model switch reads "Turn it off" while
+off, Grant the seat with empty fields says nothing (architect); a
+newly added consultant is missing from Consultants and a worker with
+two lines at one firm sees two identical options (supply). Report:
+`scratchpad/walk-saves/report3.md`, 170 screenshots. The fix wave
+runs on every domain at once on disjoint files, then release pass 35,
+the walk again on the trust items, and the deploy; the founder's
+retest waits on it, and he is told so rather than handed a build the
+walk refused.
+
+**Demand and supply, the same evening.** Demand (a1a67e31f, f546105c4,
+173750d49, e3d4ed465, 03bca14aa): the client's Candidates page is its
+memory of people, headed Candidates with one line saying what it is,
+the filters Favorites · Recent engagement · Everyone · On site now ·
+Blocked, opened on the first filter with rows and never on Blocked
+(Northbend opens on Helena Marsh), and a person's page says Candidate
+under the name unless they are on site; a start day already gone is
+said as past with the day itself; the job edit form asks where the
+work is done and whether sponsorship is offered through the raise's
+own reader, both word changes that tell the suppliers and never
+re-approve, and a job held on another recorded basis is never
+overwritten by a sponsorship policy; the award's employment line for a
+firm's own employee between projects is paid what their last line
+paid, says which, hangs on no order, and a draft, a cancelled line or a
+pay of nothing is not pay on record, so the firm states it; and a
+supplier on probation is offered under "Pick one of your suppliers"
+with its standing beside its name and asked with a reason recorded
+with who gave it before the firm is asked (vendor tier warns, Addendum
+E), the reason kept as an Event row until the architect gives
+`ContractorInvitation` its `pickReason`, `pickedById` and `pickedAt`.
+Supply (60a646e57, 9dda9c35c, 9378eccfa, 8211b51d6): one gate,
+`mayAddConsultant`, read by the button, the link and the route, so a
+delivery manager is not offered Add consultant and is refused in a
+sentence naming who adds; "Check the contract under Contracts"; the
+Consultants page reads every record a hundred at a time, so a person
+the firm just added is on it, searched and paged, and a person asked
+onto the bench gets the sign-in line beside Resend; and a worker with
+two lines at one firm reads two options that say which is which (the
+client, then the job, then the dates, added only where two would read
+alike). The "a firm that lists a person can overwrite that person's
+own profile" line of 2026-10-30 was already closed on 2026-11-01
+(eaddb1fc2, `profileEditPlan`); the same class through the sheet
+import is the architect's, in this wave. Coordinator's calls, each
+reversible in a sentence: a refusal names the shipped role set for the
+kind of firm, not the roles this company edited; the Consultants page
+reads every record rather than moving search to the route (about
+twenty calls for a very large firm, each logging its bench read once).
+**Architect (8b35511b2, 2fec1d143, a63e849f6, a4fc78a2e), the same
+evening.** The Ask Etyme model switch is the one button, "Turn it on"
+while off and "Turn it off" while on, with no tick box beside it, a
+press with no reason refused in a sentence, and "not set up on this
+deployment" beside it where there is no key; "Grant the seat" refuses
+in a sentence naming the field (the MSP, the role, the reason) and a
+name typed and never looked up is looked up on the press; the shared
+filter bar takes the reader's order, so demand's own copy can go; and
+the placement page says who activates ("…then HR or the Owner
+activates") where the start's route names them. Queued for the
+architect's next schema pass: `ContractorInvitation.pickReason`,
+`pickedById`, `pickedAt`, or a dedicated event name, replacing demand's
+stand-in Event row. The placement page asks the activate route twice
+(the panel and the line) until money exposes `who` through the panel.
+**Conversation (f60ec26fe, 553191430, 1895c1e44, 4d8aac8f0, 187732257),
+the same evening.** A writing job ("a short poem about our bench", a
+joke, a haiku, a story) is refused in one sentence that says what Ask
+Etyme helps with, before any record is read; who else is asked is said
+by name, once ("Jonas Whitaker for HCM integration lead and Delphine
+Delacroix for Cybersecurity analyst"), never an act kind's description
+pasted twice; the setup line leads the Owner's greeting (it was there
+and the walk missed it below the first screen); the Owner of the firm
+that holds both reads its margin on Rajesh and Omar from Profitability's
+own figures, a seat without `margin.read` is refused in a sentence
+naming who reads it, and a client is still refused a supplier's margin;
+and "Send again" says sent only where an email left to a real address
+(`resentSays`, `resendEmailLeaves` in `lib/notify/resend-words`), the
+route's wiring being regulatory's. Coordinator's calls, each reversible
+in a sentence: the writing refusal covers a narrow list (poem, joke,
+haiku, song, story, essay), so "any news on Rajesh's start?" is still
+answered; a waiting question with no name is counted and not listed;
+"what it made" is the Profitability row's own profit figure, the one
+the page shows; the refusal names roles, not people. Also: the architect
+built the sheet import to supply's `profileEditPlan` (9004f3572), so a
+row about a person with their own account writes the firm's listing
+only and the summary says so per row.
+**Money (b627ceb7b, 34a8c80ca, 87e27a1ac, 0d770cd8e, 3e8a52167,
+c5493db27, 9568a0f0f), the same evening.** The fault that stopped the
+ship is closed: "Bill this week" is drawn only where the next bill
+would carry the week's own hours (`weekOnPlan` in `lib/money/week-bill`),
+and a press on a week whose hours are already on a bill refuses in the
+generator's own sentence naming that bill and drafts nothing, not even
+the expense alone. The amount left on an order is one figure, read
+through the three-way check's own door (`drawnOnOrder` plus this bill),
+said once as "left after this bill", and not given at all where a
+document on the order is in another currency; a bill sold to, billed
+to and settled by one firm says that firm throughout; the activate
+route returns `code` and `who` beside `may`, a seat that does not start
+reads who does with no button (only for a FORBIDDEN refusal, so the
+route's state words never reach a screen), and after Activate the
+route's own sentence stays on the screen across the reload for a
+minute; the bill picker reads "Helena Marsh · Oct 4 – Oct 10, 2026 ·
+Northbend Athletic" (`lib/money/bill-choice`), the job's name only
+where no person is on the line; a typed-in invoice receipt from a firm
+the payer has no line with, no line billed to it and no order raised
+to is refused in a sentence naming both firms; and an expense is
+accepted and billed in its own currency (`Expense.currency`, else the
+pay currency of the line paying the worker), one in another currency
+than the bill left off in the existing sentence, never converted.
+Premium overtime on the order's posting was already one pricing
+(0a376bb41; `week-overtime-terms.test.ts` pins 40 × $98 + 4 × $147 =
+$4,508). Coordinator's calls, each reversible in a sentence: "left
+after this bill" counts the draft; a typed-in receipt needs a trading
+tie (a buy line, a line billed to the payer, or an order), an agreement
+alone is not enough; the kept activation sentence lasts 60 seconds;
+`who` lists the shipped role set for the caller's kind of firm. Routed:
+the week's own page draws `BillThisWeek` (architect, two lines); the
+employer's acceptance saying "$5,200.00 to pay for the week" where that
+is the client's bill, and the approve route printing figures without a
+currency (demand).
+**Regulatory (23f807d15, a04e78ab7, f494754ae, cdf7e6f99, 2f2ed0d7b,
+f46c605a7, edf824652, 8bb1d03de) and demand's last sentence
+(6dd612db5), the same night.** The second fault that stopped the ship
+is closed: one reader of what is on file for a person and a line
+(`paperInstancesWhere`, `papersOnRecord`, `heldAbout` in
+`lib/document-stages/paper-record`) is read by the placement (both
+paths), a fresh request, the Compliance page, the worker's own page and
+the backfill, which gained a second pass that reads an item still asked
+for on an open request as on file where the paper is already on the
+record ("Already on the record when this was asked", marked ACCEPTED
+with nobody named as reviewer, so 1,587 items do not land back in HR's
+queue); a verdict names the person's accepted authorization for that
+check and never another check's; the worker is told "received, <firm>
+will look at it before it counts", never "on file", and her page reads
+what her firms examined or accepted. Also: a paper that arrived and
+nobody examined reads "Arrived, not examined" and is never green; who
+hears a paper arrived is the selector (HR and the compliance officer,
+else the Owner, else the Admin); the document library shows one row
+per name and reads "voided check"; Send again says sent only where an
+email left and "Choose who the request goes to" sits beside the
+disabled button; a start day gone reads "was due to start <day>" or
+"started <day>" through the one formatter; HR reads "then the <roles
+that start a placement> activates"; the degree rules reach every door
+(Paperwork's accept, Document requests' accept, the worker's upload,
+the Paperwork list: a sentence to HR beside the paper and three doors,
+the worker told in words, nothing that refuses a start; her own page
+writes qualification, field, name on the paper, honors and the file's
+hash); and the seven education cases walk the real routes in the
+documents matrix. Demand: a firm below the top accepting a week is
+told what it bills and how the person below is paid ("$5,200.00 to
+bill Northbend Athletic. Rajesh Iyer is paid through payroll on their
+own pay line"), never a payroll figure, every figure in the line's
+currency. Coordinator's calls, each reversible in a sentence: the
+backfill marks ACCEPTED, not RECEIVED; a provider's verification
+clears a degree warning only with its name, reference and date;
+authorization matching is by the paper's name; HR's three degree doors
+are links that pre-fill nothing; the library merges duplicate names on
+display only. **Still open, with owners:** no job names a required
+qualification, so "not what the job asks" cannot fire (schema request:
+`Requirement.requiredQualification`, written by the job form; architect
+then demand); the examine dialog has no degree fields yet, so HR's
+accept reads the degree on the person's own record (regulatory); the
+placement still counts an unexamined upload as held, and making it
+require an examination changes starts across the seed (the founder's
+call); the person's own list still says "On file" for an unexamined
+item and `POST /api/me/papers` reads held papers without accepted
+request items (regulatory); older stored start sentences keep their
+raw date; the acceptance's "Accepted 40h" shows hours filed, not
+accepted, and the reply's `billAmount` divides by 100 for a currency
+with no cents (money); the backfill's second pass has run on no
+database yet, so the founder runs it once on production with his
+secret after the deploy.
+
+**Release pass 35 on 1b5b5e5af and the fourth walk, the same night.**
+The pass: type check clean, 13,545 of 13,547 unit, 2,642 of 2,645
+integration, build clean; the five reds were old assertions for words
+this wave changed on purpose (the people page's filter bar, the
+Paperwork chip, "Contractors" in the door's sentence, "W-9 is on file",
+the old acceptance sentence), brought up to the code in 2e323404e with
+no product file touched, each green alone. The walk on that build (50
+checks on 22 seats: 23 saved and proven, 15 refused rightly, 10 failed,
+2 not proven) said: **the money blocker passes** (no "Bill this week"
+on Helena Marsh's billed week, the direct press refused in the sentence
+naming TECH-vv0wk-10 with Invoice rows unchanged; Rosa Delgado's
+unbilled week drafted from the week's own page, one hours line, 40 h ×
+$112 = $4,480, "On bill IN_ZULMUB_003, drafted and not sent yet") and
+every piece of the wave holds on screens (Activate with its sentence
+kept, the menus on twelve seats, Candidates opening on Favorites, the
+nav answers, the poem refused, the setup line, the margin answer, the
+model switch, Grant the seat, Send again, the probation ask, the added
+consultant found, the two line options, the bill picker, one "left
+after this bill", the acceptance sentence); **and papers are still read
+two ways in one place, so it does not ship yet:** an accepted
+undertaking reads on file on the placement, on Compliance and on the
+worker's page, and a fresh W-2 request still asks for it ("Not on
+file") because the request route hands the one reader only the asking
+firm's own document types, and the undertaking is the client's paper;
+the backfill closes only background checks, licenses and I-9s (781
+closed), so Rajesh Iyer's and 17 more Nov 1 requests still wait on the
+right to work and the undertaking their placements hold; and the
+worker's page lists her NDA as still needed. Each regulatory's, fixed
+next. Also found: a supplier's Contracts page shows page one of the
+API as the whole list (20 of 28 lines, six running placements missing
+from the counts and the rate total; money); the greeting does not
+follow Karthik Menon into his firm hat and lists colleagues' uploads
+there (conversation); the worker is told nothing when her degree's
+year is warned to HR (conversation); a one-person firm is offered a
+"You" hat the rule denies her (architect). **For the founder, one
+line:** the placement reads an unexamined upload as on file while
+Paperwork says "Arrived, not examined" (`PAPER_ON_FILE` keeps
+UPLOADED); it is left as it was for this deploy because changing it
+changes starts across the seed, and whether an upload nobody examined
+may clear a start is his call. Report: `scratchpad/walk-saves/report4.md`,
+141 screenshots.
 
 ## Ask Etyme runs parallel to the dashboard, and the CFO gets exceptions, not a page — decided 2026-10-22 to 2026-10-26
 
@@ -3835,17 +4702,25 @@ attention. What changes is density and voice.
 
 ### Navigation per company type
 
-Nine links, and a process step is a tab (founder, 2026-10-19; see "Nine
-links, no flip, and every first screen names a person"). A menu entry is
-a noun on the person's own work; every other page is a tab inside one of
-them.
+Eleven links at a supplier, an integrator or a bench vendor, ten at an
+MSP and nine at a client, in the founder's process order with Network
+first, and a process step is a tab (founder, 2026-10-19 for the tabs;
+2026-11-03 for the words; 2026-11-04 for Network, the Paperwork tab and
+the order: see "Master data sits under Network", "Paperwork is a tab of
+Contracts", "The process order, in the founder's words" and "Network
+sits above Jobs"). A menu entry is a noun on the person's own work;
+every other page is a tab inside one of them. Submissions is who was
+put forward to a job, Contracts is the line from the award on, and
+Network holds the two lists a firm keeps: Candidates, the people it
+keeps, and the firms it trades with (Companies, or a client's
+Suppliers).
 
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
-| Client | Ask Etyme · Today · Jobs · Candidates · Timesheets · Invoice receipts · Contractors · Suppliers · Settings | Conversations → Ask Etyme. By region → Today. Interviews → Candidates. Expenses → Timesheets. AP, Budget, POs → Invoice receipts. Contracts, Ending soon, Past contractors, Tenure, Duplicate check → Contractors. Contacts, Agreements, Supplier scorecards → Suppliers. Users & permissions, Program team, MSPs, Org view, Compliance, Document requests, Program twin, Data requests, Your data, Import, Sites → Settings. |
-| Supplier | Ask Etyme · Today · Jobs · Candidates · Timesheets · Bills · People · Companies · Settings | Conversations → Ask Etyme. Reports, Profitability, Rate history, Our scorecard → Today. Leads, Shared with you → Jobs. Interviews → Candidates. Expenses, Rolloff → Timesheets. AR, AP, Payroll, Commissions → Bills. Bench, Bench pay, Bench check-ins, Training → People. Suppliers, Contacts, Sell contracts, Buy contracts, POs → Companies. Users & permissions, Setup, Sites, Import, Integrations, Automation, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue, DNR list, Data requests, Your data → Settings. |
-| Integrator | Ask Etyme · Today · Jobs · Candidates · Timesheets · Bills · People · Companies · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
-| MSP | Ask Etyme · Today · Jobs · Candidates · Timesheets · Bills · Companies · Settings | The supplier's, with no People, no Payroll, no Commissions and no Our scorecard: an MSP places nobody and pays nobody. Supplier scorecards → Companies. |
+| Client | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Invoice receipts · Settings | Conversations → Ask Etyme. By region → Today. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. Expenses → Timesheets. AP, Budget, POs → Invoice receipts. Candidates, Suppliers, Contacts, Agreements, Supplier scorecards → Network. Users & permissions, Program team, MSPs, Org view, Program twin, Data requests, Your data, Import, Sites → Settings. |
+| Supplier | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings | Conversations → Ask Etyme. Reports, Profitability, Rate history, Our scorecard → Today. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Expenses, Rolloff → Timesheets. AR → Bills. AP → Invoice receipts. Commissions → Payroll. Candidates, Bench, Bench pay, Bench check-ins, Training, Companies, Suppliers, Contacts → Network. Users & permissions, Setup, Sites, Import, Integrations, Automation, DNR list, Data requests, Your data → Settings. |
+| Integrator | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
+| MSP | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Bills. AP → Invoice receipts. Companies, Suppliers, Supplier scorecards, Contacts → Network. |
 | One-person firm | Ask Etyme · Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
 | Worker | Ask Etyme · Your work · Your page · Who has you · Your data · Your paperwork | Unchanged: a list under "You", not nouns with tabs. |
 
@@ -3853,11 +4728,23 @@ Each link opens the first of its pages the reader may open, and on any
 of them the shell draws the tab row under the page header, the noun's
 own page first (`components/shell/section-pills`). Nothing behind the
 menu is deleted: every page keeps its address, and search and the +
-button still find it. There are no sub-headings and no Network group
-any more: the firms a party trades with are one noun (Companies, or a
-client's Suppliers), and both lines of a contract sit side by side
-under it, or under Contractors at a client. A link is one of the nine
-on every menu; the worker's "You" is the one list.
+button still find it. Network and Contracts are the two links whose
+tab rows are grouped: each group's name, then its pages ("Candidates:
+Bench · Bench pay · … | Companies: Suppliers · Contacts"; "Contracts:
+Sell contracts · Buy contracts · POs | Paperwork: Missing paperwork ·
+Document requests · …"), the group's name being the link to its own
+register where one is named after it, so Bench, Contacts or Document
+requests is one click from the link. Settings keeps Papers you require
+(the setup checklist's item), the DNR list and the automation ladder.
+The menu never prints a group, and the eyebrow over a page reads the
+link it is a tab of. The money is three links in the founder's order:
+Bills (what the firm issues upward, with AR, where payments in are
+recorded), Invoice receipts (what it receives from below: AP, where
+payments out are recorded; there is no separate payments page, so each
+is the AR or AP page in its own words), and Payroll (its own employees,
+with Commissions). Nothing on a menu is hidden by a firm's posture: a
+bench vendor reads the supplier's whole menu. Sites stay under
+Settings; the worker's "You" is the one list.
 `__tests__/invariants/sidebar-nav.test.ts` reads this table — the links
 and every page named in the third column — and fails when the code and
 it disagree, so a link renamed in one and not the other breaks the
@@ -3889,8 +4776,18 @@ Two entries reading the same word on one menu is the duplicate class the
 founder has reported three times, and a heading cannot disambiguate it
 for somebody who is both things at once.
 
-**A person who is also a worker keeps their firm's links and gains "You"
-at the end.** Decided 2026-09-17, on the founder opening Karthik Menon's
+**A person who is also a worker wears two hats, one at a time.** Since
+2026-11-03 (see "One person, two hats, switched in the account menu"):
+the account menu at the top right lists every firm seat the person
+holds and "You" where the work makes them a worker; the left menu
+shows one hat's links and nothing else, the firm's in the firm hat and
+the worker's own pages in the You hat. A link into a worker's own page
+opens the You hat. The hat is a view, never a permission: every route
+still answers the seat it always answered. The paragraphs below are the
+history it replaces.
+
+**Until 2026-11-03: a person who is also a worker kept their firm's
+links and gained "You" at the end.** Decided 2026-09-17, on the founder opening Karthik Menon's
 demo door and saying "Candidate Karthik is all buggy". He is a systems
 integrator's own W2 — the case "Who sells and who buys" added the same day
 — so his only context is EMPLOYEE at Teleworld and the shell read identity

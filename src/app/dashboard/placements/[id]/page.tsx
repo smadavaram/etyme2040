@@ -15,6 +15,11 @@ import { isDeskless } from '@/lib/nav-table'
 import { plainDate, daySpan } from '@/lib/plain-date'
 import { CoverChip, SubVendorCover } from '@/components/cover-standing'
 import { dayOfMomentFor, readerZone } from '@/lib/when'
+// Money's two panels, each drawn by its own route for the seat reading it:
+// nothing is drawn where the route refuses.
+import { ActivatePanel } from '@/app/dashboard/contracts/activate-panel'
+import { fixWithWho, whoFrom } from './activate-who'
+import { PayLinePanel } from '@/app/dashboard/contracts/pay-line-panel'
 
 /**
  * One placement, top to bottom.
@@ -560,6 +565,9 @@ export default function PlacementPage() {
   const session = useSession()
   const [p, setP] = useState<Placement | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Who may activate, from the start's own route (`who`, money's); null
+  // until it answers or where it carries none, and the line stays as it is.
+  const [who, setWho] = useState<string[] | null>(null)
   // A detail page is headed by the section its list sits under on the
   // reader's own menu, never by a company's name (sign-up walk, round
   // six, problem 6). A seat with no desk reaches its placement from Your
@@ -586,6 +594,16 @@ export default function PlacementPage() {
     })()
     return () => { live = false }
   }, [id, session.company?.kind, session.company?.name])
+
+  useEffect(() => {
+    if (!p?.id) return
+    let live = true
+    fetch(`/api/contracts/${p.id}/activate`)
+      .then((res) => res.json())
+      .then((body) => { if (live) setWho(whoFrom(body?.data)) })
+      .catch(() => { /* the line stays as it is */ })
+    return () => { live = false }
+  }, [p?.id])
 
   // A refusal is the page: its sentence alone (round six, problem 12).
   if (error) return <RefusedState says={error} />
@@ -812,6 +830,10 @@ export default function PlacementPage() {
           )}
         </div>
 
+        {/* Where no line pays the worker, the panel says so and leads to the
+            terms page that writes it (money, ee07b2c6c). */}
+        <PayLinePanel contractId={p.id} />
+
         {/* Our own order to the firm below us, where we raised one —
             the same shape as the client's, read from the other end. */}
         {p.viewer.isSupplier && p.contracts.buy?.document?.order && (
@@ -843,7 +865,7 @@ export default function PlacementPage() {
           p.checklist.outcome === 'BLOCK' ? 'text-etyme-attention' : 'text-etyme-muted'
         }`}>
           {p.checklist.says}
-          {p.checklist.fix && <span className="text-etyme-ink"> {p.checklist.fix}</span>}
+          {p.checklist.fix && <span className="text-etyme-ink"> {fixWithWho(p.checklist.fix, who)}</span>}
         </p>
         <div className="flex flex-wrap gap-2">
           {p.checklist.items.map((it) => (
@@ -869,6 +891,9 @@ export default function PlacementPage() {
           {p.viewer.isSupplier &&
             p.compliance.supplierCover.map((v, i) => <CoverChip key={`${v.type}-${i}`} cover={v} />)}
         </div>
+        {/* Activate, or Activate with a reason, as the start's own route
+            draws it for this seat (money, d3884b460). */}
+        <ActivatePanel contractId={p.id} />
         {/* Whether the firm below us could put anybody forward today.
             Computed by the same gate the submission door calls, so this
             screen cannot read green on cover that refuses a submission an

@@ -69,7 +69,7 @@ vi.mock('@/lib/company-roles', () => ({ ensureDefaultRoles: (...a: unknown[]) =>
 
 import { changeCompanyKind } from '@/app/api/settings/kind'
 import { KIND_CHOICES, choiceByKey, choiceOf, kindChangeVerdict, NO_KIND_FACTS } from '@/lib/company-kind'
-import { getNavForKind } from '@/lib/nav-table'
+import { getNavForKind, offersYouHat } from '@/lib/nav-table'
 import { partyOf, questionsFor } from '@/app/api/conversations/twin/ask'
 import { firstActFor } from '@/app/api/conversations/twin/first-act'
 import { checklistFor, itemsFor, NO_FACTS } from '@/lib/setup-checklist'
@@ -94,7 +94,7 @@ beforeEach(() => {
 })
 
 describe('the Owner changes what kind of company it is', () => {
-  it('the Owner of a one-person firm turns it into a bench vendor from Settings, and reads the nine links and a bench firm’s greeting on the next screen', async () => {
+  it('the Owner of a one-person firm turns it into a bench vendor from Settings, and reads a supplier’s eleven links and greeting on the next screen', async () => {
     world = tapin()
     // Before: the solopreneur's seven links and her own four questions.
     expect(labels('CONSULTANT_CORP')).toEqual(['Ask Etyme', 'Your work', 'Timesheets', 'Bills', 'Contracts', 'Paperwork', 'Settings'])
@@ -109,14 +109,15 @@ describe('the Owner changes what kind of company it is', () => {
 
     // After: every menu, greeting and chip reads the kind on each request,
     // so the next screen is a bench firm's.
-    expect(labels(r.kind)).toEqual(['Ask Etyme', 'Today', 'Jobs', 'Candidates', 'Timesheets', 'Bills', 'People', 'Companies', 'Settings'])
+    expect(labels(r.kind)).toEqual(['Ask Etyme', 'Today', 'Network', 'Jobs', 'Submissions', 'Contracts', 'Timesheets', 'Bills', 'Invoice receipts', 'Payroll', 'Settings'])
     const party = partyOf({ companyKind: r.kind })
     expect(party).toBe('FIRM')
     expect(questionsFor(party, ['*'], r.kind)).toContain('Who is on the bench?')
     expect(firstActFor({ party, companyKind: r.kind, bench: r.supplierPosture === 'BENCH', linked: true, benchPeople: 0 })?.says)
       .toBe('Add the people on your bench and ask each to say yes. Jobs from the firms you sell to land here.')
-    // Her own pages stay hers: the Owner with a page of their own reads "You" at the end.
-    expect(labels(r.kind, true).at(-1)).toBe('You')
+    // Her own pages stay hers: the Owner with a page of their own is offered the You hat.
+    expect(offersYouHat(r.kind as any, false, { worker: true })).toBe(true)
+    expect(labels(r.kind, true)).not.toContain('You')
   })
 
   it('nobody but the Owner changes what kind of company it is', async () => {

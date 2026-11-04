@@ -1,3 +1,4 @@
+import { jobWorkCountry } from '@/lib/work-country'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getCallerContext } from '@/lib/api-context'
@@ -54,7 +55,7 @@ export async function POST(
     select: {
       id: true, title: true, skills: true, startDate: true,
       billMax: true, openToNetwork: true, openingId: true,
-      workAuthRequired: true, location: true,
+      workAuthRequired: true, workAuthBasis: true, workAuthCite: true, location: true,
       mirroredFromId: true, mirrors: { select: { id: true } },
     },
   })
@@ -290,6 +291,11 @@ export async function POST(
       submittedAt: s.submittedAt,
       workAuth: profile?.workAuth ?? null,
       workAuthRequired: requirement.workAuthRequired,
+      workAuthBasis: requirement.workAuthBasis,
+      workAuthCite: requirement.workAuthCite,
+      // Where the work is done for this person, so a no-sponsorship rule
+      // says nothing about somebody working offshore.
+      work: await jobWorkCountry(requirement.id, prisma, { personId: s.personId }),
       availableFrom: profile?.availableFrom ?? null,
       startDate: requirement.startDate,
       invited: invite != null && invite.status !== 'DECLINED',

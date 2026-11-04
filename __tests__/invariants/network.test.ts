@@ -23,7 +23,7 @@ describe('the five questions every Network list answers', () => {
   it('Pending is whoever is still in a pipeline — a firm walking the desks, or somebody asked who no supplier has put forward yet', () => {
     const rows = [row({ id: 'p', pending: { stageWord: 'HR' } } as any), row({ id: 'q' })]
     expect(applyFilter(rows, 'PENDING', null, now).map((r) => r.id)).toEqual(['p'])
-    expect(read('src/components/network-view.tsx')).toContain('NETWORK_FILTERS.filter((f) => counts[f] !== undefined)')
+    expect(read('src/components/network-view.tsx')).toContain('order.filter((f) => counts[f] !== undefined)')
     expect(read('src/app/dashboard/suppliers/page.tsx')).toContain('PENDING: listed.filter((r) => !!r.pending).length')
   })
 
@@ -66,21 +66,31 @@ describe('the two Network pages', () => {
   const suppliersApi = read('src/app/api/suppliers/route.ts')
   const favorites = read('src/app/api/favorites/route.ts')
 
-  it('a client reaches its contractors as one link, and its suppliers and their contacts as another', () => {
+  it('a client reaches the people it keeps and its suppliers with their contacts under one link, Network, as two groups', () => {
     // The Network group became two of the nine links (founder,
     // 2026-10-19): Contractors, and Suppliers with Contacts as a tab.
+    // The people are the client's Candidates since 2026-11-03.
     expect(sidebar).not.toContain("group: 'People & suppliers'")
     const client = getNavForKind('CLIENT', false)
-    expect(client.find((s) => s.label === 'Contractors')!.items[0].label).toBe('Contractors')
-    expect(client.find((s) => s.label === 'Suppliers')!.items.map((i) => i.label).slice(0, 2)).toEqual(['Suppliers', 'Contacts'])
+    // Both under Network since 2026-11-04 (founder: "bring all master
+    // data under network hierarchy"), as its two groups.
+    const network = client.find((s) => s.label === 'Network')!
+    expect(network.items.filter((i) => i.group === 'Candidates').map((i) => i.href)).toEqual(['/dashboard/people'])
+    expect(network.items.filter((i) => i.group === 'Suppliers').map((i) => i.label).slice(0, 2)).toEqual(['Suppliers', 'Contacts'])
   })
   it('both pages have a feed and a table of the same rows, and the same filter bar', () => {
     for (const src of [people, suppliers]) {
       expect(src).toContain("<ViewToggle view={view} onChange={setView} />")
-      expect(src).toContain("<FilterBar filter={filter} onFilter={setFilter} counts={counts} places={places} place={place} onPlace={setPlace} />")
       expect(src).toContain("view === 'table'")
       expect(src).toContain("view === 'feed'")
     }
+    expect(suppliers).toContain("<FilterBar filter={filter} onFilter={setFilter} counts={counts} places={places} place={place} onPlace={setPlace} />")
+    // The client's Candidates reads the same chips in its own order,
+    // Favorites first (2026-11-03), with the same words and the same rule.
+    expect(people).toContain("<OrderedFilterBar order={order} filter={filter} onFilter={choose} counts={counts} places={places} place={place} onPlace={setPlace} />")
+    const bar = read('src/app/dashboard/people/filter-bar.tsx')
+    expect(bar).toContain('order.filter((f) => counts[f] !== undefined)')
+    expect(bar).toContain('label: FILTER_WORD[f]')
   })
   it('a supplier row says how many of its people are on site now, and when we last dealt with it', () => {
     expect(suppliersApi).toContain("if (c.state === 'IN_PROGRESS') onSiteCount.set(c.companyId")

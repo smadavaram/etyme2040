@@ -36,7 +36,7 @@ import { NO_MAIL_HERE } from '@/lib/notify/mail-leaves'
  *   NOBODY     nobody represents them — the client picks one of its own
  *              approved suppliers to take them on
  *
- * Until one of those settles, they sit on Contractors as Pending with
+ * Until one of those settles, they sit on Candidates as Pending with
  * the step in words, exactly as a firm does on Suppliers.
  */
 
@@ -225,7 +225,7 @@ export function mayInvite(input: {
     return {
       ok: false,
       code: 'ALREADY_ASKED',
-      message: `${first} has already been asked. Read where it got to on Contractors, under Pending.`,
+      message: `${first} has already been asked. Read where it got to on Candidates, under Pending.`,
     }
   }
   return { ok: true }
@@ -252,3 +252,76 @@ export function stateAfterAnswer(answer: {
 export function linkIsOpen(state: InviteState): boolean {
   return state === 'ASKED'
 }
+
+/**
+ * Which of the client's own suppliers may take somebody on, and why not.
+ *
+ * The approval is the act: a firm the client approved, through onboarding
+ * or by holding it on its register, is offered whether or not Procurement
+ * has set its standing yet. A standing is set later from Suppliers, and
+ * null means nobody has rated the firm, never that it is not approved
+ * (the coordinator's call, 2026-11-03, reversible by the founder in a
+ * sentence). A firm still a prospect, or blocked, is held back, and says
+ * why in a sentence beside its name, because a choice greyed out with no
+ * reason is the fault the founder's tester found.
+ *
+ * A firm on probation is a warning, not a refusal. Vendor tier is one of
+ * Addendum E's warn-and-proceed rules (warn, record a reason, proceed;
+ * block only where the law grounds it), so the client may still ask a
+ * firm on probation, with a reason that is recorded with the name of who
+ * gave it (`withReason`). The coordinator's call, 2026-11-03, after the
+ * third save walk found the firm held back with no way on; reversible by
+ * the founder in a sentence. The person's own link never offers it: the
+ * reason is the client's to give, and the person cannot give it.
+ *
+ * The screen's picker, the PATCH route's `pick` and the person's own link
+ * all read this one rule, so the three cannot disagree.
+ */
+export type SupplierChoice =
+  | { offered: true; why: null }
+  | { offered: false; why: string }
+  | { offered: false; why: string; withReason: true }
+
+export function supplierChoice(f: {
+  name: string
+  tier: string | null
+  status: string | null
+  /** Whether a live block stands on the firm here, with its reason where one was given. */
+  blocked: boolean
+  blockedReason: string | null
+}): SupplierChoice {
+  if (f.blocked || f.status === 'BLOCKED') {
+    const why = (f.blockedReason ?? '').trim().replace(/[.\s]+$/, '')
+    return { offered: false, why: `${f.name} is blocked here${why ? `: ${why}` : ''}. Lift the block under Suppliers first.` }
+  }
+  if (f.status === 'PROSPECT') {
+    return { offered: false, why: `${f.name} is not approved yet; it goes through your supplier approvals under Suppliers.` }
+  }
+  if (f.tier === 'PROBATION') {
+    return { offered: false, withReason: true, why: probationSays(f.name) }
+  }
+  return { offered: true, why: null }
+}
+
+/** What the picker says beside a firm on probation, and what the pick asks when no reason came. */
+export function probationSays(name: string): string {
+  return `${name} is on probation here. You can still ask them, with a reason; it is recorded with your name.`
+}
+
+/** The pick's question when a firm on probation was chosen with no reason. */
+export function probationAsks(name: string): string {
+  return `${name} is on probation here. Say why you are asking them anyway; the reason is recorded with your name.`
+}
+
+/** Whether this choice may be taken with a reason. */
+export function takesAReason(c: SupplierChoice): boolean {
+  return !c.offered && 'withReason' in c && c.withReason === true
+}
+
+/** Whether the client has any firm it may ask, as offered or with a reason. */
+export function anyToPick(choices: ReadonlyArray<SupplierChoice>): boolean {
+  return choices.some((c) => c.offered || takesAReason(c))
+}
+
+/** Said where the client has no supplier that may take somebody on. */
+export const NO_SUPPLIER_TO_PICK = 'No approved suppliers yet. Approve one under Suppliers, then ask.'
