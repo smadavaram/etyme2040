@@ -1861,6 +1861,57 @@ a job 6.0 s, the bill submit 5.1 s (known). The rules held as expected:
 written down; the 90-day break refused a return in a sentence; a
 licensed job turned away a person with no license.
 
+**Shipped to production 2026-11-08 (8b4b2499e on the deploy branch,
+source 609ea2228), on the founder's "deploy when green".** Release pass
+42 on 0bbe1b8c1: type check clean, 14,042 of 14,044 unit, 2,645 of 2,645
+integration, build clean; the two unit reds (the posture's route count
+with the commission route, and a hand-typed eyebrow on Commissions)
+fixed in 609ea2228 and their files re-run green with the type check.
+Pass 41 had caught a real NDA leak the walk would not have: the
+placement's paper doors named the firm below the rung a client pays;
+closed in 0bbe1b8c1 (`doorsForReader`). In it: the Ask Etyme |
+Dashboard switch and the menu (Network, HR, Accounting with Receivables,
+Payables, Payroll, Reports); Reports as cash flow and profitability with
+the 90-day forecast; Profitability cut by consultant, office, client,
+recruiter and account manager, narrowed by the Owner's grants; the
+Owner's grants by company, team or person (`PermissionGrant`) and
+commission rows on the line (`ContractCommission`); every worker class
+with its start rule; a worker's own upload checked by her employer's
+HR and every placement paper with its door; Activate always saying why;
+the AP clerk checking a supplier's bank where no Finance seat exists;
+the duplicate-draft repair; the first click navigating. Gates: no Ruby,
+brand kit present, no source difference; the schema is additive (the
+"removed" lines are re-aligned fields still present). Smoke: health
+"Serving 8b4b2499" with the database ready and the schema there; every
+public page and `/site/tapin` 200; the inbound email door 404 to a POST.
+Walked on production afterward per decision 10, not before; walk 7's
+brief is `scratchpad/walk7-brief.md`.
+
+**Walk 7, the same day, on a local copy of 609ea2228 (27 checks: 17
+saved and proven, 4 refused rightly, 4 failed, 2 not proven), said: do
+not ship as "the tester's blockers are closed".** The papers flow works
+on screens end to end: a worker's own I-9 reaches HR as "Arrived, not
+examined" and is accepted with the document shown, a provider's verdict
+is recorded verbatim, "Ask <worker>" sends and refuses a report she does
+not hold, Activate refuses in the route's sentence and starts once the
+papers hold; the AP clerk checks a bank where no Finance seat exists and
+pays on the page and in Ask Etyme; the send-to ticks persist, a lapsed
+certificate reads lapsed, Kwame reads past the limit, Helena's weeks
+show on both sides, every first click navigates, Reports and the
+forecast open and are refused to a client and a recruiter, Give access
+to a person saves and revokes, the switch works on three seats. Two
+faults stop it, both money and both in production: the Bills page's
+duplicate-drafts read selects a column `Invoice` does not have, so it
+answers 500 on every open and the duplicate-draft fix never draws; and a
+typed-in invoice receipt pays a firm whose bank nobody checked
+(`PATCH /api/ap/bills` never reads the bank gate). Also: the twin
+writes a bank hold as an hours mismatch (money); the pay card says Pay
+over a bank hold (demand); Document requests' "At your suppliers" and
+"Waiting on you" miss what the placement and Paperwork show
+(regulatory). Report `scratchpad/walk-saves/report7.md`. Money fixes the
+three money faults first; the fix deploy follows their green files and
+a short re-walk of items 5, 6 and 11.
+
 ## Ask Etyme is full screen, keeps its conversations, and shows an answer as data — the founder, 2026-11-03
 
 *"Ask Etyme should work like Claude harness model with conversations
