@@ -774,6 +774,9 @@ const SOLO_NAV: NavSection[] = [
  */
 const CLIENT_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
+  // No Reports here yet (coordinator's call, 2026-11-08): the Reports page
+  // was written for a firm that sells, and is not shown to a client until
+  // it has been read as one. A client reads Accounting with Payables only.
   tabbed('Today', [{ label: 'Today', href: '/dashboard/program', icon: '◉' }, BY_REGION]),
   // Network (founder, 2026-11-04): its memory of people, and the firms
   // it buys from with the people at them. Above Jobs ("Network can stay
@@ -1018,6 +1021,234 @@ export function defaultHat(kind: CompanyKind | null | undefined, isConsultant: b
 export function hatOf(kind: CompanyKind | null | undefined, isConsultant: boolean, seat: SeatFacts = {}): Hat {
   if (!offersYouHat(kind, isConsultant, seat)) return 'firm'
   return seat.hat ?? defaultHat(kind, isConsultant, seat)
+}
+
+/**
+ * ── One app, two tabs (founder, 2026-11-08) ─────────────────────────
+ *
+ * "Build it", on the drawing of a Chat | Cowork switch over a left
+ * column, with the dashboard in Cowork's place. The top of the left
+ * column is one switch in both views, "Ask Etyme" with the seat's number
+ * and "Dashboard". In Ask Etyme the column holds the conversations
+ * (conversation's, through the rail slots in components/shell); in
+ * Dashboard it holds the role's menu, which is what follows.
+ *
+ * The menu is printed from the same sections every other reader of this
+ * table reads, and those sections do not move: a page keeps its tab row,
+ * its eyebrow (lib/page-framing), its door and its name in a refusal.
+ * What changes is only what the column prints, in the founder's sketch:
+ *
+ *   Today · Network (Candidates, Companies) · Jobs · Submissions ·
+ *   HR (Contracts, Timesheets, Expenses) · Accounting (Receivables,
+ *   Payables, Payroll, Reports) · Settings
+ *
+ * Reports is cash flow and profitability, nothing else (founder,
+ * 2026-11-08): Profitability is a page of the Reports link, at its own
+ * address, and is no link of its own.
+ *
+ * A group is a heading and never a link. Each link is drawn only where
+ * the seat may open one of its pages, because the sections it is cut
+ * from are already filtered on the seat's permissions. Ask Etyme is not
+ * on the menu: the switch above it is Ask Etyme.
+ */
+
+/** One link the menu prints, and the pages it is lit on. */
+export interface MenuLink {
+  label: string
+  /** The first of its pages this seat may open. */
+  href: string
+  icon: string
+  /** Every page this link stands for: it is lit on any of them. */
+  covers: NavItem[]
+}
+
+/** A heading and its links, or links with no heading. */
+export interface MenuGroup {
+  heading: string | null
+  links: MenuLink[]
+}
+
+/**
+ * The founder's headings over a firm's links (2026-11-08). The money is
+ * Accounting ("Instead of money, call it Accounting: Receivables,
+ * Payables, Payroll, Reports"): the accountant's two ledgers name the
+ * links, and the pages inside keep the trade's words, a bill issued and
+ * an invoice receipt received.
+ */
+const HEADING_OF: Readonly<Record<string, string>> = {
+  Network: 'Network',
+  Contracts: 'HR',
+  Timesheets: 'HR',
+  Bills: 'Accounting',
+  'Invoice receipts': 'Accounting',
+  Payroll: 'Accounting',
+}
+
+/** What a firm's column calls a section, where it is not the section's own noun. */
+const LINK_LABEL_OF: Readonly<Record<string, string>> = {
+  Bills: 'Receivables',
+  'Invoice receipts': 'Payables',
+}
+
+const ACCOUNTING = 'Accounting'
+const PROFITABILITY_HREF = '/dashboard/profitability'
+const REPORTS_HREF = '/dashboard/reports'
+/**
+ * The pages whose reader Reports is for (founder, 2026-11-08: "Reports
+ * is nothing but cashflow and profitability margin analysis tools"): its
+ * cash flow is drawn from the Receivables and Payables readers and its
+ * other tab is Profitability, so the link is offered only where the seat
+ * may open one of them. A recruiter who reads none of the money is not
+ * offered a page of nothing but money.
+ */
+const REPORTS_READERS: readonly string[] = ['/dashboard/ar', '/dashboard/ap', PROFITABILITY_HREF]
+const EXPENSES_HREF = '/dashboard/expenses'
+
+function linkOf(label: string, covers: NavItem[]): MenuLink | null {
+  const first = covers[0]
+  return first ? { label, href: first.href, icon: first.icon, covers } : null
+}
+
+/**
+ * What the Dashboard column prints for these sections.
+ *
+ * `grouped` is a firm's menu (a client's, a supplier's, an integrator's,
+ * an MSP's), which reads the founder's headings. Every other menu (a
+ * one-person firm's seven, a worker's own pages, a region seat's two)
+ * prints its links as they are, with "You" as the heading over a
+ * worker's own list.
+ */
+export function menuOf(sections: readonly NavSection[], grouped: boolean): MenuGroup[] {
+  const out: MenuGroup[] = []
+  const push = (heading: string | null, link: MenuLink | null) => {
+    if (!link) return
+    const last = out[out.length - 1]
+    if (last && last.heading === heading && heading !== null) last.links.push(link)
+    else out.push({ heading, links: [link] })
+  }
+  // Reports leaves Today for Accounting, after its ledgers and Payroll,
+  // with Profitability as its second page.
+  const readsMoney = sections.some((s) => s.items.some((i) => REPORTS_READERS.includes(i.href)))
+  let reports: MenuLink | null = null
+  const settle = () => {
+    if (reports) {
+      const accounting = out.find((g) => g.heading === ACCOUNTING)
+      if (accounting) accounting.links.push(reports)
+      else out.push({ heading: ACCOUNTING, links: [reports] })
+      reports = null
+    }
+  }
+  for (const s of sections) {
+    // The switch above the column is Ask Etyme.
+    if (s.items.some((i) => i.href === ASK_ETYME_HREF)) continue
+    if (!s.tabbed) {
+      for (const i of s.items) push(s.label, linkOf(i.label, [i]))
+      continue
+    }
+    if (!grouped) {
+      push(null, linkOf(s.label, s.items))
+      continue
+    }
+    if (s.label === 'Settings') settle()
+    const heading = HEADING_OF[s.label] ?? null
+    if (s.label === 'Today') {
+      const rest = s.items.filter((i) => i.href !== PROFITABILITY_HREF && i.href !== REPORTS_HREF)
+      push(null, linkOf('Today', rest))
+      reports = readsMoney
+        ? linkOf('Reports', [
+            ...s.items.filter((i) => i.href === REPORTS_HREF),
+            ...s.items.filter((i) => i.href === PROFITABILITY_HREF),
+          ])
+        : null
+      continue
+    }
+    if (s.label === 'Network') {
+      // One link per group: the people the firm keeps, and the firms it trades with.
+      for (const g of groupsOf(s.items) ?? [{ name: s.label, tabs: s.items }]) push(heading, linkOf(g.name || s.label, g.tabs))
+      continue
+    }
+    if (s.label === 'Timesheets') {
+      push(heading, linkOf('Timesheets', s.items.filter((i) => i.href !== EXPENSES_HREF)))
+      push(heading, linkOf('Expenses', s.items.filter((i) => i.href === EXPENSES_HREF)))
+      continue
+    }
+    push(heading, linkOf(LINK_LABEL_OF[s.label] ?? s.label, s.items))
+  }
+  settle()
+  return out
+}
+
+/** The links a menu prints, in order, headings aside. */
+export function menuLinks(groups: readonly MenuGroup[]): MenuLink[] {
+  return groups.flatMap((g) => g.links)
+}
+
+/**
+ * The Dashboard column for a seat: its sections, printed under the
+ * founder's headings where they are a firm's.
+ */
+export function menuFor(kind: CompanyKind | null | undefined, isConsultant: boolean, seat: SeatFacts = {}): MenuGroup[] {
+  const sections = getNavForKind(kind, isConsultant, seat)
+  const firm = !isConsultant && Boolean(kind)
+    && !(seat.region && kind === 'CLIENT')
+    && hatOf(kind, isConsultant, seat) === 'firm'
+    && (kind !== 'CONSULTANT_CORP' || Boolean(seat.seatedAtClient))
+  return menuOf(sections, firm)
+}
+
+/** The two views of the app, one switch apart. */
+export type ShellView = 'ask' | 'dashboard'
+
+/** Which view a page is in: Ask Etyme and its conversations, or the dashboard. */
+export function viewOf(pathname: string | null | undefined): ShellView {
+  const p = pathname ?? ''
+  return p === '/dashboard/conversations' || p.startsWith('/dashboard/conversations/') ? 'ask' : 'dashboard'
+}
+
+/**
+ * The roles that clear a queue all day and open on Dashboard (founder's
+ * sketch, 2026-11-08, a coordinator's call reversible in a sentence): the
+ * AP clerk, AP & Payroll, and the coordinator. Everybody else opens on
+ * Ask Etyme.
+ */
+export const QUEUE_ROLES: readonly string[] = ['AP Clerk', 'AP & Payroll', 'Coordinator']
+
+/** Where this person's last choice is kept on the device, per person. */
+export function tabKey(personId: string | null | undefined): string {
+  return `etyme_tab:${personId ?? 'anyone'}`
+}
+
+/** The stored choice read back, or nothing where it is not one of the two. */
+export function readTab(value: string | null | undefined): ShellView | null {
+  return value === 'ask' || value === 'dashboard' ? value : null
+}
+
+/**
+ * The tab a person opens on: their last choice on this device, else
+ * Dashboard for a role that clears a queue all day, else Ask Etyme.
+ */
+export function firstTabFor(roleName: string | null | undefined, remembered: ShellView | null | undefined): ShellView {
+  if (remembered) return remembered
+  const role = (roleName ?? '').trim().toLowerCase()
+  return QUEUE_ROLES.some((r) => r.toLowerCase() === role) ? 'dashboard' : 'ask'
+}
+
+/**
+ * Whether the once-a-session landing may move a person from Ask Etyme to
+ * their first tab. Only where the door landed them and they have not
+ * chosen anywhere yet: a link pressed before the session answered is the
+ * person's choice, and replacing the route then swallowed that first
+ * click (the founder's tester on production, 2026-11-08, "the dead first
+ * click on nav"). `path` is the browser's own, read at the moment the
+ * landing would happen, never a pathname a render captured earlier.
+ */
+export function landsOnFirstTab(args: {
+  first: ShellView
+  path: string
+  search: string
+  pressedALink: boolean
+}): boolean {
+  return args.first === 'dashboard' && !args.pressedALink && args.path === ASK_ETYME_HREF && !args.search
 }
 
 /** Whether a path is one of this menu's pages, Ask Etyme and its conversations aside. */

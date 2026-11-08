@@ -31,6 +31,7 @@
  */
 
 import { formatDay, formatMonth, formatMonthLong } from '@/lib/format-date'
+import { receiptsLink } from '@/lib/money/ap-words'
 import { format, fromMinor } from '@/lib/money'
 import { desksHolding, type Permission, hasPermission, hasAnyPermission } from '@/lib/permissions'
 import { newMasker, type MaskVocabulary } from './mask'
@@ -40,7 +41,12 @@ import type { BillCardPayload } from '@/lib/money/supplier-bills'
 import { supplierToldSays } from '@/lib/money/invoice-hold'
 import { offRecord, asksAboutFirmMoney, anotherFirmsMoney, writingAsk, NOT_ANOTHER_BOOK, ONLY_THE_RECORD } from './transaction'
 import type { WorkerAnswer } from './worker'
-import { getNavForKind, ASK_ETYME_HREF, type NavSection, type NavItem, type CompanyKind } from '@/lib/nav-table'
+import { isTwinAct } from '@/lib/autonomy'
+import {
+  readGiveAccess, readWhoHolds, draftGiveAccess, whoHoldsSays, whoHoldsTable, ACCESS_LINK, GIVE_ACCESS_ACT,
+  type GiveAccessAsked, type GrantOffer, type GrantBody, type RoleHolders, type GrantHeld,
+} from './access'
+import { getNavForKind, menuFor, ASK_ETYME_HREF, type NavSection, type NavItem, type CompanyKind, type MenuGroup } from '@/lib/nav-table'
 
 // ── What was asked ───────────────────────────────────────────────────
 
@@ -55,6 +61,16 @@ export type Intent =
   | { kind: 'WEEKS' }
   | { kind: 'NEVER'; act: NeverAct }
   | { kind: 'MARGIN' }
+  /** "Who can see margin?": the roles and the grants that hold a permission, by name (2026-11-08). */
+  | { kind: 'WHO_HOLDS'; permission: string }
+  /** "Let Maya read margin for the Dayton team": the Owner giving access, drawn as a card (2026-11-08). */
+  | { kind: 'GIVE_ACCESS'; asked: GiveAccessAsked }
+  /** What the firm made by consultant, office, client or recruiter, this month or this quarter (2026-11-08). */
+  | { kind: 'MARGIN_CUT'; cut: 'consultant' | 'recruiter' | 'office' | 'client'; period: 'month' | 'quarter' }
+  /** "What is on hold, and why?": starts held for papers and invoice receipts held by the check. */
+  | { kind: 'HELD' }
+  /** "Who matches this job?": the matches live on each job's own page. */
+  | { kind: 'MATCHES' }
   /** A firm's own book (2026-10-19): who rolls off, who is on the bench, signed weeks not billed, bills unpaid. */
   | { kind: 'ROLLOFF' }
   | { kind: 'BENCH' }
@@ -234,6 +250,9 @@ interface NavTopic { re: RegExp; subject: string; plural: boolean; pages: readon
 
 /** Most specific first: "add people to the bench" is the bench, not people. */
 const NAV_TOPICS: readonly NavTopic[] = [
+  // Ask Etyme is the switch at the top of the left column, never a menu
+  // link (founder, 2026-11-08, "One app, two tabs"): answered as that.
+  { re: /\bask etyme\b|\bthe chat\b/, subject: 'Ask Etyme', plural: false, pages: [] },
   // The master data sits under Network on every firm's menu (founder,
   // 2026-11-04): the people a firm keeps and the firms it trades with.
   { re: /\bmaster data\b/, subject: 'Your master data', plural: false, pages: ['Candidates', 'Companies', 'Suppliers'] },
@@ -318,10 +337,55 @@ export function readWhere(raw: string, opts: { loose?: boolean } = {}): Intent |
 }
 
 /** The seat's own menu, as the sidebar draws it: its kind, a seat in a client's program, its permissions. */
-export function menuOf(seat: { companyKind?: string | null; party?: Party; permissions?: readonly string[] | null; client?: string | null }): NavSection[] {
+export function menuOf(seat: { companyKind?: string | null; party?: Party; permissions?: readonly string[] | null; client?: string | null }): SeatMenu {
   const worker = seat.party === 'WORKER'
   const kind = (seat.companyKind ?? null) as CompanyKind | null
-  return getNavForKind(kind, worker, { permissions: seat.permissions ?? null, seatedAtClient: seat.client ?? null })
+  const facts = { permissions: seat.permissions ?? null, seatedAtClient: seat.client ?? null }
+  const sections: SeatMenu = getNavForKind(kind, worker, facts)
+  // A firm's Dashboard column reads the founder's headings (2026-11-08):
+  // Network, HR, Accounting, and Profitability as a link of its own. A
+  // worker's and a one-person firm's column prints their own links.
+  const firm = !worker && seat.party !== 'SOLO' && !!kind && (kind !== 'CONSULTANT_CORP' || !!seat.client)
+  sections.column = firm ? menuFor(kind, false, facts) : null
+  return sections
+}
+
+/** A seat's menu, with the Dashboard column it is printed as where that is a firm's. */
+export type SeatMenu = NavSection[] & { column?: readonly MenuGroup[] | null }
+
+/** Where an item sits in a firm's column: its heading and the link that covers it. */
+function columnPlace(column: readonly MenuGroup[], href: string): { heading: string | null; label: string; first: string } | null {
+  for (const g of column) {
+    for (const l of g.links) {
+      if (l.covers.some((i) => i.href === href)) return { heading: g.heading, label: l.label, first: l.covers[0]?.href ?? l.href }
+    }
+  }
+  return null
+}
+
+/** "under Accounting, Receivables, on the AR tab"; "under Submissions"; the column's words. */
+function whereInColumn(column: readonly MenuGroup[], items: readonly NavItem[]): string | null {
+  const at = items.map((i) => ({ item: i, place: columnPlace(column, i.href) }))
+  if (at.some((x) => !x.place)) return null
+  const links: { heading: string | null; label: string; first: string; items: NavItem[] }[] = []
+  for (const { item, place } of at) {
+    const l = links.find((x) => x.label === place!.label && x.heading === place!.heading)
+    if (l) l.items.push(item)
+    else links.push({ ...place!, items: [item] })
+  }
+  // Two whole links under one heading are said once: "under Network, Candidates and Companies".
+  const whole = links.filter((l) => l.heading && l.items.every((i) => i.href === l.first))
+  if (links.length > 1 && whole.length === links.length && new Set(links.map((l) => l.heading)).size === 1) {
+    return `under ${links[0].heading}, ${andNames(links.map((l) => l.label))}`
+  }
+  return links.map((l) => {
+    const name = l.heading ? `${l.heading}, ${l.label}` : l.label
+    // The link opens its first page, so that page is the link itself, never a tab of it.
+    const tabs = l.items.filter((i) => i.href !== l.first)
+    if (tabs.length === 0) return `under ${name}`
+    const said = `${andNames(tabs.map((i) => i.label))} tab${tabs.length === 1 ? '' : 's'}`
+    return tabs.length < l.items.length ? `under ${name}, and on its ${said}` : `under ${name}, on the ${said}`
+  }).join(', and ')
 }
 
 interface Placed { section: NavSection; item: NavItem }
@@ -368,12 +432,16 @@ export const WHERE_FIRST = 'Ask me where a page is first, for example “Where a
  * show this seat is never named. Rules only.
  */
 export function whereAnswer(intent: Extract<Intent, { kind: 'WHERE' | 'GO' }>, menu: readonly NavSection[], place?: string | null): Answer {
+  const column = (menu as SeatMenu).column ?? null
   if (intent.kind === 'GO') {
     const at = place ? onMenu(menu, place) : null
     if (!at) return { kind: 'TEXT', says: `${WHERE_FIRST}, and I will open it.` }
     return { kind: 'TEXT', says: `Opening ${at.item.label}.`, links: [{ label: `Open ${at.item.label}`, href: at.item.href }], place: at.item.href, go: true }
   }
   const topic = NAV_TOPICS[intent.topic]
+  if (topic.pages.length === 0) {
+    return { kind: 'TEXT', says: 'Ask Etyme is the switch at the top of the left column, beside Dashboard. Press it to come back here.' }
+  }
   const places = placesOn(menu)
   const picked: Placed[] = []
   for (const label of topic.pages) {
@@ -383,18 +451,39 @@ export function whereAnswer(intent: Extract<Intent, { kind: 'WHERE' | 'GO' }>, m
   }
   if (picked.length === 0) {
     const what = topic.subject.charAt(0).toLowerCase() + topic.subject.slice(1)
-    return { kind: 'TEXT', says: `None of your pages shows ${what}. You can open ${linksSaid(menu)}.` }
+    const open = column ? andNames(column.flatMap((g) => g.links.map((l) => l.label))) : linksSaid(menu)
+    return { kind: 'TEXT', says: `None of your pages shows ${what}. You can open ${open}.` }
   }
+  const inColumn = column ? whereInColumn(column, picked.map((p) => p.item)) : null
+  // A link of its own with nothing above it: "Profitability is its own link in the left column."
+  const own = inColumn && picked.length === 1 && inColumn === `under ${topic.subject}` && !column!.some((g) => g.heading === topic.subject)
   const sections: NavSection[] = []
   for (const p of picked) if (!sections.includes(p.section)) sections.push(p.section)
-  const parts = sections.map((s) => whereOn(s, picked.filter((p) => p.section === s).map((p) => p.item)))
-  const says = `${topic.subject} ${topic.plural ? 'are' : 'is'} ${parts.join(', and ')}.`
+  const parts = inColumn ? [inColumn] : sections.map((s) => whereOn(s, picked.filter((p) => p.section === s).map((p) => p.item)))
+  const says = own
+    ? `${topic.subject} is its own link in the left column.`
+    : `${topic.subject} ${topic.plural ? 'are' : 'is'} ${parts.join(', and ')}.`
   return {
     kind: 'TEXT', says,
     links: picked.map((p) => ({ label: `Open ${p.item.label}`, href: p.item.href })),
     place: picked[0].item.href,
     ...(intent.go ? { go: true } : {}),
   }
+}
+
+/**
+ * "Which client made us the most this quarter?", "Margin by office this
+ * month", "What did each consultant make us?": Profitability's cut
+ * (founder, 2026-11-08). The period is this month unless the quarter is
+ * named. Null where the question names no cut.
+ */
+export function readMarginCut(lower: string): Extract<Intent, { kind: 'MARGIN_CUT' }> | null {
+  const by = lower.match(/\b(?:by|which|per|each|every|what each|top)\s+(client|customer|office|branch|consultant|person|recruiter)s?\b/)
+  if (!by) return null
+  if (!/\b(made|make|makes|earn(ed|s)?|margins?|profit(s|able|ability)?|mark-?ups?)\b/.test(lower)) return null
+  const w = by[1]
+  const cut = w === 'customer' || w === 'client' ? 'client' : w === 'branch' || w === 'office' ? 'office' : w === 'recruiter' ? 'recruiter' : 'consultant'
+  return { kind: 'MARGIN_CUT', cut, period: /\bquarter\b/.test(lower) ? 'quarter' : 'month' }
 }
 
 /**
@@ -408,12 +497,22 @@ export function readAsk(raw: string): Intent {
   if (!text || /^(help|\?|what can you do\??|what do you answer\??)$/i.test(text)) return { kind: 'HELP' }
 
   const lower = text.toLowerCase()
+  // Who sees what (founder, 2026-11-08), before setup and the menu, so
+  // "Who can see margin?" is never read as a margin question or a page.
+  const holds = readWhoHolds(text)
+  if (holds) return { kind: 'WHO_HOLDS', permission: holds }
+  const give = readGiveAccess(text)
+  if (give) return { kind: 'GIVE_ACCESS', asked: give }
   const setup = setupAsked(lower)
   if (setup) return { kind: 'SETUP', ...setup }
   // Where a page is, and "take me there": the person's own menu, never the model.
   const where = readWhere(text)
   if (where) return where
+  const cut = readMarginCut(lower)
+  if (cut) return cut
   if (/\b(mark-?up|margin)s?\b/.test(lower)) return { kind: 'MARGIN' }
+  // What placements make, said as profit: the same Profitability read (2026-11-08).
+  if (/\bprofits?\b|\bp ?& ?l\b|\bprofit and loss\b/.test(lower) && !/\bwhere\b/.test(lower)) return { kind: 'MARGIN' }
   if (
     (/\bvariance\b/.test(lower) && /\bsuppliers?\b/.test(lower)) ||
     // The twin page's own line, "how invoice receipts compare by supplier",
@@ -467,7 +566,10 @@ export function readAsk(raw: string): Intent {
   if (/\b(papers?|paperwork|documents?|certificates?|insurance|licen[cs]es?|visas?|permits?)\b/.test(lower) && /\b(run(s|ning)? out|expir\w*|laps\w*|due to renew)\b/.test(lower)) return { kind: 'EXPIRING' }
   if (/\b(who|anyone|anybody|somebody|someone)\b.*\b(available|free now|between projects)\b|\bavailable (people|consultants|engineers|workers|now)\b/.test(lower)) return { kind: 'BENCH' }
 
-  if (/\broll(s|ing|ed)?[- ]?off\b|\bending soon\b/.test(lower)) return { kind: 'ROLLOFF' }
+  if (/\bon hold\b|\bheld (up|back)\b|^what('s| is) held\b/.test(lower)) return { kind: 'HELD' }
+  if (/^(who|which (people|candidates|consultants))\b.*\bmatch(es|ing)?\b/.test(lower)) return { kind: 'MATCHES' }
+  // "Who is coming free?": a supplier's word for who rolls off soon.
+  if (/\broll(s|ing|ed)?[- ]?off\b|\bending soon\b|\bcoming (free|off)\b/.test(lower)) return { kind: 'ROLLOFF' }
   if (/\bbench\b/.test(lower) && !/\bbench (pay|burn|profit|cost)/.test(lower)) return { kind: 'BENCH' }
   if (/\bunbilled\b|\bnot (yet )?(been )?billed\b|\bnot on a bill\b/.test(lower)) return { kind: 'UNBILLED' }
   if (
@@ -477,6 +579,8 @@ export function readAsk(raw: string): Intent {
 
   if (/\btime[- ]limits?\b|\btenure\b|\b18[- ]months?\b/.test(lower)) return { kind: 'TIME_LIMIT' }
   if (/\b(spend|spent|spending)\b|\bbilled (us|you)\b|\bhow much have suppliers billed\b/.test(lower)) return { kind: 'SPEND' }
+  // "What am I paying across suppliers?": the same spend by supplier.
+  if (/\b(paying|pay)\b.*\b(across|by|each|every)\b.*\bsuppliers?\b/.test(lower)) return { kind: 'SPEND' }
   if (
     /\bunsigned\b/.test(lower) ||
     (/\b(weeks?|timesheets?|hours)\b/.test(lower) && /\b(not signed|to sign|waiting|not approved|unapproved|approval)\b/.test(lower))
@@ -640,7 +744,7 @@ function billsOnly(desk: string, companyKind: string | null | undefined): boolea
 }
 
 /** Whether this seat pays out: the same rule as `payingDesks`, on the seat's own permissions. */
-function paysOut(permissions: readonly string[], companyKind: string | null | undefined): boolean {
+export function paysOut(permissions: readonly string[], companyKind: string | null | undefined): boolean {
   if (!hasPermission(permissions, 'payments.record')) return false
   if (!hasPermission(permissions, 'invoices.issue') || hasPermission(permissions, 'payroll.run')) return true
   // A money-in seat pays only where no desk at the company pays out apart from it.
@@ -656,6 +760,8 @@ export function neverSays(
   companyKind: string | null | undefined,
   permissions: readonly string[] = [],
   named: Named = {},
+  /** Whether the reader sits in a client's program: a pay refusal's door is then the client's Invoice receipts. */
+  at: { seatedAtClient?: boolean } = {},
 ): { says: string; links: Link[] } {
   const f = NEVER_FLOOR[act]
   const asksWho = act === 'EXTEND' || act === 'END' || act === 'SIGN_WEEK'
@@ -679,9 +785,13 @@ export function neverSays(
     : desks.length
       ? `your ${twoDesks(desks)} does it ${where}`
       : `nobody here has that role yet; it is done ${where}`
+  // Where invoice receipts are paid, by money's one rule (`receiptsLink`):
+  // a client, or a firm seated in one's program, at its Invoice receipts;
+  // a supplier at Bills, on the receipts it owes (walk 5, item 4).
+  const pays = act === 'PAY' ? receiptsLink({ companyKind, seatedAtClient: !!at.seatedAtClient }) : null
   const link: Link = receipt
     ? { label: `Open ${receipt.number}`, href: hrefFor('Invoice', receipt.invoiceId) }
-    : f.link
+    : pays ? { label: pays.says, href: pays.href } : f.link
   return { says: `Etyme never ${f.verb}; ${who}.`, links: [link] }
 }
 
@@ -1181,6 +1291,12 @@ export type Answer =
   | { kind: 'CONFIRM'; says: string; decision: 'APPROVED' | 'REJECTED'; reason: string | null; item: WaitingItem }
   | { kind: 'VARIANCE'; says: string; period: { from: string; to: string; label: string }; rows: VarianceRow[] }
   | { kind: 'MODEL'; says: string; links: Link[] }
+  /**
+   * The Owner's give-access card (2026-11-08): the question, the line under
+   * it, and exactly what the yes posts to POST /api/settings/grants, the one
+   * route. Drawn only where the role contract holds `access.grant`.
+   */
+  | { kind: 'GIVE_ACCESS'; says: string; under: string; body: GrantBody; links?: Link[] }
   /** A worker's own work: what needs her, where her weeks stand, her chain (./worker). */
   | WorkerAnswer
 
@@ -1902,12 +2018,25 @@ export function seatSays(seat: { role: string | null; company: string | null; sa
   if (client && client !== company) {
     return `You run ${possessive(client)} program for ${company}${seat.sample ? `, a sample ${seat.party === 'MSP' ? 'MSP' : 'company'}` : ''}.`
   }
-  const at = `${company}${seat.sample ? ', a sample company' : ''}.`
+  const sample = seat.sample ? ', a sample company' : ''
+  const at = `${company}${sample}.`
   const role = seat.role?.trim()
-  if (!role) return `You are signed in at ${at}`
+  // No role: the seat is a Member, as the foot of the menu says (`footerRole`).
+  if (!role) return `You are signed in at ${company} as Member${sample}.`
   const words = roleWords(role)
-  return namesAPerson(words) ? `You are the ${words} at ${at}` : `You are in ${words} at ${at}`
+  if (namesAPerson(words)) return `You are the ${words} at ${at}`
+  if (TEAM_ROLES.has(words.toLowerCase())) return `You are in ${words} at ${at}`
+  // Any other role is the seat's own name for it ("Validation Engineer"):
+  // said as the role the seat holds, never as a place (walk 5, C9).
+  return `You are signed in at ${company} as ${role}${sample}.`
 }
+
+/**
+ * The roles that name a team a person works in, so "You are in finance at
+ * Brightmoor" reads right. Only these; a role a firm named itself, often a
+ * job title, is never said as a place.
+ */
+const TEAM_ROLES = new Set(['finance', 'hr', 'accounts receivable', 'accounts payable', 'ap & payroll', 'payroll', 'procurement', 'compliance', 'contractor sourcing'])
 
 /**
  * Find the item a person meant: its number in the list, its question's
@@ -2278,6 +2407,19 @@ export interface Readers {
   bench?(): Promise<Refusable<{ rows: BenchRow[] }>>
   /** What this firm's own placements earn, as Profitability reads them; refused to a seat without `margin.read` in the route's own sentence. */
   margins?(): Promise<Refusable<{ rows: MarginRow[] }>>
+  /**
+   * Over what this seat reads a permission, as one sentence where it reads
+   * less than the firm's ("You read what placements make for the Dayton
+   * team; ask the Owner for the firm's."); null where it reads the firm's
+   * or nothing (2026-11-08, lib/permission-grants' `permissionScope`).
+   */
+  scopeLine?(permission: string): Promise<string | null>
+  /** What Give access offers this seat, read through GET /api/settings/grants itself. */
+  grantOffer?(): Promise<Refusable<{ offer: GrantOffer }>>
+  /** Who holds a permission at this company: the roles by name with their people, and every live grant of it. */
+  holdersOf?(permission: string): Promise<Refusable<{ roles: RoleHolders[]; grants: GrantHeld[] }>>
+  /** Profitability's own cut, read through its route (`by=cut`); nothing is added up here. */
+  marginCut?(cut: 'consultant' | 'office' | 'client', period: 'month' | 'quarter'): Promise<Refusable<MarginCutRead>>
   /** Weeks signed at the top that are on none of this firm's bills, oldest first. */
   unbilledWeeks?(): Promise<Refusable<{ rows: UnbilledRow[] }>>
   /** Bills this firm sent that are not paid in full, the latest first. */
@@ -2922,6 +3064,21 @@ async function queueOf(needs?: () => Promise<number | QueueRead | null>): Promis
   return got == null || typeof got === 'number' ? null : got
 }
 
+/** The reader's reach over a permission, as one sentence, or null; a read that fails says nothing extra. */
+async function reachOf(read: Readers, permission: string): Promise<string | null> {
+  if (!read.scopeLine) return null
+  try {
+    return await read.scopeLine(permission)
+  } catch {
+    return null
+  }
+}
+
+/** An answer read at less than the firm's reach carries that reach as its last sentence. */
+export function withReach(says: string, reach: string | null | undefined): string {
+  return reach ? `${says} ${reach}` : says
+}
+
 export async function respond(
   text: string,
   read: Readers,
@@ -2943,6 +3100,13 @@ export async function respond(
     place?: string | null
     /** Where the company's model switch is drawn (lib/model-boundary's MODEL_SWITCH_HREF). */
     modelSwitchHref?: string | null
+    /**
+     * Whether the role contract holds `access.grant` (lib/autonomy). The
+     * give-access card is drawn only where it does (the 2026-10-12 rule: an
+     * act kind first, then a card); until then the Owner is sent to Users
+     * & permissions with what to choose there.
+     */
+    giveAccessAct?: boolean
   }
 ): Promise<Answer> {
   // A writing job (a poem, a joke, a story) is refused before any intent,
@@ -2972,7 +3136,7 @@ export async function respond(
   // refused by rule before any intent and before the model is considered.
   // Found by the walk of 2026-10-22: "What does Brightmoor Staffing pay
   // Helena Marsh?" was answered "needs the model".
-  if (!['HELP', 'WHY', 'DECIDE', 'NEEDS', 'SETUP'].includes(intent.kind) && asksAboutFirmMoney(text, own)) {
+  if (!['HELP', 'WHY', 'DECIDE', 'NEEDS', 'SETUP', 'WHO_HOLDS', 'GIVE_ACCESS'].includes(intent.kind) && asksAboutFirmMoney(text, own)) {
     if (anotherFirmsMoney(text, own, await read.vocabulary())) return { kind: 'TEXT', says: NOT_ANOTHER_BOOK }
   }
   // A firm's own book is answered only where this seat has the read; a
@@ -3141,21 +3305,91 @@ export async function respond(
     }
 
     case 'NEVER':
-      return { kind: 'TEXT', ...neverSays(intent.act, opts.companyKind, opts.permissions, await read.named(text)) }
+      return { kind: 'TEXT', ...neverSays(intent.act, opts.companyKind, opts.permissions, await read.named(text), { seatedAtClient: !!opts.client }) }
+
+    // Who holds a permission here, by name: the roles that carry it and
+    // every live grant of it, read through Give access's own route, so the
+    // chat and Users & permissions cannot disagree (2026-11-08).
+    case 'WHO_HOLDS': {
+      if (!read.holdersOf) return { kind: 'TEXT', says: 'Who holds what is read at your own company; switch to it first.' }
+      const got = await read.holdersOf(intent.permission)
+      if (!got.ok) return { kind: 'TEXT', says: got.says, ...(got.links ? { links: got.links } : {}) }
+      return {
+        kind: 'LIST', says: whoHoldsSays(intent.permission, got.roles, got.grants),
+        ...(got.roles.length || got.grants.length ? { table: whoHoldsTable(got.roles, got.grants) } : {}),
+        links: [ACCESS_LINK],
+      }
+    }
+
+    // The Owner giving access in words (2026-11-08): a card whose yes posts
+    // to POST /api/settings/grants, the one route; nothing is written here.
+    case 'GIVE_ACCESS': {
+      if (!read.grantOffer) return { kind: 'TEXT', says: 'Access is given at your own company; switch to it first.' }
+      const got = await read.grantOffer()
+      if (!got.ok) return { kind: 'TEXT', says: got.says, ...(got.links ? { links: got.links } : {}) }
+      const draft = draftGiveAccess(intent.asked, got.offer)
+      if (!draft.ok) return { kind: 'TEXT', says: draft.says, links: [ACCESS_LINK] }
+      const act = opts.giveAccessAct ?? isTwinAct(GIVE_ACCESS_ACT)
+      if (!act) {
+        return {
+          kind: 'TEXT',
+          says: `Ask Etyme cannot give access yet. On Users & permissions, choose Give access: ${draft.holder}, “${draft.what}”, ${draft.reach}.`,
+          links: [ACCESS_LINK],
+        }
+      }
+      return { kind: 'GIVE_ACCESS', says: draft.question, under: draft.under, body: draft.body, links: [ACCESS_LINK] }
+    }
 
     // A firm's own margin is its own to read (release walk three,
     // 2026-11-03): answered from Profitability's own figures where this
     // seat holds `margin.read`, refused in the route's sentence where it
     // does not. A client, or a firm reading a client's program, has no
     // margin of its own here, and nobody reads another firm's.
+    case 'MARGIN_CUT': {
+      // A client buys and never sells: the same refusal as any margin.
+      if (opts.party === 'CLIENT' || opts.party === 'MSP') return { kind: 'TEXT', ...marginRefusal(opts.companyKind) }
+      if (intent.cut === 'recruiter') return { kind: 'TEXT', says: NO_RECRUITER_CUT, links: [{ label: 'Open Profitability', href: '/dashboard/profitability' }] }
+      if (!read.marginCut) return { kind: 'TEXT', ...marginRefusal(opts.companyKind) }
+      const got = await read.marginCut(intent.cut, intent.period)
+      if (!got.ok) return { kind: 'TEXT', says: got.says, ...(got.links ? { links: got.links } : {}) }
+      const reach = await reachOf(read, 'margin.read')
+      return {
+        kind: 'LIST', says: withReach(marginCutSays(intent.cut, got), reach),
+        ...(got.lines.length ? { table: marginCutTable(intent.cut, got) } : {}),
+        links: [{ label: 'Open Profitability', href: '/dashboard/profitability' }],
+      }
+    }
+
+    case 'HELD': {
+      const [q, t] = await Promise.all([queueOf(opts.needs), read.told().catch(() => null)])
+      if (!q && !t) return { kind: 'TEXT', says: 'What is on hold could not be read just now. Open the list to see it.', links: [{ label: 'Open the list', href: DECISIONS_HREF }] }
+      const starts = (q?.items ?? []).filter((d) => d.type === 'START_HELD')
+      const told = t ? toldSays(t.told) : null
+      return {
+        kind: 'LIST', says: heldSays(starts, told),
+        ...(starts.length ? {
+          table: {
+            caption: 'Starts on hold',
+            head: ['Person', 'Why'],
+            rows: starts.map((d) => ({ cells: [d.whose?.trim() || d.title.split(' — ')[0], factOf(d.subtitle) || '—'], href: d.actionUrl ?? DECISIONS_HREF })),
+          },
+        } : {}),
+        links: [...(told?.links ?? []).map((l) => ({ label: `Open ${l.text}`, href: l.href })), { label: 'Open the list', href: DECISIONS_HREF }],
+      }
+    }
+
+    case 'MATCHES':
+      return { kind: 'TEXT', says: MATCHES_SAY, links: [{ label: 'Open Jobs', href: opts.companyKind === 'CLIENT' ? '/dashboard/requisitions' : '/dashboard/requirements' }] }
+
     case 'MARGIN': {
       if (opts.party === 'CLIENT' || opts.party === 'MSP' || !read.margins) return { kind: 'TEXT', ...marginRefusal(opts.companyKind) }
       const got = await read.margins()
       if (!got.ok) return { kind: 'TEXT', says: got.says, ...(got.links ? { links: got.links } : {}) }
       const named = marginRowsNamed(text, got.rows)
       const rows = named.length ? named : got.rows
+      const reach = await reachOf(read, 'margin.read')
       return {
-        kind: 'LIST', says: marginSays(rows, { named: named.length > 0 }),
+        kind: 'LIST', says: withReach(marginSays(rows, { named: named.length > 0 }), reach),
         ...(rows.length ? { table: marginTable(rows) } : {}),
         links: [{ label: 'Open Profitability', href: '/dashboard/profitability' }],
       }
@@ -4094,6 +4328,87 @@ export function marginSays(rows: readonly MarginRow[], opts: { named?: boolean }
   const lead = opts.named ? 'From Profitability' : 'Your margin, from Profitability'
   return `${lead}: ${shown.join('; ')}.${more} Checked just now.`
 }
+
+/** One line of Profitability's cut, as its route returns it. */
+export interface MarginCutLine {
+  label: string
+  placements: number
+  currency: string | null
+  billedCents: number | null
+  marginCents: number | null
+  marginPct: number | null
+  blankedBecause: string | null
+}
+
+/** Profitability's cut for a period, read from its route. */
+export interface MarginCutRead {
+  periodSays: string
+  lines: MarginCutLine[]
+  total: MarginCutLine | null
+  /** The route's own sentence about the total. */
+  says: string
+}
+
+/** What a recruiter cut would need and the record does not hold, in one sentence. */
+export const NO_RECRUITER_CUT = 'No placement records who recruited it, so Etyme cannot say what each recruiter made; Profitability cuts by consultant, office or client.'
+
+const CUT_NOUN: Record<'consultant' | 'office' | 'client', string> = { consultant: 'consultant', office: 'office', client: 'client' }
+
+/**
+ * "Northbend Athletic made you the most in October to December 2026:
+ * $9,400 on $41,000 billed, 22.9%." Read from the route's own lines,
+ * which it sorts by margin, largest first; a blank margin is said as
+ * blank with the route's reason, never as small.
+ */
+export function marginCutSays(cut: 'consultant' | 'office' | 'client', r: MarginCutRead): string {
+  const top = r.lines[0]
+  if (!top) return `${r.says} Checked just now.`
+  const when = ` in ${r.periodSays}`
+  if (top.marginCents == null || top.currency == null) {
+    return `No ${CUT_NOUN[cut]} has a margin to stand behind${when}: ${top.blankedBecause ?? 'a cost is missing'} Checked just now.`
+  }
+  const pct = top.marginPct == null ? '' : `, ${top.marginPct.toFixed(1)}%`
+  const billed = top.billedCents == null ? '' : ` on ${money(top.billedCents, top.currency)} billed`
+  return `${top.label} made you the most${when}: ${money(top.marginCents, top.currency)}${billed}${pct}. ` +
+    `Your firm: ${r.says.replace(/[.\s]*$/, '.')} Before admin cost and commission. Checked just now.`
+}
+
+export function marginCutTable(cut: 'consultant' | 'office' | 'client', r: MarginCutRead): ListTable {
+  const head = cut === 'client' ? 'Client' : cut === 'office' ? 'Office' : 'Consultant'
+  return {
+    caption: `Margin by ${CUT_NOUN[cut]}, ${r.periodSays}`,
+    head: [head, 'Billed', 'Margin', 'Margin %'],
+    rows: r.lines.map((l) => ({
+      cells: [
+        l.label,
+        l.billedCents != null && l.currency ? money(l.billedCents, l.currency) : '—',
+        l.marginCents != null && l.currency ? money(l.marginCents, l.currency) : '—',
+        l.marginPct != null ? `${l.marginPct.toFixed(1)}%` : '—',
+      ],
+    })),
+  }
+}
+
+/**
+ * "What is on hold, and why?": the starts held for papers, each with the
+ * paper it waits on, and the invoice receipts the check holds, each with
+ * what to do. Read from the one decisions list and the twin's told
+ * receipts; nothing new is computed.
+ */
+export function heldSays(starts: readonly QueueItem[], told: RichLine | null): string {
+  if (starts.length === 0 && !told) return 'Nothing is on hold. Checked just now.'
+  const parts: string[] = []
+  if (starts.length > 0) {
+    const named = starts.slice(0, 3).map((d) => heldStartSays(d))
+    const more = starts.length > 3 ? `; and ${lowerNumber(starts.length - 3)} more` : ''
+    parts.push(`${counted(starts.length, 'start')} ${starts.length === 1 ? 'is' : 'are'} on hold: ${named.join('; ')}${more}.`)
+  }
+  if (told) parts.push(told.says)
+  return `${parts.join(' ')} Checked just now.`
+}
+
+/** Where who matches a job is: on that job's own page, with its reasons. */
+export const MATCHES_SAY = 'Who matches a job is on that job’s own page, each match with its reasons. Open Jobs and pick the job.'
 
 export function marginTable(rows: readonly MarginRow[]): ListTable {
   return {

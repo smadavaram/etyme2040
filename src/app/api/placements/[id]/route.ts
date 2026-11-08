@@ -25,6 +25,9 @@ import { placementEarned, hoursSigned } from '@/lib/money/placement-earned'
 import { placementMoneySheets } from '@/lib/money/placement-pay-terms'
 import { placementBooks, AGREED_SPREAD, EARNED_MARGIN } from '@/lib/money/margin'
 import { chainBelow } from './chain'
+import { weeksWhere } from '@/lib/money/weeks-read'
+import { paperDoorsForLine } from '@/lib/document-stages/arrived-papers'
+import { doorsForReader } from './paper-doors-for-reader'
 
 /**
  * GET /api/placements/:id
@@ -215,18 +218,6 @@ export async function GET(
           company: { select: { id: true, name: true } },
         },
       },
-      timesheets: {
-        orderBy: { periodStart: 'desc' },
-        take: 12,
-        select: {
-          id: true, periodStart: true, periodEnd: true, totalHours: true, status: true,
-          assertions: {
-            where: { state: 'LIVE' },
-            select: { role: true, hours: true, rateCents: true, companyId: true, at: true, auto: true },
-          },
-          invoiceLines: { select: { id: true, sellContractId: true, amountCents: true } },
-        },
-      },
     },
   })
 
@@ -239,6 +230,29 @@ export async function GET(
       { status: 404 }
     )
   }
+
+  // ── Station 7's weeks, where they were filed ──
+  //
+  // In a chain the worker files once, on her own rung, and every rung
+  // above bills that same signed week (CLAUDE.md, 2026-09-28). So this
+  // line's weeks are read where its bill was priced, the bottom of its
+  // ladder, through money's one reader (lib/money/weeks-read), never the
+  // weeks hanging on this line itself, which in a chain are none: Helena
+  // Marsh's placement at Computer Systems read "No weeks filed yet" beside
+  // 200 hours billed (the founder's tester, 2026-11-08).
+  const weeks = await prisma.timesheet.findMany({
+    where: await weeksWhere([placement.id]),
+    orderBy: { periodStart: 'desc' },
+    take: 12,
+    select: {
+      id: true, periodStart: true, periodEnd: true, totalHours: true, status: true,
+      assertions: {
+        where: { state: 'LIVE' },
+        select: { role: true, hours: true, rateCents: true, companyId: true, at: true, auto: true },
+      },
+      invoiceLines: { select: { id: true, sellContractId: true, amountCents: true } },
+    },
+  })
 
   logAccess({
     subjectId: placement.personId,
@@ -861,6 +875,40 @@ export async function GET(
     ...(await lineExtras({ sellContractId: placement.id })),
   })
 
+  // The door each required paper carries for this seat: check what
+  // arrived, record a provider's verdict, or ask the worker (regulatory's
+  // paperDoorsForLine). Never throws a page away: a failed read draws the
+  // chips without doors, as before.
+  const paperDoors = await paperDoorsForLine({
+    contractId: placement.id,
+    caller: { companyId: mine, permissions: caller.permissions },
+    items: checklist.items.map((it) => ({ key: it.key, label: it.label, state: it.state, owedBy: it.owedByRole ?? null })),
+  })
+    .then(async (doors) => {
+      if (isSupplier) return doors
+      // A reader above the supplier never reads a firm below it in a door
+      // (release pass 41: "Techpeple orders Drug screening" reached
+      // Northbend). Every firm on the person's lines other than the
+      // supplier it pays and itself is below, unless its agreement with
+      // the prime names the sub (`shown`, the payload's one rule).
+      // An end client opening a leg below the one it pays reads even this
+      // line's seller withheld, so there it is every masked firm.
+      const others = await prisma.sellContract.findMany({
+        where: {
+          personId: placement.personId,
+          companyId: { notIn: [...(readsFromBelow ? [] : [placement.companyId]), ...(mine ? [mine] : [])] },
+        },
+        select: { companyId: true, company: { select: { name: true } } },
+        distinct: ['companyId'],
+      })
+      const hidden = others
+        .filter((o) => readsFromBelow ? shown(o.companyId, o.company.name).masked : true)
+        .map((o) => ({ id: o.companyId, name: o.company.name }))
+      const seller = shown(placement.companyId, placement.company.name)
+      return doorsForReader(doors, hidden, seller.masked ? seller.phrase : `${seller.phrase}’s supplier`)
+    })
+    .catch(() => ({}))
+
   // The firm below us, read the same way we read the firm above. Null
   // where we employ the person ourselves, which is a fact rather than a
   // gap and is said as `weEmployThem` in the chain.
@@ -1175,7 +1223,7 @@ export async function GET(
       },
 
       // ── Station 7 · the hours ──
-      timesheets: placement.timesheets.map((t) => {
+      timesheets: weeks.map((t) => {
         const client = t.assertions.find((a) => a.role === 'CLIENT_APPROVAL')
         const employer = t.assertions.find((a) => a.role === 'EMPLOYER_ACCEPTANCE')
         return {
@@ -1213,6 +1261,7 @@ export async function GET(
         fix: checklist.fix,
         items: checklist.items,
         cover: checklist.cover.outcome,
+        paperDoors,
       },
 
       // ── Station 8 · the money ──

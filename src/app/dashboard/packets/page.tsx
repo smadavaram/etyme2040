@@ -30,7 +30,7 @@ interface Packet {
   recipientEmail: string
   askedBy: string
   askedAt: string
-  progress: { total: number; received: number; complete: boolean; summary: string }
+  progress: { total: number; received: number; complete: boolean; examined?: boolean; summary: string }
   completedAt: string | null
   reopenedReason: string | null
   expiresInDays: number
@@ -41,7 +41,7 @@ interface Packet {
   /** The request's own link, for a seat that sends it on; null for any other. */
   link?: string | null
   /** Every item and where it stands. */
-  items?: { itemId: string; label: string; required: boolean; state: string; fileName: string | null }[]
+  items?: { itemId: string; label: string; required: boolean; state: string; fileName: string | null; elsewhere?: string | null }[]
 }
 
 interface Arrived {
@@ -69,6 +69,8 @@ export default function PacketsPage() {
   const [packets, setPackets] = useState<Packet[] | null>(null)
   const [available, setAvailable] = useState<Available[]>([])
   const [counts, setCounts] = useState({ open: 0, awaitingReview: 0, stale: 0 })
+  // Papers this firm's orders ask for that arrived at its supplier: said, never examined here.
+  const [atSuppliers, setAtSuppliers] = useState<{ personId: string; says: string }[]>([])
   const [canAsk, setCanAsk] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
@@ -90,6 +92,9 @@ export default function PacketsPage() {
   // Looking at what arrived: the same look, and the same route, as Paperwork
   // (the Tapin walk, 2026-10-29: this page had no way to open anything).
   const [examining, setExamining] = useState<ExamineRow | null>(null)
+  // An answer with no file, being sent back: the reason is typed here.
+  const [sendingBack, setSendingBack] = useState<{ p: Packet; a: Arrived } | null>(null)
+  const [backReason, setBackReason] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -103,6 +108,7 @@ export default function PacketsPage() {
         stale: body.data.stale,
       })
       setCanAsk(body.data.canAsk)
+      setAtSuppliers(body.data.atSuppliers ?? [])
       setPeople(body.data.people ?? [])
       setNotOffered(body.data.notOffered ?? [])
     } catch (e: any) {
@@ -300,6 +306,16 @@ export default function PacketsPage() {
         <Stat label="Link expired" value={counts.stale} tone={counts.stale > 0 ? 'attention' : 'default'} sub="they cannot reply" />
       </div>
 
+      {atSuppliers.length > 0 && (
+        <section className="mb-8">
+          <h2 className="font-serif text-lg text-etyme-ink mb-1">At your suppliers <span className="text-xs text-etyme-faint tabular-nums font-sans">{atSuppliers.length}</span></h2>
+          <p className="text-[13px] text-etyme-muted mb-2">Papers your orders ask for that arrived at the supplier. The supplier examines them; each reads on the placement once it is on file.</p>
+          <ul className="bg-etyme-surface border border-etyme-rule rounded-lg divide-y divide-etyme-rule">
+            {atSuppliers.map((r, n) => <li key={`${r.personId}-${n}`} className="px-4 py-2 text-[13px] text-etyme-ink">{r.says}</li>)}
+          </ul>
+        </section>
+      )}
+
       {/* ── Never a dead end ──
           This read "A packet is how you get a W-9…" with no button under
           it, so a compliance officer could not ask for anything from the
@@ -319,8 +335,10 @@ export default function PacketsPage() {
         })}
         onAnswer={async (p, a, accept) => {
           setError(null); setFlash(null)
-          const note = accept ? '' : (window.prompt(`Why does ${a.label} go back? ${p.subject} reads this.`) ?? '').trim()
-          if (!accept && !note) return
+          // Sending back asks for the reason in a field on the page, never
+          // a browser prompt (the 2026-11-02 rule): the person reads it.
+          if (!accept) { setSendingBack({ p, a }); setBackReason(''); return }
+          const note = ''
           try {
             const res = await fetch(`/api/packets/${p.id}/review`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -332,6 +350,43 @@ export default function PacketsPage() {
           } catch (e: any) { setError(e.message) }
         }}
         onResend={resend} />
+      {sendingBack && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-etyme-ink/30 p-4 md:p-8" onClick={() => setSendingBack(null)} role="dialog" aria-modal="true" aria-label={`Send back ${sendingBack.a.label}`}>
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const { p, a } = sendingBack
+              const note = backReason.trim()
+              if (!note) return
+              setError(null); setFlash(null)
+              try {
+                const res = await fetch(`/api/packets/${p.id}/review`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ itemId: a.itemId, action: 'reject', note }),
+                })
+                const body = await readJson(res)
+                setFlash(body.data.message)
+                setSendingBack(null)
+                load()
+              } catch (err: any) { setError(err.message) }
+            }}
+            className="w-full max-w-lg bg-etyme-surface border border-etyme-rule rounded-lg p-5 space-y-4"
+          >
+            <h2 className="font-serif text-lg text-etyme-ink">Send back {sendingBack.a.label}</h2>
+            <label className="block">
+              <span className="block text-[10px] uppercase tracking-[0.12em] text-etyme-faint font-medium mb-1">Why it goes back. {sendingBack.p.subject} reads this.</span>
+              <textarea value={backReason} onChange={(e) => setBackReason(e.target.value)} required rows={3}
+                className="w-full border border-etyme-rule rounded px-3 py-2 text-sm bg-etyme-raised" />
+            </label>
+            {!backReason.trim() && <p className="text-xs text-etyme-muted">Say why it goes back.</p>}
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setSendingBack(null)} className="text-sm text-etyme-muted">Cancel</button>
+              <button type="submit" disabled={!backReason.trim()} className="px-4 py-2 bg-etyme-action text-white rounded text-sm font-medium hover:opacity-90 disabled:opacity-50">Send it back</button>
+            </div>
+          </form>
+        </div>
+      )}
       {examining && (
         <ExaminePaper
           row={examining}
@@ -386,8 +441,13 @@ function Group({ title, rows, note, onLook, onAnswer, onResend }: {
               </span>
             </button>
             <p className={`text-[12px] mt-2 ${p.linkExpired && !p.completedAt ? 'text-etyme-attention' : 'text-etyme-muted'}`}>
-              {p.completedAt
+              {/* Finished only once every item is examined or on file; a
+                  request whose I-9 nobody has looked at is received and
+                  waiting on HR (the fifth screen walk, R6). */}
+              {p.completedAt && p.progress.examined !== false
                 ? `Finished ${plainDate(p.completedAt)}`
+                : p.completedAt
+                ? p.progress.summary
                 : p.linkExpired
                   ? `Their link expired ${Math.abs(p.expiresInDays)} days ago, so they cannot reply.`
                   : p.progress.summary}
@@ -400,7 +460,7 @@ function Group({ title, rows, note, onLook, onAnswer, onResend }: {
                   {(p.items ?? []).map((i) => (
                     <li key={i.itemId} className="flex flex-wrap justify-between gap-3 text-[13px]">
                       <span className="text-etyme-ink">{i.label}{i.fileName ? <span className="text-etyme-faint"> · {i.fileName}</span> : null}</span>
-                      <span className="text-etyme-muted">{itemStateSays(i.state, i.required)}</span>
+                      <span className="text-etyme-muted">{i.elsewhere ?? itemStateSays(i.state, i.required)}</span>
                     </li>
                   ))}
                 </ul>

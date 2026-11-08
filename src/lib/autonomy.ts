@@ -515,6 +515,10 @@ const RULE_ATTRIBUTED = [
   // a one-person firm) from settings (2026-11-02). Her own act; the row
   // says from what to what, and she can change it back.
   'COMPANY_TYPE_CHANGED',
+  // The Owner, or somebody the Owner gave the right to by name, gave a
+  // permission to a role or a person, or took one away, on Users &
+  // permissions (2026-11-08). A person's own act, recorded like a role edit.
+  'PERMISSION_GRANTED', 'PERMISSION_REVOKED',
   'TIMESHEET_REJECTED', 'WEBHOOK_ADDED', 'WORK_ORDER_RECORDED',
 ]
 for (const a of RULE_ATTRIBUTED) ATTRIBUTED[a] = { basis: 'RULE' }
@@ -929,6 +933,21 @@ export const TWIN_ACTS: Record<string, TwinAct> = {
     money: true, external: true, reversible: false, decides: false, drafts: false, floor: false,
     approverNeeds: 'invoices.issue',
     byHand: 'Send it from the Bills page.',
+  },
+  // ── The Owner gives access (founder, 2026-11-08) ──
+  //
+  // Every twin's: both kinds of company have an Owner who gives access.
+  // The twin drafts the grant from the Owner's words; the Owner's yes on
+  // the card is the grant, written by the one route Users & permissions
+  // calls (POST /api/settings/grants), under its own rules. No `alone`, so
+  // `checkContract` refuses a contract that moves it to acting alone and
+  // `tierOf` reads a stale row that does as needing a yes. Reversible,
+  // because Revoke takes a grant back in one press.
+  'access.grant': {
+    says: 'Give a role or a person access, for the company, a team or their own work, on the Owner\u2019s yes.',
+    money: false, external: false, reversible: true, decides: true, drafts: false, floor: false,
+    approverNeeds: 'team.manage',
+    byHand: 'Give it from Users & permissions, under Give access.',
   },
   // ── The supplier's own acts (founder, 2026-10-29, "Tapin gets agents") ──
   //

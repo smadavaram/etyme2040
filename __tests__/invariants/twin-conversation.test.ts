@@ -62,7 +62,7 @@ import {
   FILE_IT_YOURSELF, NOT_THEIR_RATE, ONLY_YOUR_WORK, WORKER_FOOTER, latestWeekLine, type WorkerFacts, type WorkerAnswer, type SentWeek,
 } from '@/app/api/conversations/twin/worker'
 import {
-  respond, today, othersSay, VOICE_RULES, NO_SWITCH, SMALL_MODEL, MODEL_SYSTEM as SYSTEM, neverAct, matchPerson, boundarySays, readAsk, decisionRequest, varianceBySupplier, spendBySupplier, MODEL_SYSTEM, ASK_THE_DESK, NO_MODEL, payingDesks,
+  respond, today, othersSay, VOICE_RULES, NO_SWITCH, SMALL_MODEL, MODEL_SYSTEM as SYSTEM, neverAct, neverSays, matchPerson, boundarySays, readAsk, decisionRequest, varianceBySupplier, spendBySupplier, MODEL_SYSTEM, ASK_THE_DESK, NO_MODEL, payingDesks,
   SUGGESTED_QUESTIONS, FOOTER_LINE, GREETING_CLOSE, seatSays, SINCE_HEADING, DECISIONS_HREF, sinceSays, voiceBreaks,
   FIRM_QUESTIONS, SOLO_QUESTIONS, questionsFor, closeFor, placeholderFor, partyOf, queueFrom, queueCards, queueName, namedNeedsSays,
   threadsSay, whenSays, weekDueOn, billedSays, billingSays, rolloffSays, benchSays, unbilledSays, unpaidSays, OPEN_THE_LIST,
@@ -231,15 +231,18 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     }
     const chat = readFileSync(join(root, 'app/dashboard/conversations/ask-etyme.tsx'), 'utf8')
     expect(chat).toContain('decisionRequest(item.approvalId, decision, reason, answer)')
-    // The chat reaches four places only: its own route (the greeting and the
+    // The chat reaches five places only: its own route (the greeting and the
     // saved lines, Show earlier, Clear, a card's mark, each question), the
     // one approval route, a decision card's own act on the one route that
-    // already performs it, and — for a worker's own Renew — the bench route
-    // her Who has you page already renews a stay through.
+    // already performs it, the Owner's give-access card on Give access's
+    // own route, and — for a worker's own Renew — the bench route her Who
+    // has you page already renews a stay through.
     expect(chat).toContain("const THREAD = '/api/conversations/twin'")
     expect(chat).toContain("const RENEW = '/api/me/benches'")
     const calls = [...chat.matchAll(/fetch\(([^,)]+)/g)].map((m) => m[1].trim())
-    expect(calls).toEqual(['THREAD', '`${THREAD}?only=thread&take=1000`', 'THREAD', 'THREAD', 'THREAD', 'url', 'card.act.url', 'RENEW'])
+    expect(calls).toEqual(['THREAD', '`${THREAD}?only=thread&take=1000`', 'THREAD', 'THREAD', 'THREAD', 'url', 'card.act.url', 'RENEW', 'GRANTS'])
+    // The Owner's give-access card posts to Give access's one route and nowhere else (2026-11-08).
+    expect(chat).toContain("const GRANTS = '/api/settings/grants'")
     // After a yes the reply links to the record and to the ledger entry,
     // and only then is the yes recorded on the line that drew the card.
     expect(chat).toContain("{ label: 'See it in the ledger', href: entryHref(entry) }")
@@ -337,18 +340,18 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(readAsk('please approve the receipt for me')).toEqual({ kind: 'ASK', text: 'please approve the receipt for me' })
   })
 
-  it('Ask Etyme is the first conversation in the list and opens as a chat', () => {
+  it('Ask Etyme is the switch above the conversations and opens as a chat', () => {
     const root = join(process.cwd(), 'src')
     const list = readFileSync(join(root, 'app/dashboard/conversations/page.tsx'), 'utf8')
-    // Pinned above every thread, with the Etyme mark and "Always here", opening on its own address.
-    const pinned = list.indexOf('<Chip tone="action">Always here</Chip>')
-    expect(pinned).toBeGreaterThan(-1)
-    expect(pinned).toBeLessThan(list.indexOf('{filtered.map((c) => ('))
+    // Since 2026-11-08 the switch at the top of the left column is Ask Etyme,
+    // so the list no longer carries an Ask Etyme row; the pane is Ask Etyme
+    // whenever no thread is open, at its own address too.
+    expect(list).not.toContain('Always here')
+    expect(list).toContain('<RailSlot name="conversations">')
     expect(list).toContain("const ASK_ETYME_HREF = '/dashboard/conversations/etyme'")
-    expect(list).toContain('<EtymeMark size={22} />')
     expect(list).toContain('<AskEtyme />')
-    // On a phone one screen at a time: an open chat hides the list.
-    expect(list).toContain("${activeConvo || askOpen ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[340px]")
+    // On a phone one screen at a time: the list is in the menu sheet, the pane is the chat or the thread.
+    expect(list).toContain('const showAsk = askOpen || (!activeConvo && !openId && !openRefused)')
     expect(readFileSync(join(root, 'app/dashboard/conversations/etyme/page.tsx'), 'utf8')).toContain('return <ConversationsPage />')
 
     // A chat: the header says "Ask Etyme" and never "twin", four chips, the box, the footer line.
@@ -391,6 +394,17 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(asked.kind === 'NEEDS' && (asked.more ?? []).map((l) => l.says)).not.toContain(boundarySays('OFF'))
   })
 
+  it('a role a firm named itself, like a job title, is said as the role the seat holds and never as a place: “as Validation Engineer”, never “in validation engineer”', () => {
+    expect(seatSays({ role: 'Validation Engineer', company: 'Teleworld Solutions', sample: true }))
+      .toBe('You are signed in at Teleworld Solutions as Validation Engineer, a sample company.')
+    expect(seatSays({ role: 'Data Engineer', company: 'Teleworld Solutions', sample: false })).not.toMatch(/You are in /)
+    // A seat with no role is a Member, as the foot of the menu says.
+    expect(seatSays({ role: '  ', company: 'Teleworld Solutions', sample: false })).toBe('You are signed in at Teleworld Solutions as Member.')
+    // A team keeps "in": Accounts Receivable, AP & Payroll.
+    expect(seatSays({ role: 'Accounts Receivable', company: 'Brightmoor', sample: false })).toBe('You are in accounts receivable at Brightmoor.')
+    expect(seatSays({ role: 'AP & Payroll', company: 'Brightmoor', sample: false })).toBe('You are in AP & payroll at Brightmoor.')
+  })
+
   it('the greeting says the role and the company, and in the demo that the company is a sample; an MSP says whose program it runs, and a one-person firm is her own company', () => {
     expect(seatSays({ role: 'Hiring Manager', company: 'Northbend Athletic', sample: true })).toBe('You are the hiring manager at Northbend Athletic, a sample company.')
     expect(seatSays({ role: 'Hiring Manager', company: 'Acme Corp', sample: false })).toBe('You are the hiring manager at Acme Corp.')
@@ -399,7 +413,7 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(seatSays({ role: 'Finance', company: 'Brightmoor', sample: false })).toBe('You are in finance at Brightmoor.')
     expect(seatSays({ role: 'HR', company: 'Brightmoor', sample: false })).toBe('You are in HR at Brightmoor.')
     // No role: where, without a role it does not have. No company: nothing said.
-    expect(seatSays({ role: null, company: 'Brightmoor', sample: false })).toBe('You are signed in at Brightmoor.')
+    expect(seatSays({ role: null, company: 'Brightmoor', sample: false })).toBe('You are signed in at Brightmoor as Member.')
     expect(seatSays({ role: 'Owner', company: null, sample: true })).toBeNull()
     // An MSP seated in a client's program says where it sits (founder, 2026-10-19).
     expect(seatSays({ role: 'Owner', company: 'Aptiva Workforce', sample: true, party: 'MSP', seatedAt: 'Cavanaugh Glassworks' }))
@@ -534,6 +548,17 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(payingDesks('MSP')).toEqual(['AP Clerk'])
     expect(payingDesks('CLIENT')).toEqual(['AP Clerk'])
     expect(read.model).not.toHaveBeenCalled()
+  })
+
+  it('a supplier asked to pay is sent to the page its menu calls Invoice receipts; a client, or a firm seated in a client’s program, to Invoice receipts on Invoices', () => {
+    for (const kind of ['VENDOR', 'GSI', 'MSP']) {
+      expect(neverSays('PAY', kind, []).links, kind).toEqual([{ label: 'Open Invoice receipts', href: '/dashboard/ap' }])
+    }
+    expect(neverSays('PAY', 'VENDOR', []).links[0].label).not.toContain('Bills')
+    expect(neverSays('PAY', 'CLIENT', []).links).toEqual([{ label: 'Open Invoice receipts', href: '/dashboard/invoices' }])
+    expect(neverSays('PAY', 'MSP', [], {}, { seatedAtClient: true }).links).toEqual([{ label: 'Open Invoice receipts', href: '/dashboard/invoices' }])
+    // Every other act keeps its own door.
+    expect(neverSays('PAYROLL', 'VENDOR', []).links).toEqual([{ label: 'Open Payroll', href: '/dashboard/payroll' }])
   })
 
   it('free text leaves only when the company switch and the key are both on, masked, and is logged with its answer', async () => {
@@ -1354,7 +1379,7 @@ describe('Ask Etyme for a worker: her own work, from her own pages, by rules', (
     // The line under her box is hers too: never the firm's line about outside messages and money.
     expect(WORKER_FOOTER).toBe('Etyme answers from your own record. It never files, signs or sends anything for you.')
     // A saved worker answer is drawn again on a reload, as a worker answer.
-    expect(chat).toContain("'MODEL', 'WORKER', 'LIST']")
+    expect(chat).toContain("'MODEL', 'WORKER', 'LIST', 'GIVE_ACCESS']")
     const asAnswer: Answer = workerToday(helena())
     expect(cardIdsOf(asAnswer)).toEqual([])
   })

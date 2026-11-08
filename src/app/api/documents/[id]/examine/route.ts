@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { degreeFromBody, degreeOnRecord, isDegreePaper } from '@/lib/document-stages/degree-check'
 import { degreeSentBack } from '@/lib/notify/degree-and-start'
+import { tellTheWorkerAboutHerDegree } from '@/lib/document-stages/degree-told'
 import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { notify, notifyBulk } from '@/lib/notify'
@@ -13,6 +14,7 @@ import { BUILT_IN, typeByKey } from '@/lib/document-type'
 import { RECORDABLE_ABOUT_A_FIRM, examinedFromAPacket, orderedNotCollected, reportRunsOutOn } from '@/lib/attestation'
 import { paperSubject } from '@/lib/document-stages/firm-papers'
 import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
+import { itemsFollowExamination } from '@/lib/document-stages/arrived-papers'
 import { answerOpenAsks, buyerMayExamineKept, examinationBody, examinationOf, itemFollowsPaper, recordSupplierPaper, type Door } from '@/app/api/packets/examination'
 
 /**
@@ -266,6 +268,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       verificationId, reviewerId: caller.person.id, validUntil: verdict.expiresAt, now,
     })
   }
+  // A paper a worker sent from her own page answered the firm's own
+  // request for it (`itemsFollowArrival`); the request follows the look.
+  if (!item) {
+    await itemsFollowExamination({
+      docId: id, accepted: verdict.verdict === 'ACCEPT', reviewerId: caller.person.id,
+      note: verdict.verdict === 'ACCEPT' ? null : verdict.note, validUntil: verdict.expiresAt, verificationId,
+    })
+  }
   if (item) {
     await itemFollowsPaper({
       itemId: item.id,
@@ -313,8 +323,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const title = verdict.verdict === 'ACCEPT'
     ? `${issuer.name} accepted ${doc.template.name}`
     : `${issuer.name} sent back ${doc.template.name}`
-  // A degree sent back is told to the person in the firm's own words, and
-  // a degree's findings never reach the person: they are HR's to decide.
+  // A degree sent back is told to the person in the firm's own words. A
+  // degree's findings as HR reads them never reach the person; what she
+  // hears is which firm is checking it and why, in her own words, below.
   const noticeBody = verdict.verdict === 'ACCEPT'
     ? verdict.says
     : degree && subjectPersonId
@@ -322,6 +333,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       : `${verdict.note}. Send the right one from your paperwork page.`
   if (subjectPersonId) {
     void notify({ personId: subjectPersonId, companyId: issuer.id, type: 'SYSTEM', title, body: noticeBody, entityId: id })
+    // Accepted with something that does not look right: the person is
+    // told in the same press HR is warned (the fifth screen walk).
+    if (verdict.verdict === 'ACCEPT' && degree) {
+      await tellTheWorkerAboutHerDegree({ personId: subjectPersonId, firms: [{ id: issuer.id, name: issuer.name }], reading: degree, entityId: id })
+    }
   } else if (subjectCompanyId) {
     const staff = await prisma.context.findMany({
       where: { companyId: subjectCompanyId, revokedAt: null, NOT: { roleId: null }, type: { not: 'CONSULTANT' } },

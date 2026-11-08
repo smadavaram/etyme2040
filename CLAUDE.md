@@ -1460,6 +1460,407 @@ role contract, the setup checklist):
   unfinished item for an Owner (conversation). Tests as sentences; the
   walk as a new Owner on screens; the fifty-question score unchanged.
 
+## One app, two views: Ask Etyme first, the dashboard one flip away, each role its own day — the founder, 2026-11-04
+
+After the 374f522bd deploy the founder read the fixed navigation and
+said: *"Not much happy with UX — it's still cluttery. Like Claude chat
+— why can't people interact with Ask Etyme and go do what they want or
+click to see dashboard view and alternate to Ask Etyme. Even in
+Dashboard — why don't you think hierarchy under Network could be
+Consultants and Companies? How much of bench module client hiring
+manager would need vs bench placement manager? Don't code right away —
+envision a UX."* So, drawn and not built
+(https://claude.ai/artifact/BaqECEZTWvgGpyWdcvHQUc, four roles from
+the seed, the two views, one flip, the product's own words; code
+starts on "build it"):
+
+- **After sign-in, Ask Etyme is the screen, like Claude's chat.** No
+  left menu beside it; a rail of the person's conversations that folds
+  away; the greeting names what needs them, each a card they press; a
+  list or a figure appears beside the answer with one link to the full
+  page. This is the full-screen decision of 2026-11-03 said once more,
+  with the menu taken off it.
+- **One flip, both ways.** In Ask Etyme the header carries a Dashboard
+  control; on the dashboard the same spot carries the chat icon with
+  the person's number. This brings back the flip of 2026-10-13 that
+  2026-10-19 removed, because the sidebar it was redundant with is
+  gone from the chat.
+- **The dashboard menu is the role's day, not the firm's eleven.** A
+  client's hiring manager reads Today · Jobs · Submissions · Contracts
+  · Timesheets; its AP clerk Today · Timesheets · Invoice receipts; its
+  HR Today · Contracts (Paperwork); a supplier's bench manager Today ·
+  Network · Jobs · Submissions; its AP & Payroll Today · Timesheets ·
+  Invoice receipts · Payroll; the Owner and Admin everything in the
+  process order. A link is drawn only where the role does that work,
+  read off the role's own permissions (the rule of "a menu entry the
+  route will refuse"), never a list typed by hand; nothing is deleted,
+  every page keeps its address, search and Ask Etyme reach them all.
+- **Network holds Consultants and Companies**, the founder's words,
+  replacing "Candidates" as the group's name at a supplier (Consultants:
+  the bench, bench pay, check-ins, training; Companies: clients,
+  suppliers, contacts) and at a client (Consultants: the people it
+  keeps in mind; Suppliers).
+- **The bench module goes only to the people whose job it is.** A
+  client's hiring manager never meets a bench page: who matches her job
+  is on the job, and "who is available" is a question she asks; a
+  program manager the same, by supplier; a supplier's bench manager
+  gets the whole module; an account manager who is coming free, to
+  sell; the Owner all of it plus Bench profit.
+- **Not changed:** the routes, the rules, the one approval route, the
+  ledger, every read logged, the hats, the words; a card in Ask Etyme
+  does exactly what the page's button does, through the same route.
+
+The post-deploy fix wave already coded (Compliance names every person,
+the worker told about her degree, the headings, a one-person firm's
+own expense) finishes its release pass and deploy as fixes; nothing
+new is built on this vision until the founder has read the drawing.
+
+## One app, two tabs: Ask Etyme | Dashboard at the top of the left column — the founder, 2026-11-08
+
+"Build it", on the second drawing (https://claude.ai/artifact/M8bP6g59S351VDsdg5FMum), after he sent Copilot's
+screen (a Chat | Cowork switch over a left rail) and asked for it with the
+dashboard in Cowork's place and "don't lose our branding". This replaces the
+header flip of 2026-11-04 and keeps everything else in "One app, two views".
+- **One switch, top of the left column, in both views**: "Ask Etyme" with the
+  seat's number, and "Dashboard". The header is the logo, the company and
+  role, and the account menu (the hats). No flip in the header.
+- **The left column stays.** In Ask Etyme: New conversation, search, Pinned
+  (the person's saved questions, three per role to start), then the
+  conversations. In Dashboard: the role's menu. On a phone the switch is
+  the first row under the header.
+- **Dashboard's Today is the queue**: each decision a row with Yes and Not
+  now, "Yes to all N" for a batch, all through the one approval route, so a
+  card in the chat and a row here are one decision and the number cannot
+  disagree. This is the path for the principle "100 transactions a day".
+- **The menu follows the founder's sketch**: Network (Candidates, Companies)
+  · Jobs · Submissions · HR (Contracts, Timesheets, Expenses) · Money
+  (Bills, Invoice receipts, Payroll) · Profitability · Settings, each link
+  drawn only where the role's permissions do that work. Profitability is a
+  page (margin before admin cost and commission, cut by consultant,
+  recruiter, office or client) and a question to Ask Etyme.
+- **Three coordinator's calls, each reversible in a sentence** (the founder
+  has not answered them): Money keeps the trade's words Bills and Invoice
+  receipts, not Receivables and Payables; the group is called HR as he drew
+  it, though at a client HR is also a role; the first tab is Dashboard for
+  roles that clear queues all day (AP, coordinators) and Ask Etyme for the
+  rest, each person's last choice remembered on the device.
+- **Money is Accounting, decided by the founder, 2026-11-08** ("Instead of
+  money, call it Accounting: Receivables, Payables, Payroll, Reports").
+  This replaces the coordinator's call above: the group is **Accounting**
+  and its links are **Receivables** (what the firm bills upward: the
+  Bills page), **Payables** (what it receives from below: the Invoice
+  receipts page), **Payroll** and **Reports**. The words inside those
+  pages keep the trade's rule (a bill issued, an invoice receipt
+  received); only the menu names the accountant's two ledgers. A client
+  reads Accounting with Payables and Reports only. Reports leaves Today
+  for here. Profitability stays its own link until he says otherwise.
+  **Held back, the coordinator's call the same day:** a client is not
+  shown Reports until `/dashboard/reports`, written for a firm that sells,
+  has been read as a client; until then a client reads Accounting with
+  Payables only.
+- **Reports is cash flow and profitability, nothing else. The founder,
+  2026-11-08:** *"Reports is nothing but cashflow and profitability
+  margin analysis tools."* So Reports, under Accounting, is two tabs:
+  **Cash flow** (what the firm has billed and been paid, what it owes
+  suppliers and payroll and when, what is overdue, net by week and
+  month, every figure the Bills, Invoice receipts and Payroll pages
+  already compute and never a second computation) and **Profitability**
+  (the cut by consultant, office or client, built 2026-11-08).
+  Profitability leaves the menu as a link of its own and lives under
+  Reports; its address does not move. The old Reports page's other
+  views (the pipeline, the bench) leave Reports: what a page already
+  shows elsewhere is reached there. A client's Reports stays held back
+  until its cash flow tab reads a client's own book (what it owes its
+  suppliers, paid and due) and shows no margin, ever. Built: the cash
+  flow reader and the two tabs (money); the menu's one link (architect).
+- **Cash flow has a forecast, by week or month, for the next 90 days.
+  The founder, 2026-11-08:** *"Also add cash flow forecast by week or
+  month for next 90 days."* So the Cash flow tab has two halves: what
+  happened (above) and **Forecast**, the next 90 days by week or by
+  month: money expected in (bills sent, at their due date on the
+  agreement's terms; weeks signed and not yet billed, on the day the
+  agreement's rhythm would bill them; running lines at their rate and
+  expected hours on the cycle dates already generated) and money
+  expected out (invoice receipts due; payroll on each line's pay
+  period dates; a sub-vendor's expected invoice on its line's dates),
+  and the net per period. Every date is the cycle generator's and every
+  rate the line's own, never a second computation; a forecast is
+  labelled as expected, per currency, with the assumptions said once on
+  the tab (expected hours per week, no overtime, every bill paid on its
+  due day); nothing in it is ever added into the actuals above. A
+  client's forecast is what it will owe suppliers, no margin. Money
+  builds it on the cash flow reader.
+- **Left out of Copilot on purpose**: Library, Agents, Notebooks, the model
+  picker, the grid and task icons.
+- **Not changed**: routes, rules, the approval route, the ledger, every read
+  logged, the hats, the words, every page's address.
+- **Built in this order**: the switch, the left column and the menu's groups
+  (architect, `lib/nav-table`, the shell); Pinned questions and the chat's
+  rail and Today's decision rows (conversation, with demand and money for
+  the rows); Profitability's page (money). Then a release pass and a walk.
+- **Built, piece 1, 2026-11-08 (architect).** The switch at the top of the
+  rail and, on a phone, as the first row under the header; the header's
+  Ask Etyme link gone. In Ask Etyme the column draws three slots the Ask
+  Etyme page fills (`RailSlot` in `components/shell/rail-slots`: `top` for
+  New conversation and search, `pinned`, `conversations`), each heading
+  shown only while filled; until conversation fills them the column under
+  the switch is empty and the page's own list stays where it is. In
+  Dashboard the column is `menuFor` in `lib/nav-table`, cut from the same
+  sections, so tabs, eyebrows and addresses did not move: Expenses and
+  Profitability are links of their own and still tabs of Timesheets and
+  Today. The last tab is kept per person on the device; the first time a
+  browser opens the app for a person, an AP clerk, AP & Payroll or a
+  coordinator who landed in Ask Etyme is taken to Dashboard, once.
+
+## A thousand jobs, twenty hires through every rung, every kind of worker — the founder, 2026-11-08
+
+*"Do bottom up down testing for 1000 jobs and 20 hires go through
+multiple levels. Include all types of workers: students, international
+students, visa workers, employment authorization, permanent residents
+and citizens."* Read as: the simulation harness runs a thousand jobs on
+the generated world, at least twenty awards walk the whole chain (a bench
+vendor's person, put forward through a sub-vendor and a prime to the
+client, and the client's job sent down the same rungs), every worker
+class the founder named is on the bench in proportion, and each class
+meets the paper rule that governs it at the start, positive and negative.
+- **Worker classes on the record** (`WorkAuth` in `lib/seed-scale/types`):
+  US citizen; permanent resident (green card); H-1B and TN visa workers;
+  a worker on an employment authorization document (EAD) that is not a
+  student's; an F-1 international student on CPT (still enrolled, the
+  employer named on the I-20) and on OPT (an EAD after study, with the
+  STEM extension where it applies); a domestic student (a citizen or
+  resident still studying, no permit needed); and the negative case, an
+  international student with no CPT or OPT, who can be interviewed and
+  never started for US work. Each is a distribution in the generated
+  world, never a hand-written case.
+- **The rule for each class is confirmed with its source before it is
+  enforced** (regulatory), and until confirmed it warns and never blocks,
+  except where the law already blocks today (no I-9, no right to work).
+  What regulatory expects to confirm: an F-1 student with no CPT or OPT
+  may not start US work; CPT must name the employer and the school's
+  authorization; an OPT EAD has an end date and a 90-day unemployment
+  limit (150 with STEM); an H-1B is tied to the petitioning employer, and
+  a change of employer rests on a new petition (portability lets work
+  begin once the petition is filed); an EAD is good only to its end date;
+  a permanent resident and a citizen show only an I-9 list document.
+  Nothing about status refuses a person at screening without a recorded
+  lawful basis (the 2026-11-03 rule stands).
+- **Bottom up and top down are both walked.** Bottom up: the person's
+  consent on the bench, the bench vendor's put-forward to its sub-vendor
+  or prime, the prime's submission to the client, the client's award, the
+  start through every rung's papers, the week filed once and accepted
+  down, the bill up and the invoice receipt at each rung. Top down: the
+  client's job, sent to the prime, the prime sending it down, the
+  sub-vendor to its bench. Twenty hires at least are proven on four
+  rungs; the report says how many rungs each award walked.
+- **Never on production.** The run is the simulation on a copy of the
+  generated world on the session's box, after release pass 39 and its
+  fixes, because the pass runs alone; the report lands under `reports/`
+  and its verdict is recorded under this line, with the refusals per class
+  as the test the founder reads.
+- **Built in this order, on disjoint files:** the worker classes in the
+  generated world's people (supply: `lib/seed-scale/people`, the
+  `WorkAuth` type); the papers each class holds and the start rule per
+  class with its source (regulatory: `lib/seed-scale/papers`,
+  `stages/regulatory`, the start gate); the chain routing so twenty awards
+  walk four rungs and the report counts rungs (demand: `stages/demand`);
+  the run's flags and the report's table by worker class and by rungs
+  (architect: `scripts/simulate/args.ts`, `report.ts`). Then the run.
+
+## The Owner decides who sees what, by team, by role or for the whole company — the founder, 2026-11-08
+
+*"Owner should control who should see what, but owner should give
+permissions by team hierarchy or individual role or company as well."*
+Said on the answer that a sub-vendor's recruiter and managers read no
+margin unless given Finance's whole permission. Today a permission
+belongs to a role, a seat holds one role, the Owner and Admin edit the
+roles under Users & permissions, and a REGION unit already scopes a
+seat to its sites. What is new is the **grant**: the Owner gives a
+permission, or takes one away, at one of three scopes, and the record
+narrows what the permission reads to that scope.
+- **Three scopes, one grant row.** A grant names the permission, who
+  holds it (a role at the company, or one person's seat), what it
+  reaches (the whole company; one unit of the org tree and everything
+  under it, which is the team hierarchy; or one person's own book), who
+  gave it, when, and the reason. `hasPermission` keeps answering yes or
+  no; a new reader beside it answers *over what*, and every list a
+  scoped permission opens is narrowed at the query, never only on the
+  screen (the REGION rule, generalized). A manager given `margin.read`
+  on her unit reads Profitability for the placements charged to or
+  delivered by her unit and its children, and nothing else; the Owner's
+  figure is the firm's.
+- **The Owner alone grants; Admin may be given the right to.** A grant
+  is an act on Users & permissions, recorded like a role edit, ledgered,
+  reversible in one press. Teams carries the same card through the one
+  approval route when the keys exist.
+- **What a grant can never do:** cross a company (a client never reads a
+  supplier's margin, a sub never reads the prime's rate, whatever is
+  granted); break segregation (`HELD_APART` is checked on the seat's
+  effective permissions, so a grant that would let one person bill and
+  pay, or submit and award, is refused in a sentence); give `pnl.read`
+  or payroll to a seat outside the roles that may hold them without the
+  Owner saying so by name; or grant more than the Owner holds.
+- **Default aggressively.** The shipped roles stay exactly as they are,
+  so a firm that never opens the grants works as today. A recruiter
+  still reads no margin until the Owner says so.
+- **Built in this order:** the schema (`PermissionGrant`: permission,
+  roleId or contextId, scope COMPANY · UNIT · PERSON with the unit,
+  grantedById, grantedAt, reason, revokedAt) and the scope reader beside
+  `hasPermission` (architect); Users & permissions gains "Give access":
+  pick the permission in plain words ("read what placements make"), who
+  (a role or a person), how far (the company, a team, themselves), a
+  reason (architect); Profitability, cash flow and Bench profit read the
+  scope (money); the bench and consultant lists (supply); jobs and
+  submissions (demand); Ask Etyme's refusal says the scope ("You read
+  margin for the Dayton team; ask the Owner for the firm's") and the
+  Owner's chat gets a "give access" card (conversation). Tests as
+  sentences; a walk as a sub-vendor's recruiter, manager and Owner.
+
+## Commission is an object on the sell line and on the buy line — the founder, 2026-11-08
+
+*"Commission is object on sell and buy contracts. Commissions are made
+when account management team sells and when recruiter teams actually
+recruit."* So a commission is not a kind of buy contract (today's
+`commissionType` on `BuyContract`, the "commission umbrella" of one
+agent's line over ten sell lines) but a **row on the line it is earned
+on**: a **sales commission** on the sell line, earned by the account
+manager who sold the deal, and a **recruiting commission** on the buy
+line, earned by the recruiter who recruited the person. One placement
+may carry both, and a line may carry none.
+- **The row** (`ContractCommission`, one table for both sides: sell or
+  buy line, the person who earns it, kind SALES · RECRUITING, basis
+  (a share of margin, a share of what is billed, a fixed amount per
+  hour or per period), rate, cap, from and to, who set it, when, and
+  the reason). The award writes the default rows: the recruiter is who
+  put the person forward (the submission's submitter), the account
+  manager is who owns the job or the client relationship; the Owner or
+  Contract Manager edits them on the line; the firm's default rates
+  are a setting with a sane shipped default of none.
+- **It is earned when the money is real.** A commission accrues per
+  pay period from weeks the firm above accepted (the same hours the
+  bill is priced on), never on a submission, an interview or an award;
+  a firm may choose to accrue on cash received instead, recorded with
+  who chose it. It pays through Payroll → Commissions, the page that
+  exists, once per period, under the cap. Nothing is paid that the
+  bill's own figures do not support.
+- **It closes the Profitability gap.** The recruiter and the account
+  manager on a line are the names the cut by recruiter and by account
+  manager read, so "which recruiter made the most this quarter" has an
+  answer; and the commission term in "margin before admin cost and
+  commission" (2026-10-08) becomes a figure, so the page can show
+  margin after commission where rows exist.
+- **Who reads it:** the person reads their own commissions on their
+  own page; Finance, the Owner and anyone the Owner grants read the
+  firm's; a recruiter still reads no other recruiter's and no margin.
+  A client never sees a supplier's commissions.
+- **The old umbrella stays readable**, not written anew: existing
+  commission-type buy lines keep paying as they do until the Owner
+  moves them, and `lib/commission` keeps its arithmetic.
+- **Built in this order:** the schema (architect, after the permission
+  grants); the award's default rows and the setting (demand for who
+  sold and who recruited, money for the rows and the rates); accrual
+  per period, Payroll → Commissions reading the rows, the Profitability
+  cuts by recruiter and account manager and margin after commission
+  (money); the line's commission panel and the person's own page
+  (money, supply); Ask Etyme's answers (conversation).
+
+## The founder's tester on production, 2026-11-08: blocked at activation, and the paper and the payment have no checker
+
+The tester walked a fresh flow on production (still 374f522bd of
+2026-11-04: nothing has shipped since, because the sixth walk never
+ran and the UX build took the box). What now works: a job with dual
+approval publishes itself to three suppliers, submissions land, a
+clean placement (Noor Rahman, $100/hr, one order line, no duplicate),
+and supplier ticks persist (they are hidden until approval and the
+Edit form shows no supplier section, so they read as lost). What
+blocks, in the tester's order, each with its owner:
+1. **No seat can check what a worker sent from her own page.** Noor's
+   I-9 and right to work read "4 documents are with them, waiting to be
+   checked"; the client's Document requests reads "waiting on you 0";
+   the background check and drug screen the placement needs are not on
+   her page at all (right: she does not hold the report, the firm
+   orders it) and nothing on the placement offers to record the
+   provider's verdict; Activate is inert in both seats ("Starting…"
+   then a revert, no sentence). Regulatory: a worker's own upload
+   lands on her employer's Paperwork list as "Arrived, not examined"
+   and counts on the examiner's "waiting on you"; every paper the
+   placement needs carries its own door on the placement (check what
+   arrived; record the provider's verdict with name, reference, date;
+   ask the worker). Demand: Activate always shows the route's sentence,
+   whatever the code, and never reverts silently.
+2. **Payment dead-ends on the bank check.** Every CSI bill is held
+   "bank details not checked", and the demo client has no Finance
+   seat, so nobody can check. Money, coordinator's call reversible in a
+   sentence: where a client has no Finance seat the AP clerk checks the
+   supplier's bank (the fallback rule: a role nobody has named falls
+   back, never refuses), the hold's sentence names who checks and
+   links to the check, and the check records who and when as Finance's
+   does.
+3. **A supplier's certificate has lapsed on production while the
+   picker still says "runs out in 20 days"**: a stored count, rebuilt on
+   the day it is read (demand reads regulatory's standing). The seeded
+   world is aging on production; a reseed is the founder's secret.
+4. **Still there from 2026-11-04** because undeployed: Rajesh's
+   duplicate drafts and background/drug mismatch (money, regulatory:
+   fixed on the branch, to be proven on the walk); Helena's "No weeks
+   filed yet" over 200 hours accepted and $23,200 invoiced, with no CSI
+   Timesheets row (money); a recruiter reading a rate band (demand: a
+   supplier's recruiter reads its own invitation's band by design; what
+   the tester saw is read against that rule before anything is hidden);
+   Kwame at 135% not read as over the limit on the Tenure tab (demand,
+   with regulatory's words); Ask Etyme right in one of three seats
+   (conversation, once the three seats are named); the first click on
+   any menu link doing nothing (architect: the client-side tab redirect
+   and hydration).
+5. **The public site: the tester's "10 of 16 footer links 404" is not
+   etyme2040.vercel.app.** Checked the same hour: every footer link
+   (the five doors, documentation, security, privacy, terms, DPA,
+   contact) answers 200; `/product` and `/pricing` 404 and are on no
+   footer of ours. The tester was on another host, likely the marketing
+   site. About's price line ("paid by suppliers, as a share of what they
+   bill") is the founder's own line of 2026-10-15 about a program Etyme
+   runs, beside "free while we test"; whether it should go is his word.
+**The order:** the two checkers first (they are the trust flows), the
+Activate sentence, the stale count; release pass 41 on the quiet tree
+after the simulation; walk 6 on screens as Noor, her employer's HR, the
+client's AP clerk and Finance; deploy on its yes.
+
+**The thousand-job run, 2026-11-08 13:29 UTC
+(`reports/simulation-20261108132939.md`, on a42275500, 2,000 people
+rebuilt with the worker classes, 40 at once, 29 minutes).** 338 firms,
+3,763 seats. 1,000 jobs: 686 published themselves within plan, 314
+approved by the people they were routed to; 784 sent to suppliers with
+5,278 invitations, each with its own band; 1,338 of 1,529 people said
+yes to a bench from their own seat and 191 said no; 1,692 people put
+forward on 767 jobs (519 as the firm's own employee); matching ran
+6,278 times, all by rules; 1,208 interview rounds booked with all three
+sides and answered from the person's own page; 531 awards; 337 bills
+raised and passed the three-way check at their payer, 70 keyed-in
+receipts, 2 held over the hours (one waived with a reason, one left
+held); 408 invoice receipts paid through the one gate; 202 pay periods
+worked out, approved and paid; 512 complete transactions; no server
+error on any route but four on the document upload. **Every kind of
+worker met its rule**: citizens, permanent residents, H-1B, TN, OPT,
+CPT, EAD and domestic students all started where their papers held;
+the three international students with no CPT or OPT who were awarded
+were interviewed and never started, in the rule's own sentence; one
+EAD worker was refused on a lapsed nursing license; the 2,038 people
+outside the US were asked nothing about US status. **Twenty-three
+awards walked four rungs at the client (target 20, met) and none had
+every rung below awarded**: the prime's and sub-vendor's awards stopped
+on the time-limit rule reading the lower rung's line as open-ended
+(the client's end date was not carried down) and on lapsed insurance
+at two sub-vendors (the generated world lapses one in eight on
+purpose), so the chain's invoice receipt at every rung is not yet
+proven (demand). Also found: a second submission of the same person
+was not refused as a duplicate three times (demand, the invariant);
+four server errors on the upload route (regulatory); seven routes over
+two seconds at p95, the nightly agent run 45.5 s for 338 firms, sending
+a job 6.0 s, the bill submit 5.1 s (known). The rules held as expected:
+327 submissions went ahead past the client's time limit with the reason
+written down; the 90-day break refused a return in a sentence; a
+licensed job turned away a person with no license.
+
 ## Ask Etyme is full screen, keeps its conversations, and shows an answer as data — the founder, 2026-11-03
 
 *"Ask Etyme should work like Claude harness model with conversations
@@ -1953,6 +2354,143 @@ it; the test now asks for a person nobody at Pinnacle pays, lists or
 seats (77c5c2b40, test only, green alone). The fifth walk runs on this
 build with the navigation screenshots the founder asked for, and the
 deploy follows its yes.
+
+**The fifth walk and the deploy, 2026-11-04.** The walk on pass 37's
+build (31 checks on 14 seats: 3 saved and proven, 25 refused or answered
+rightly, 2 failed, 1 not proven) said the founder's blocker is closed:
+Rosa Delgado's and Omar Haddad's accepted undertakings read on file on
+the placement and on Compliance, a fresh W-2 request asks for nothing
+and creates no request, Rosa's own page lists nothing still needed, and
+the backfill closed 640 items (right to work 464, the undertaking 57,
+hot-floor induction 80, sterile-field training 39), so Rajesh Iyer's
+request reads "Everything is in". The navigation holds on every seat:
+a supplier, a bench vendor (Techpeple) and an integrator read the
+eleven links and a client the nine, Network opens its grouped tab row,
+Paperwork is a tab of Contracts and gone from Settings, all 60 tabs
+and every old address open, the home chips read Job · Submissions ·
+Timesheets · Invoices and Step 2 of 4 is headed Submissions; 91
+navigation screenshots for the founder under
+`scratchpad/walk-saves/shots5/nav/`, every menu and tab row on a
+supplier and a client at desktop and phone width. Every fix of pass
+36 and 37 holds (Contracts "All 28 · Active 26 · $3,206/hr · 1–20 of
+28"; Karthik's firm hat; Colleen's one hat). The walker's verdict was
+"does not ship" on two faults this wave did not introduce: Compliance
+collapses six people's missing background checks into one row naming
+nobody, because `whatThisFirmOwes` leaves the person out of its key
+when the firm owes the paper (regulatory; walk 4 had read the same
+single row as the truth); and the degree warning is still not told to
+the worker, because `degreeCheckForYou` is called only by its own test
+while the test name and the matrix row say it is built (regulatory's
+call site, conversation's words). **The coordinator's call, reversible
+by the founder in a sentence: deploy.** The founder's own blockers are
+proven on screens, neither fault makes production worse than it was
+(both were there on the 3a35d888d build), his retest has waited a day,
+and both are fixed in the same hour for the next deploy. Also found:
+Rosa's page lists accepted papers under "Asked for", one twice;
+Rajesh's request reads "Finished" while its I-9 is unexamined; the
+request link prints a raw past date; Rosa's greeting still asks for
+the accepted undertaking; Karthik's greeting reads "You are in
+validation engineer"; Colleen's one-person firm is asked to approve
+her own expense; the page under Invoice receipts is headed "Accounts
+payable" and under Network "Consultants"; an MSP seat could not be
+opened outside a client's program, so its own ten-link menu is not
+proven on screens. **Shipped to production 2026-11-04 (374f522bd on
+the deploy branch, source f55f389b1):** the founder's retest wave
+(Activate, every acceptance read by the placement, the pay line, Bill
+this week, the I-9 dialog, the packet rows, the picker's reasons, the
+sign-in link, the worker door on /demo, the model switch link, the nav
+answers), the money and papers fixes of walks 3 and 4, the menu wave
+(the hats, Submissions and Candidates, Contracts, Network above Jobs,
+Paperwork under Contracts, the process order through the money, the
+Submissions step), with release pass 37 green on the product code.
+Gates on the replay: no Ruby, brand kit present, no source difference;
+the twelve additive columns and two indexes of the two waves land
+through `DB_PUSH_ON_BUILD`, still on since October 21. Smoke: health
+says "Serving 374f522b from main" with the database reachable and the
+schema there; the home page, the demo, the four doors, the
+documentation and `/docs/candidates`, about, contact, security,
+privacy, terms, the DPA, sign-up and `/site/tapin` answer 200; the home
+page's chips read Submissions; the inbound email door answers 404 to a
+POST. **The founder's two steps:** run the backfill once on
+production, `POST /api/packets/backfill` with `{"write": true}` and his
+cron secret (`{}` first to read the counts), which closes the older
+requests' items for papers their placements hold; and, when he wants
+Ask Etyme to read free text, the model key on the production project.
+
+**The post-deploy fix wave, the same morning, from the fifth walk's
+leftovers.** Money (9b7a22853): a one-person firm's own expense is
+approved on filing where every seat that may approve is her own (the
+automation log says why, reversible while no firm above accepted), so
+no card, no queue item and no Approve, and she reads "Filed. It is
+waiting on Halcyon Talent to accept it. Your firm is yours alone, so
+you are not asked to approve your own expense" in the second person
+(`lib/money/own-firm-expense`); demand (fbd7dc47e): the decisions
+queue drops her own expenses through money's `ownFirmExpenseIds`, so
+her mark, her greeting and Today never ask her. Conversation
+(5eb96c9a7, 3bfd8e1a7, 1f308d7ce, 616f05999): a "<firm> needs … from
+you" notice is read against the record on the day it is said
+(`paper-asks.ts` with `heldOnRecord`), so a paper on file is never
+asked for again and a notice names only what is left; a role a firm
+named itself is said as the role, "as Validation Engineer", never "in
+validation engineer", and a seat with no role "as Member"; the framing
+for the AP page (a supplier reads Invoice receipts; a client its
+Invoice receipts link above "Accounts payable") and for the people
+page (Network · Candidates); and the pay refusal's link is built from
+money's `receiptsLink`. Coordinator's and owners' calls, each
+reversible in a sentence: her filing counts as her firm's approval
+rather than a queue item nobody can take; the queue reads the ten
+oldest submitted expenses and then drops hers, so a turn may list
+fewer than ten; the AP page and the Consultants page type their own
+headings and read the framing only when money and supply wire it
+(in flight). Still in flight: regulatory's F1 (each person owed is
+one named row on Compliance) and F2 (the worker told when her degree
+is warned), Rosa's page listing accepted papers under "Asked for",
+"Finished" on a request whose I-9 is unexamined, the raw past date on
+the request link; and money's call on where a supplier's "Open Invoice
+receipts" lands now that its menu has that link. Then the matrix rows,
+release pass 38, a short walk on those cases, and the next deploy.
+**Landed, the same hour.** Regulatory (9cfcf3f52, 5d1852ae6, 1a73799ca):
+Compliance classes each item as about the firm (the agreement,
+insurance, good standing, the W-9, the business partner form: one row
+per customer) or about a person (everything else, a background check
+the firm owes included: one named row per person, whoever owes it,
+keyed by line so two people with one name stay two rows), and a check
+the firm owes says "Brightmoor Staffing's to produce for Anders
+Achterberg" (`src/app/api/compliance/owed-rows.ts`); the worker hears
+about her degree at every door that reads it (her own upload, her
+answer to a request, HR's accept on Paperwork and on a request),
+through conversation's `degreeCheckForYou`, once per firm and sentence
+and never HR's words (`lib/document-stages/degree-told`), and her own
+upload now also tells HR at every firm that reads her papers; an
+accepted paper is listed once on her page under on file with the firm
+that accepted it; a request reads "Received, waiting on HR to look at
+I-9 and E-Verify" until every paper is examined or on file, and
+"Finished" only then (`progressOf` in `lib/packets`); a stored start
+sentence is rebuilt on the day the worker's link is read
+(`startSentenceNow`). Money (d5dea6f9c): the AP page is headed by the
+reader's Invoice receipts link through the framing, and a supplier,
+integrator or MSP asked to pay is sent to `/dashboard/ap`, the page its
+menu calls Invoice receipts (reversible: send them back to Bills opened
+on what they owe); a one-person firm, with no such link, still goes to
+Bills. Supply (77bd11036): the Consultants page is headed Network ·
+Candidates through the framing, its subtitle the founder's words.
+Corrected in the matrix: the degree row had listed
+`degree-told-to-the-worker.test.ts` as built since 3b01b83b2, and until
+5d1852ae6 the function was called only by its test. Still open, with
+owners: HR's request list prints an older request's stored start
+sentence as written (regulatory); an item sent and not yet examined
+still reads "On file" on the worker's own list (regulatory, the class
+of "On file" without an examination); the `receiptsLink` comment in
+the Ask Etyme route still says "a supplier at Bills" (conversation).
+**Release pass 38 on 3ff7b7f9f, fully green:** type check, 13,658 unit,
+2,645 integration, build. The sixth walk runs on its build
+(`scratchpad/walk6-brief.md`: the Compliance rows, the worker told
+about her degree, Rosa's greeting and page, Rajesh's request and link,
+Colleen's own expense, Karthik's role line, the two headings, where a
+supplier pays, and an MSP's own ten-link menu), and the fix deploy
+follows its yes. The UX vision the founder asked for the same hour
+("don't code right away") is drawn, not built; see "One app, two
+views".
 
 ## Onboarding is tested as every party and fills itself from what the company already has — decided by the founder, 2026-10-27
 
@@ -4702,27 +5240,45 @@ attention. What changes is density and voice.
 
 ### Navigation per company type
 
-Eleven links at a supplier, an integrator or a bench vendor, ten at an
-MSP and nine at a client, in the founder's process order with Network
-first, and a process step is a tab (founder, 2026-10-19 for the tabs;
-2026-11-03 for the words; 2026-11-04 for Network, the Paperwork tab and
-the order: see "Master data sits under Network", "Paperwork is a tab of
-Contracts", "The process order, in the founder's words" and "Network
-sits above Jobs"). A menu entry is a noun on the person's own work;
-every other page is a tab inside one of them. Submissions is who was
-put forward to a job, Contracts is the line from the award on, and
+**Since 2026-11-08 ("One app, two tabs"), the top of the left column is
+one switch, Ask Etyme | Dashboard, with the seat's number on Ask Etyme.**
+In Ask Etyme the column holds New conversation, search, Pinned and the
+conversations; in Dashboard it holds the role's menu, below. A firm's
+menu reads the founder's sketch: Today · Network (Candidates, Companies)
+· Jobs · Submissions · HR (Contracts, Timesheets, Expenses) · Accounting
+(Receivables, Payables, Payroll, Reports) · Settings ("Money is
+Accounting", 2026-11-08: Receivables is the Bills page and Payables the
+Invoice receipts page; the pages keep the trade's words, and only the
+menu names the two ledgers). Reports is cash flow and profitability
+(founder, 2026-11-08): Profitability is a page of the Reports link at
+its own address, and Reports is offered only where the seat may open
+Receivables' AR, Payables or Profitability. A client reads Accounting
+with Payables only until the Reports page has been read as a client
+(coordinator's call, 2026-11-08, reversible in a sentence). A group
+is a heading and never a link, and a link is drawn only where the role
+may open one of its pages. Ask Etyme is not on the menu: the switch is
+Ask Etyme. In the table, "Network: Candidates, Companies" is the heading
+Network over two links.
+
+The tabs behind each link have not moved (founder, 2026-10-19 for the
+tabs; 2026-11-03 for the words; 2026-11-04 for Network, the Paperwork
+tab and the order: see "Master data sits under Network", "Paperwork is
+a tab of Contracts", "The process order, in the founder's words" and
+"Network sits above Jobs"). A menu entry is a noun on the person's own
+work; every other page is a tab inside one of them. Submissions is who
+was put forward to a job, Contracts is the line from the award on, and
 Network holds the two lists a firm keeps: Candidates, the people it
 keeps, and the firms it trades with (Companies, or a client's
 Suppliers).
 
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
-| Client | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Invoice receipts · Settings | Conversations → Ask Etyme. By region → Today. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. Expenses → Timesheets. AP, Budget, POs → Invoice receipts. Candidates, Suppliers, Contacts, Agreements, Supplier scorecards → Network. Users & permissions, Program team, MSPs, Org view, Program twin, Data requests, Your data, Import, Sites → Settings. |
-| Supplier | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings | Conversations → Ask Etyme. Reports, Profitability, Rate history, Our scorecard → Today. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Expenses, Rolloff → Timesheets. AR → Bills. AP → Invoice receipts. Commissions → Payroll. Candidates, Bench, Bench pay, Bench check-ins, Training, Companies, Suppliers, Contacts → Network. Users & permissions, Setup, Sites, Import, Integrations, Automation, DNR list, Data requests, Your data → Settings. |
-| Integrator | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Payroll · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
-| MSP | Ask Etyme · Today · Network · Jobs · Submissions · Contracts · Timesheets · Bills · Invoice receipts · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Bills. AP → Invoice receipts. Companies, Suppliers, Supplier scorecards, Contacts → Network. |
-| One-person firm | Ask Etyme · Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
-| Worker | Ask Etyme · Your work · Your page · Who has you · Your data · Your paperwork | Unchanged: a list under "You", not nouns with tabs. |
+| Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Program team, MSPs, Org view, Program twin, Data requests, Your data, Import, Sites → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Setup, Sites, Import, Integrations, Automation, DNR list, Data requests, Your data → Settings. |
+| Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
+| MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
+| One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
+| Worker | You: Your work, Your page, Who has you, Your data, Your paperwork | Unchanged: a list under "You", not nouns with tabs. |
 
 Each link opens the first of its pages the reader may open, and on any
 of them the shell draws the tab row under the page header, the noun's
@@ -4736,8 +5292,9 @@ Document requests · …"), the group's name being the link to its own
 register where one is named after it, so Bench, Contacts or Document
 requests is one click from the link. Settings keeps Papers you require
 (the setup checklist's item), the DNR list and the automation ladder.
-The menu never prints a group, and the eyebrow over a page reads the
-link it is a tab of. The money is three links in the founder's order:
+The tab row's groups are not the menu's headings: the eyebrow over a
+page still reads the noun it is a tab of (Network over Bench, Timesheets
+over Expenses, Today over Profitability), because the tabs did not move. The money is three links in the founder's order:
 Bills (what the firm issues upward, with AR, where payments in are
 recorded), Invoice receipts (what it receives from below: AP, where
 payments out are recorded; there is no separate payments page, so each
@@ -4746,6 +5303,7 @@ with Commissions). Nothing on a menu is hidden by a firm's posture: a
 bench vendor reads the supplier's whole menu. Sites stay under
 Settings; the worker's "You" is the one list.
 `__tests__/invariants/sidebar-nav.test.ts` reads this table — the links
+and headings the Dashboard column prints (`menuFor` in lib/nav-table)
 and every page named in the third column — and fails when the code and
 it disagree, so a link renamed in one and not the other breaks the
 build rather than the founder's walk.
