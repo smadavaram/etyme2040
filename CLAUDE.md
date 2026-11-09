@@ -2052,6 +2052,125 @@ degree abbreviation ("BSN") matches its full name only word for word;
 the visa petition's new columns are empty for petitions filed before
 today until somebody backfills them.
 
+**Shipped to production 2026-11-09, afternoon (5bc03bb52 on the deploy
+branch, source e6c69ef94), on the founder's "deploy when green"**, after
+his tester's scale audit and his word the same day: *"It's not about
+fixing language on demo but fixing the reconciliation and calculation,
+and workflows on the app."* What is in it:
+- **One definition of money** (money, `lib/money/order-ledger`). An
+  order's Billed is bills sent plus invoice receipts the payer typed
+  in; Left is Authorized minus Billed; a draft, or a bill raised and
+  never sent, is "drafted, not sent", said apart and owed by nobody.
+  The placement page, the PO page, Payables, the supplier's Bills, the
+  program page, the budget, Today and Ask Etyme's spend all read it, so
+  every seat reads one order's figures the same. A payer cannot open a
+  bill nobody has sent it, and is told who sends it.
+- **Signed and not billed is one figure** (`lib/money/signed-unbilled`),
+  priced by the Bills page's own generator on a dry run: the decided
+  overtime premium, accepted billable expenses, the rate in force that
+  week. A week the next bill would leave off reads unpriced, never
+  guessed. Hours a sent bill carries past the signed week are said
+  apart ("billed past signed hours", Lucía Fernández's $147), so on the
+  seeded world Spent − Billed = Signed-not-billed − billed past signed,
+  to the cent, on every cost center. The client's budget keeps "Spent"
+  as weeks signed and gains "Billed" beside it (coordinator's call,
+  reversible). The placement page lists every week, counted.
+- **Timesheets** say each week in its line's own currency, export every
+  column with a Currency column, and let a firm accept fewer hours than
+  were filed with a reason, priced on the accepted hours with the cut
+  off overtime first. Accepting more hours than were filed is refused,
+  because only the worker files hours (coordinator's call).
+- **Send** updates the page in place and a second send is refused;
+  Send and Submit for payment are drawn only for the firm that raised
+  the bill. Due dates print through one formatter.
+- **Walk 8's faults**: the degree's same-file warning names only people
+  the reading firm holds (a cross-company disclosure live on production
+  until this deploy); a worker's degree lands on her employer's
+  Paperwork with the three doors; a visitor's own demo keeps its
+  conversations; the commission answer links the asker's own page;
+  Accounts Receivable reads what it billed on its own placement.
+- **Tests**: 167 integration picks of seeded rows now carry an order or
+  a fact, after three files failed when a template rebuild reordered
+  rows; a test that picks "the first row" is wrong by construction.
+Release pass 48 on 931e712d9, fully green: type check, 14,676 unit,
+2,800 integration, build; on e6c69ef94 the type check, the 191 unit and
+134 integration tests that read the changed files, and the build, all
+green. Walk 9 (does not ship: an unsent bill counted as owed, Today's
+draft missing its expense, a buy-side order blank), 9b (does not ship:
+the supplier's own Bills row) and 9c (ships), reports under
+`scratchpad/walk-saves/report9*.md`. Gates: no Ruby, brand kit present,
+no source difference; the schema only adds six nullable columns,
+landed through `DB_PUSH_ON_BUILD`. Smoke: health "Serving 5bc03bb5"
+with the database ready; every public page, the four doors and
+`/site/tapin` 200; the inbound email door 404 to a POST. **Open for
+the founder:** T3/T4 (a bill past its signed week is said apart, not
+yet stopped; a hold released by one person); About's MSP price line;
+regional payroll scoping; moving etyme.com's DNS to Vercel
+(`docs/dns/vercel-dns.md`); notices already sent on production that name
+another firm's worker in a degree warning need a one-off clean-up.
+
+## Team structure is one tree the Owner draws, and it can come from the directory — the founder, 2026-11-09
+
+*"Use hierarchical mindmap like top down hierarchy flow chart path to
+define team structure, along department and facilitate global teams."*
+Then, on the first drawing: *"Make it more easy: drag and drop, add box
+under or same level, delete a box. A team can have 8-10 names vertically
+at same level and last node"*; *"Make right click over the box have
+actions like adding a node or roles"*; *"Can it be integrated or imported
+from Active Directory"*. "Build it", on the second drawing
+(https://claude.ai/artifact/SZSWPQH7k2JjAdKbZsJeH9, Corvane Packaging
+from the seed). Tested against the five questions: core problem strong (a
+company with sites in eight countries cannot say who answers for which),
+real economy partial, the stepping stone strong (approvals, alerts and
+Ask Etyme route to a team's lead), money partial, simple strong ("see who
+leads every team, in every country"). Verdict: build now; most of it is
+on the record already (`OrgUnit` is a tree, a REGION unit scopes a seat,
+a grant reaches a unit and everything under it).
+
+- **One screen, Settings → Team structure**, the Owner and Admin only.
+  The company at the top, then departments, regions, sites and teams,
+  drawn top down; the last level stacks downward; each box shows its
+  kind, its lead, its people (ten names, then "and N more"), its
+  contractors, open jobs, nearest time limit, countries and currencies,
+  and the chosen box's editor beside the tree. On a phone it is an
+  indented list.
+- **Every act is one gesture and one route.** Drag a box onto a box to
+  put it under, onto its edge to put it beside; drag a name onto a box to
+  move that person; "+ Under" and "+ Beside" (U and B); delete with a
+  confirmation that says what moves up; undo; and a right-click menu
+  (press and hold on a phone) on a box (add under or beside, add a
+  person, rename, name the lead, change the lead's role, change the kind,
+  fold, move, give access, delete) and on a name (make lead, change role,
+  move, take off). Every change is recorded with who and when.
+- **A box has one named lead**, a seat at the company, recorded with who
+  set it and when; it never grants a permission by itself (a grant is
+  still made under Users & permissions).
+- **Deleting a box moves what was under it up one level**, people and
+  teams; a site with contractors at it is refused in a sentence; nothing
+  about a person's history or time on site changes when a team moves.
+- **Contractors move by their charging unit.** Dragging a contractor's
+  name changes which unit their line is charged to
+  (`SellContract.orgUnitId`), recorded; never their supplier, rate or
+  dates (coordinator's call, reversible in a sentence).
+- **The directory is read, never written.** Microsoft Entra ID (the
+  Active Directory in the cloud the sign-in already uses, by one read-only
+  directory consent from the client's IT admin), Google Workspace, or a
+  CSV exported from Active Directory on the client's own servers.
+  `department` becomes a box, `manager` its lead and the box above,
+  `officeLocation` the site, `country` its country, `jobTitle` the role.
+  The Owner or Admin reads a preview of every change and ticks what is
+  made; nothing is deleted (a box gone from the directory is shown, not
+  removed); an edit made on the screen wins and a disagreement is asked;
+  contractors are not in a directory and are never moved by an import;
+  an optional nightly check tells the Owner in Ask Etyme what changed.
+- **Built in this order:** the tree's schema (a lead with who and when,
+  the move and delete rules) and its routes, then the screen with drag,
+  the menu and the editor (architect); the directory import, CSV first
+  because it needs no keys, then Entra ID and Google Workspace behind
+  the founder's app consent (architect, with regulatory for the access
+  log of every directory read); the nightly difference as a line in the
+  Owner's greeting (conversation).
+
 ## Ask Etyme is full screen, keeps its conversations, and shows an answer as data — the founder, 2026-11-03
 
 *"Ask Etyme should work like Claude harness model with conversations
@@ -5497,8 +5616,8 @@ Suppliers).
 
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
-| Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Program team, MSPs, Org view, Program twin, Data requests, Your data, Import, Sites → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Setup, Sites, Import, Integrations, Automation, DNR list, Data requests, Your data → Settings. |
+| Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Program team, MSPs, Org view, Program twin, Data requests, Your data, Import, Sites, Team structure → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Setup, Sites, Team structure, Import, Integrations, Automation, DNR list, Data requests, Your data → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
