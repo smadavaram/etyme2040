@@ -51,7 +51,7 @@ describe("a paying firm's choice of how overtime is paid on a cut week", () => {
   beforeAll(async () => {
     await freshWorld()
 
-    const direct = await prisma.buyContract.findFirstOrThrow({
+    const direct = await prisma.buyContract.findFirstOrThrow({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       where: { contractType: 'W2', supplierSellContractId: null, sellLinks: { some: {} } },
       include: { sellLinks: { include: { sellContract: true } } },
     })
@@ -63,7 +63,11 @@ describe("a paying firm's choice of how overtime is paid on a cut week", () => {
         where: { companyId, type: 'EMPLOYEE', role: { isNot: null } },
         include: { role: true, person: true },
       })
-      const o = ctxs.find((c) => c.role!.permissions.includes('*'))!
+      // The Owner by its role, the way every company is formed: the shipped
+      // Owner holds every permission by name (lib/company-defaults), and
+      // only some seeded firms write it as '*'. Reading '*' alone found no
+      // Owner at Corvane Packaging, whose roles are the shipped ones.
+      const o = ctxs.find((c) => c.role!.name === 'Owner') ?? ctxs.find((c) => c.role!.permissions.includes('*'))!
       return { id: o.id, personId: o.personId, email: o.person.primaryEmail }
     }
     owner = await ownerOf(firmId)

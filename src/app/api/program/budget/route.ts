@@ -11,7 +11,13 @@ import { lineFor, splitWeeks } from '@/lib/overtime'
 import { actingDesk } from '@/lib/program-seat'
 import { isDeskless } from '@/lib/nav-table'
 import { noDeskYet } from '@/app/api/program/no-desk'
-import { logBulkAccess, recordRefusal } from '@/lib/access-log'
+import { recordRefusal } from '@/lib/access-log'
+import { linesBilled } from '@/lib/money/order-ledger'
+import { signedAndBilled } from '@/lib/money/signed-unbilled'
+import { centerBilled, budgetTotals } from '../billed-figures'
+import { minorFromWhole } from '@/lib/money'
+import { units } from '@/lib/money-display'
+import { jobCurrency } from '../../requisitions/job-currency'
 
 /**
  * GET   /api/program/budget   — every cost center, what it has committed and spent
@@ -260,6 +266,11 @@ export async function GET(request: NextRequest) {
     ...cash(e.invoiceLines, charges.get(e.sellContractId)!),
   }))
 
+  // Billed, beside Spent, by money's one definition (`./../billed-figures`):
+  // bills sent on the lines the client pays, and the signed time not billed
+  // yet on them. A draft is in neither.
+  const [billedOn, signedOn] = await Promise.all([linesBilled(contractIds), signedAndBilled(contractIds, now)])
+
   const LIVE = ['IN_PROGRESS', 'VERIFIED', 'PENDING_VERIFICATION']
   const rows = centers.map((c) => {
     const plan = c.headcountPlans[0]
@@ -276,7 +287,9 @@ export async function GET(request: NextRequest) {
     }))
     const mine = new Set(contracts.map((x) => x.id))
     const ledger = ledgerFor({
-      budgetCents: plan ? Math.round(Number(plan.annualBudget) * 100) : null,
+      // Stored in whole units of the plan's currency; minor units by that
+      // currency's own decimals, never times a hundred (a dong budget has none).
+      budgetCents: plan ? minorFromWhole(Number(plan.annualBudget), plan.currency || 'USD') : null,
       contracts,
       work: work.filter((w) => mine.has(w.contractId)),
       expenses: spend.filter((e) => mine.has(e.contractId)),
@@ -291,12 +304,16 @@ export async function GET(request: NextRequest) {
       approvedHeads: plan?.approvedHeads ?? null,
       currency: plan?.currency ?? 'USD',
       ...ledger,
+      ...centerBilled(contracts.map((x) => ({ id: x.id, shareBps: x.shareBps })), plan?.currency ?? 'USD', billedOn, signedOn),
     }
   })
 
-  const total = (pick: (r: (typeof rows)[number]) => number) => rows.reduce((n, r) => n + pick(r), 0)
-  const budgeted = rows.filter((r) => r.budgetCents != null)
-
+  // One total per currency, never two currencies added (walk 8 follow-up):
+  // a program with budgets in dollars and dong reads two totals. The flat
+  // figures stay where there is one currency, and are null where there are
+  // several, so no reader mistakes a sum across currencies for a figure.
+  const byCurrency = budgetTotals(rows)
+  const one = byCurrency.length <= 1 ? byCurrency[0] ?? null : null
   return NextResponse.json({
     data: {
       period,
@@ -307,12 +324,17 @@ export async function GET(request: NextRequest) {
       mayBudgetAnywhere: hasPermission(caller.permissions, 'governance.write'),
       me: caller.person.id,
       summary: {
-        budgetCents: budgeted.length ? budgeted.reduce((n, r) => n + (r.budgetCents ?? 0), 0) : null,
-        committedCents: total((r) => r.committedCents),
-        actualCents: total((r) => r.actualCents),
-        toPayCents: total((r) => r.toPayCents),
-        paidCents: total((r) => r.paidCents),
-        withoutBudget: rows.length - budgeted.length,
+        budgetCents: one ? one.budgetCents : null,
+        committedCents: one ? one.committedCents : null,
+        actualCents: one ? one.actualCents : null,
+        toPayCents: one ? one.toPayCents : null,
+        paidCents: one ? one.paidCents : null,
+        billedCents: one ? one.billedCents : null,
+        signedNotBilledCents: one ? one.signedNotBilledCents : null,
+        billedOverSignedCents: one ? one.billedOverSignedCents : null,
+        currency: one?.currency ?? null,
+        byCurrency,
+        withoutBudget: rows.filter((r) => r.budgetCents == null).length,
       },
     },
   })
@@ -384,11 +406,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // A new budget is in the client's own currency, never dollars by default.
+  const planCurrency = await jobCurrency(client.id)
   const plan = await prisma.headcountPlan.upsert({
     where: { costCenterId_period: { costCenterId: center.id, period } },
     create: {
       costCenterId: center.id, period, annualBudget,
-      approvedHeads: approvedHeads ?? 0, currency: 'USD',
+      approvedHeads: approvedHeads ?? 0, currency: planCurrency,
     },
     update: {
       annualBudget,
@@ -398,9 +422,9 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     data: {
-      plan: { period: plan.period, annualBudget: Number(plan.annualBudget), approvedHeads: plan.approvedHeads },
+      plan: { period: plan.period, annualBudget: Number(plan.annualBudget), approvedHeads: plan.approvedHeads, currency: plan.currency },
       says:
-        `${center.code} is set to $${Math.round(Number(plan.annualBudget)).toLocaleString('en-US')} for ${period}. ` +
+        `${center.code} is set to ${units(Number(plan.annualBudget), plan.currency || 'USD')} for ${period}. ` +
         'What is committed and what has been accepted now read against it.',
     },
   })
