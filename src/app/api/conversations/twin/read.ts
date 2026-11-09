@@ -43,10 +43,15 @@ import { GET as benchRoute } from '@/app/api/bench/route'
 import { GET as profitabilityRoute } from '@/app/api/profitability/route'
 import { GET as grantsRoute } from '@/app/api/settings/grants/route'
 import { permissionScope, GRANT_RIGHT } from '@/lib/permission-grants'
+import { marginReachFor } from '@/lib/money/margin-reach'
+import { commissionReader } from '@/lib/money/commission-write'
+import { commissionAccruals, monthPeriod, type RowAccrual } from '@/lib/money/commission-accrual'
+import { CLIENT_COMMISSION_REFUSAL, COMMISSIONS_LINK, mergeMonths, type CommissionLine, type CommissionWhen } from './commission-answer'
 import { scopeLine, teamsGranted, noAccessSays, ACCESS_LINK, type GrantOffer, type RoleHolders, type GrantHeld } from './access'
 import { marginRefusal, type MarginRow, type MarginCutLine } from './ask'
 import { GET as ourBenchRoute } from '@/app/api/bench/ours/route'
 import { GET as submissionsRoute } from '@/app/api/submissions/route'
+import { reachFor, jobInReach, outsideReachSays, type Reach } from '@/app/api/requisitions/grant-reach'
 import { GET as complianceRoute } from '@/app/api/compliance/route'
 import { labelFor } from '@/lib/document-type'
 import { maySendBills } from '@/lib/money/bill-send'
@@ -257,6 +262,22 @@ export function readersFor(
     return { ok: true, data: body.data }
   }
 
+  /**
+   * How far this seat reads jobs or submissions, exactly as the routes
+   * narrow them (demand, 37c14618b): a seat whose own role holds the desk
+   * reads the firm's, and so does a seat in another company's program; a
+   * seat that reads them only by an Owner's grant reads that team and the
+   * teams under it, or its own work. Null where the reach is the firm's.
+   */
+  const jobsReach = async (what: 'submissions' | 'jobs'): Promise<(Reach & { teamNames: string[] }) | null> => {
+    if (seat || !caller.company) return null
+    const ownRole = (caller as { rolePermissions?: readonly string[] }).rolePermissions ?? caller.permissions
+    const desk = what === 'submissions' ? ['*', 'submissions.read', 'submissions.create'] : ['*', 'requirements.read']
+    if (desk.some((p) => ownRole.includes(p))) return null
+    const r = await reachFor(caller, what === 'submissions' ? 'submissions.read' : 'requirements.read')
+    return r.has && (r.scope === 'UNIT' || r.scope === 'PERSON') ? r : null
+  }
+
   return {
     /**
      * Over what this seat reads a permission (lib/permission-grants), said
@@ -264,7 +285,15 @@ export function readersFor(
      */
     async scopeLine(permission: string): Promise<string | null> {
       if (!ownCompany || seat || !caller.company) return null
-      const s = await permissionScope(caller, permission)
+      // Jobs and submissions are said as the routes narrow them, never wider or narrower.
+      if (permission === 'submissions.read' || permission === 'requirements.read') {
+        const r = await jobsReach(permission === 'submissions.read' ? 'submissions' : 'jobs')
+        return r ? scopeLine(permission, r.scope, r.teamNames, await giversHere()) : null
+      }
+      // What placements make opens on margin.read or pnl.read, and its reach
+      // is the wider of the two: the one money's Profitability reads at the
+      // query (lib/money/margin-reach), so the line and the figures agree.
+      const s = permission === 'margin.read' ? await marginReachFor(caller) : await permissionScope(caller, permission)
       if (!s.has || (s.scope !== 'UNIT' && s.scope !== 'PERSON')) return null
       const units = s.scope === 'UNIT' && s.unitIds.length
         ? await prisma.orgUnit.findMany({ where: { companyId: caller.company.id, id: { in: s.unitIds } }, select: { id: true, name: true, parentId: true } }).catch(() => [])
@@ -1174,6 +1203,80 @@ export function readersFor(
     },
 
     /**
+     * Money's commission rows on this firm's lines for this month
+     * (lib/money/commission-accrual), at the reach money's rule gives this
+     * seat (`commissionReader`): the firm's for the Owner, a Contract
+     * Manager and whoever reads payroll; the seat's own for anybody else,
+     * read with only its own rows asked for, so nobody else's figure is
+     * ever loaded. Every other person whose commission is read is logged.
+     */
+    /**
+     * Whether a name is a company on Etyme's record, by its exact name,
+     * ignoring case: what tells "What does Pinnacle Resourcing pay its
+     * people?" (another firm's book) from "What did Ruth Ellis earn?" (a
+     * person), never the capitals. Reads one id; logs nothing about anybody.
+     */
+    async firmOnRecord(name: string) {
+      const n = name.trim()
+      if (n.length < 2) return false
+      const hit = await prisma.company.findFirst({ where: { name: { equals: n, mode: 'insensitive' } }, select: { id: true } }).catch(() => null)
+      return hit != null
+    },
+
+    async commissions(when?: Extract<CommissionWhen, { kind: 'MONTHS' }>) {
+      const company = caller.company
+      if (!ownCompany || seat || !company) return { ok: false as const, says: 'Commissions are read at your own company; switch to it first.' }
+      if (company.kind === 'CLIENT') return { ok: false as const, says: CLIENT_COMMISSION_REFUSAL }
+      const roleName = caller.context.roleId
+        ? await prisma.role.findFirst({ where: { id: caller.context.roleId }, select: { name: true } }).then((r) => r?.name ?? null).catch(() => null)
+        : null
+      const reach = commissionReader({
+        callerCompanyId: company.id, lineCompanyId: company.id, roleName,
+        readsPayroll: hasPermission(caller.permissions, 'payroll.read'),
+      })
+      if (reach === 'NONE') return { ok: false as const, says: CLIENT_COMMISSION_REFUSAL }
+      // Each month is money's own pay period (`monthPeriod`), read on its own
+      // so a month's cap is applied per month, then added up per row.
+      const today = new Date()
+      const months = when?.months.length ? when.months : [{ y: today.getUTCFullYear(), m: today.getUTCMonth() }]
+      const periods = months.map((k) => monthPeriod(new Date(Date.UTC(k.y, k.m, 15))))
+      let perMonth: RowAccrual[][]
+      try {
+        perMonth = await Promise.all(periods.map((p) => commissionAccruals(company.id, p, reach === 'OWN' ? { earnedById: caller.person.id } : {})))
+      } catch {
+        return { ok: false as const, says: 'Commissions could not be read just now, so no figure is said. Try again in a minute.', links: [COMMISSIONS_LINK] }
+      }
+      const accruals = perMonth.flat()
+      const others = [...new Set(accruals.map((a) => a.earnedBy.id).filter((id) => id !== caller.person.id))]
+      if (others.length) {
+        logBulkAccess(others, { actorPersonId: caller.person.id, actorCompanyId: company.id, action: 'PAYROLL_VIEW', reason: 'Read in Ask Etyme: commissions earned this month' })
+      }
+      const self = roleName?.trim().toLowerCase() ?? null
+      const readers = [...new Set(['Owner', 'Contract Manager', ...desksHolding('payroll.read', company.kind)])]
+        .filter((r) => r.trim().toLowerCase() !== self)
+      return {
+        ok: true as const,
+        reach: reach as 'FIRM' | 'OWN',
+        from: periods[0].from.toISOString().slice(0, 10),
+        to: periods[periods.length - 1].to.toISOString().slice(0, 10),
+        periodWords: when?.words ?? null,
+        selfId: caller.person.id,
+        readers,
+        rows: mergeMonths(perMonth.map((month) => month.map((a): CommissionLine => ({
+          rowId: a.id,
+          earnedById: a.earnedBy.id,
+          earnedBy: a.earnedBy.name,
+          kind: a.kind,
+          person: a.person?.name ?? null,
+          client: a.client?.name ?? null,
+          amountMinor: a.postedCents ?? a.accrual.amountCents,
+          currency: a.accrual.currency,
+          blankedBecause: a.accrual.blankedBecause,
+        })))),
+      }
+    },
+
+    /**
      * Profitability's cut by consultant, office or client for this month or
      * this quarter (founder, 2026-11-08), read through the page's own route
      * in-process under this seat: one figure, read by both doors, nothing
@@ -1335,12 +1438,21 @@ export function readersFor(
           },
           orderBy: { createdAt: 'desc' },
           take: 500,
-          select: { id: true, title: true, companyId: true, status: true },
+          select: { id: true, title: true, companyId: true, status: true, orgUnitId: true, raisedById: true, ownerId: true },
         })
         const flat = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
         const hits = jobs.filter((r) => { const t = flat(r.title); return t.length > 2 && (t === wanted || wanted.includes(t) || t.includes(wanted)) })
         // An open job before a closed one of the same name, then the newest.
-        found = hits.find((r) => r.status === 'OPEN') ?? hits[0] ?? null
+        const reach = await jobsReach('submissions')
+        // A seat that reads submissions for one team (or its own work) finds
+        // its own job first; another team's job of that name is refused
+        // naming the reach, as the submissions route refuses it.
+        const inReach = reach ? hits.filter((r) => jobInReach(reach, r, caller.person.id)) : hits
+        const pick = (xs: typeof hits) => xs.find((r) => r.status === 'OPEN') ?? xs[0] ?? null
+        found = pick(inReach)
+        if (!found && reach && hits.length) {
+          return { ok: false as const, says: outsideReachSays('submissions', reach, reach.teamNames, company.name), links: [{ label: 'Open Submissions', href: '/dashboard/submissions' }] }
+        }
         if (!found) {
           return { ok: false as const, says: `No job called “${job}” is on your jobs. Open Jobs to find it.`, links: [{ label: 'Open Jobs', href: '/dashboard/requisitions' }] }
         }

@@ -44,6 +44,9 @@
  * states price overtime differently. The caveats travel with the file.
  */
 
+import { necFloorCheck, type NecRate } from '@/lib/worker-classification'
+import { amount, totals } from '@/lib/money-display'
+import { decimalsFor, wholeFromMinor } from '@/lib/money'
 import { paidByPayroll } from '@/lib/money/paid-through'
 import {
   weekWage,
@@ -364,6 +367,8 @@ export function buildExport(provider: Provider, sheets: SheetToPay[]): Export {
           payModel: s.payModel,
           payRateCents: rateOf(w),
           paidOnSalaryBasis: s.paidOnSalaryBasis,
+          // The line's own currency, so the wage floors are never read against it in dollars.
+          payCurrency: s.currency,
         },
         rule: s.rule,
         assertion: s.assertion,
@@ -519,7 +524,7 @@ export function buildExport(provider: Provider, sheets: SheetToPay[]): Export {
     totalCents,
     uncoveredPremiumCents,
     // People, not lines: somebody paid at two rates is two lines.
-    says: exportSays(new Set(lines.map(whoIs)).size, skipped.length, totalHours, totalOvertimeHours, totalCents, provider),
+    says: exportSays(new Set(lines.map(whoIs)).size, skipped.length, totalHours, totalOvertimeHours, totals(lines.map((l) => ({ minor: l.totalCents, currency: l.currency }))), provider),
     caveats: [...new Set(lines.flatMap((l) => l.notes))],
   }
 }
@@ -619,7 +624,8 @@ function exportSays(
   skippedCount: number,
   hours: number,
   overtimeHours: number,
-  cents: number,
+  /** The file's total, each currency on its own (`totals`); never one sum across two. */
+  money: string,
   provider: Provider
 ): string {
   if (n === 0) {
@@ -628,7 +634,6 @@ function exportSays(
       : 'Nothing to send. No accepted hours in this period.'
   }
 
-  const money = `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const ot = overtimeHours > 0 ? `, ${overtimeHours} of them over the line` : ''
   // Never "nobody has accepted their hours" any more: a row is left out
   // for one of four reasons now, and saying the wrong one sends somebody
@@ -648,7 +653,6 @@ function exportSays(
  */
 export function toCsv(e: Export): string {
   const iso = (d: Date) => d.toISOString().slice(0, 10)
-  const money = (c: number) => (c / 100).toFixed(2)
 
   // Overtime hours get their own column, and on Paychex their own row,
   // because that is how both providers price them. A file that put
@@ -660,7 +664,7 @@ export function toCsv(e: Export): string {
           ['Co Code', 'File #', 'Name', 'Reg Hours', 'O/T Hours', 'Rate', 'Period Start', 'Period End', 'Dept'],
           ...e.lines.map((l) => [
             '', l.payrollId ?? '', l.personName, String(l.hours), String(l.overtimeHours),
-            money(l.rateCents), iso(l.periodStart), iso(l.periodEnd), l.costCode ?? '',
+            fileAmount(l.rateCents, l.currency), iso(l.periodStart), iso(l.periodEnd), l.costCode ?? '',
           ]),
         ]
       : e.provider === 'PAYCHEX'
@@ -669,12 +673,12 @@ export function toCsv(e: Export): string {
             ...e.lines.flatMap((l) => [
               [
                 l.payrollId ?? '', l.personName, 'REG', String(l.hours),
-                money(l.rateCents), money(l.regularCents), iso(l.periodEnd), l.costCode ?? '',
+                fileAmount(l.rateCents, l.currency), fileAmount(l.regularCents, l.currency), iso(l.periodEnd), l.costCode ?? '',
               ],
               ...(l.overtimeHours > 0
                 ? [[
                     l.payrollId ?? '', l.personName, 'OT', String(l.overtimeHours),
-                    money(l.rateCents), money(l.overtimeCents), iso(l.periodEnd), l.costCode ?? '',
+                    fileAmount(l.rateCents, l.currency), fileAmount(l.overtimeCents, l.currency), iso(l.periodEnd), l.costCode ?? '',
                   ]]
                 : []),
             ]),
@@ -683,8 +687,8 @@ export function toCsv(e: Export): string {
             ['payroll_id', 'name', 'contract_type', 'period_start', 'period_end', 'hours', 'overtime_hours', 'rate', 'regular_amount', 'overtime_amount', 'currency', 'cost_code', 'order'],
             ...e.lines.map((l) => [
               l.payrollId ?? '', l.personName, l.contractType, iso(l.periodStart), iso(l.periodEnd),
-              String(l.hours), String(l.overtimeHours), money(l.rateCents),
-              money(l.regularCents), money(l.overtimeCents),
+              String(l.hours), String(l.overtimeHours), fileAmount(l.rateCents, l.currency),
+              fileAmount(l.regularCents, l.currency), fileAmount(l.overtimeCents, l.currency),
               l.currency, l.costCode ?? '', l.orderNumber ?? '',
             ]),
           ]
@@ -776,12 +780,48 @@ export function treatmentOf(contractType: string): WorkerTaxTreatment {
 }
 
 /**
- * The 1099-NEC reporting floor, in cents.
+ * The 1099-NEC reporting floor for payments made in a year, in dollar cents.
  *
- * Six hundred dollars. A payee under it is not reportable — and is listed
- * separately rather than dropped, because "not on the file" and "not in
- * the data" look identical to whoever is reconciling, and one of them is
- * a missing person.
+ * A payee under it is not reportable — and is listed separately rather than
+ * dropped, because "not on the file" and "not in the data" look identical
+ * to whoever is reconciling, and one of them is a missing person.
+ *
+ * The floor moved (2026-11-09). The One Big Beautiful Bill Act (Pub. L.
+ * 119-21, July 2025) amended IRC §6041(a): payments made after December 31,
+ * 2025 are reported at $2,000 (1099-NEC and 1099-MISC), payments in 2025
+ * and earlier at $600, and from 2027 the $2,000 is indexed for inflation.
+ * Sources checked by the coordinator are secondary (CPA Practice Advisor,
+ * 2025-07-30; Crowe; Avalara); the IRS's own 2026 instructions for Forms
+ * 1099-MISC and 1099-NEC are the primary and are to be confirmed. For a
+ * year after 2026 no indexed figure is on record here, so $2,000 is used and
+ * the sentence says a person checks the IRS's figure for that year.
+ */
+export interface NecThreshold {
+  year: number
+  cents: number
+  /** True where the figure for the year is on record; false for an indexed year nobody has entered. */
+  onRecord: boolean
+  /** What the figure stands on, said beside it. */
+  source: string
+  /** A sentence where the figure is not on record; null otherwise. */
+  caveat: string | null
+}
+
+const NEC_SOURCE_600 = 'IRC §6041(a) before the One Big Beautiful Bill Act: $600 for payments made through 2025.'
+const NEC_SOURCE_2000 = 'IRC §6041(a) as amended by the One Big Beautiful Bill Act (Pub. L. 119-21, July 2025): $2,000 for payments made after December 31, 2025, indexed for inflation from 2027.'
+
+export function necThresholdFor(year: number): NecThreshold {
+  if (year <= 2025) return { year, cents: 60_000, onRecord: true, source: NEC_SOURCE_600, caveat: null }
+  if (year === 2026) return { year, cents: 200_000, onRecord: true, source: NEC_SOURCE_2000, caveat: null }
+  return {
+    year, cents: 200_000, onRecord: false, source: NEC_SOURCE_2000,
+    caveat: `The IRS's inflation-indexed 1099-NEC floor for ${year} is not yet on record here, so $2,000 is used: a person checks the IRS's figure for ${year} before the bureau files.`,
+  }
+}
+
+/**
+ * The floor for 2025 and earlier, kept for readers that named it. The floor
+ * for a year is `necThresholdFor(year)`; nothing in this file reads this.
  */
 export const NEC_THRESHOLD_CENTS = 60_000
 
@@ -1030,6 +1070,12 @@ export interface WageSummary {
   postings: number
   /** Why the figure is what it is, or why there is none. */
   says: string
+  /**
+   * True where the 1099-NEC floor could not be put beside the gross (a gross
+   * in another currency with no rate of the company's own): no form is
+   * decided, and a person decides. On the pack's list of people with no form.
+   */
+  notChecked?: boolean
 }
 
 /**
@@ -1048,10 +1094,17 @@ export interface WageSummary {
  * So C2C returns NONE, with the reason said out loud rather than an empty
  * row somebody reads as an oversight.
  */
+export interface NecOptions {
+  /** The company's own rate reader (`ownNecRateOf`), read outside this pure function; null where it has none. */
+  rateOf?: ((from: string, to: string) => NecRate | null) | null
+  companyName?: string | null
+}
+
 export function wageSummary(
   personId: string,
   postings: PayPosting[],
-  year: number
+  year: number,
+  opts: NecOptions = {},
 ): WageSummary {
   const theirs = postings.filter(
     (p) => p.personId === personId && p.postedAt.getUTCFullYear() === year
@@ -1119,14 +1172,32 @@ export function wageSummary(
       grossCents: gross, currency: currencies[0], form: 'W2', box: 'Box 1 — wages, tips, other compensation',
       belowThreshold: false, missingTaxId, postings: theirs.length,
       says:
-        `${cents(gross)} of ${currencies[0]} wages across ${theirs.length} posting` +
+        `${cents(gross, currencies[0])} of ${currencies[0]} wages across ${theirs.length} posting` +
         `${theirs.length === 1 ? '' : 's'}. This is gross earnings only — withholding, ` +
         `pre-tax deductions and the employer's own taxes are the bureau's figures and are ` +
         `deliberately not here.`,
     }
   }
 
-  const below = gross < NEC_THRESHOLD_CENTS
+  // The year's floor, in dollars, and regulatory's rule for a gross in
+  // another currency (`necFloorCheck`): converted at the company's own rate
+  // and said, or not checked and left to a person.
+  const floor = necThresholdFor(year)
+  const check = necFloorCheck({
+    personName: name, grossMinor: gross, currency: currencies[0], floorCents: floor.cents,
+    companyName: opts.companyName ?? null, rateOf: opts.rateOf ?? null,
+  })
+  const caveat = floor.caveat ? ` ${floor.caveat}` : ''
+  if (!check.checked) {
+    return {
+      personId, personName: name, year, treatment,
+      grossCents: gross, currency: currencies[0], form: 'NONE', box: null,
+      belowThreshold: false, missingTaxId, postings: theirs.length, notChecked: true,
+      says: `${check.says}${caveat}`,
+    }
+  }
+  const below = check.below === true
+  const said = check.says ? ` ${check.says}` : ''
   return {
     personId, personName: name, year, treatment,
     grossCents: gross, currency: currencies[0],
@@ -1134,15 +1205,15 @@ export function wageSummary(
     box: below ? null : 'Box 1 — nonemployee compensation',
     belowThreshold: below,
     missingTaxId, postings: theirs.length,
-    says: below
-      ? `${cents(gross)} — under the ${cents(NEC_THRESHOLD_CENTS)} reporting floor, so no ` +
+    says: (below
+      ? `${cents(gross, currencies[0])} — under the ${cents(floor.cents)} reporting floor for payments in ${year}, so no ` +
         `1099-NEC. Listed rather than dropped: "not on the file" and "not in the data" look ` +
         `identical to whoever reconciles, and one of them is a missing person.`
-      : `${cents(gross)} of nonemployee compensation.` +
+      : `${cents(gross, currencies[0])} of nonemployee compensation, at or over the ${cents(floor.cents)} floor for payments in ${year}.` +
         (missingTaxId
           ? ` No taxpayer identification number is held, which the bureau needs before it ` +
             `can file and which triggers backup withholding until it arrives.`
-          : ''),
+          : '')) + said + caveat,
   }
 }
 
@@ -1162,10 +1233,10 @@ export interface YearEndPack {
 }
 
 /** Everybody, one year, ready to hand over. */
-export function yearEndPack(postings: PayPosting[], year: number): YearEndPack {
+export function yearEndPack(postings: PayPosting[], year: number, opts: NecOptions = {}): YearEndPack {
   const ids = [...new Set(postings.map((p) => p.personId))]
   const summaries = ids
-    .map((id) => wageSummary(id, postings, year))
+    .map((id) => wageSummary(id, postings, year, opts))
     .filter((s) => s.postings > 0)
     .sort((a, b) => (b.grossCents ?? 0) - (a.grossCents ?? 0))
 
@@ -1195,7 +1266,7 @@ export function yearEndPack(postings: PayPosting[], year: number): YearEndPack {
         ? `Nothing was posted in ${year}.`
         : `${year}: ${w2.length} W-2${w2.length === 1 ? '' : 's'} and ${nec.length} ` +
           `1099-NEC${nec.length === 1 ? '' : 's'} for your bureau to issue` +
-          (single ? `, ${cents(total)} ${single} reportable in total` : '') +
+          (single ? `, ${cents(total, single)} reportable in total` : '') +
           `. ${noForm.length} ${noForm.length === 1 ? 'person needs' : 'people need'} no ` +
           `form, each for a stated reason.` +
           (blocked.length > 0
@@ -1217,7 +1288,7 @@ export function yearEndCsv(pack: YearEndPack): string {
       s.treatment,
       s.form,
       s.box ?? '',
-      s.grossCents == null ? '' : (s.grossCents / 100).toFixed(2),
+      s.grossCents == null ? '' : fileAmount(s.grossCents, s.currency),
       s.currency ?? '',
       s.missingTaxId ? 'no' : 'yes',
       s.says,
@@ -1396,8 +1467,22 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function cents(n: number): string {
-  return `$${(n / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+/**
+ * An amount in a sentence, in its own currency and decimals, through the one
+ * formatter. Omitted, dollars: the deposit rules and the 1099 floor are the
+ * IRS's and are in dollars by law.
+ */
+function cents(n: number, currency: string | null | undefined = 'USD'): string {
+  return amount(n, currency || 'USD')
+}
+
+/**
+ * An amount for a provider's file: whole units by the currency's own
+ * exponent, no symbol, no grouping. 450,000 yen is 450000, never 4500.00.
+ */
+function fileAmount(minor: number, currency: string | null | undefined): string {
+  const ccy = currency || 'USD'
+  return wholeFromMinor(minor, ccy).toFixed(decimalsFor(ccy))
 }
 
 

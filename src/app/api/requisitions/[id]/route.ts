@@ -1,3 +1,5 @@
+import { reachFor, jobInReach, outsideReachSays } from '../grant-reach'
+import { jobCurrency, companyLimitConverter } from '../job-currency'
 import { NextRequest, NextResponse } from 'next/server'
 import { siteSuppliers } from '@/lib/sites'
 import { placeOf, sendToSays, readTickEdit, ticksToEdit, goesOnceApprovedSays } from '@/lib/job-site'
@@ -10,6 +12,7 @@ import { awardDoor } from '@/lib/award'
 import { hasPermission } from '@/lib/permissions'
 import { diff, mayChange, said, noticeForSuppliers } from '@/lib/requisition-change'
 import { readWorkEdit, workFactsOf, sponsorshipValue } from '../work-facts'
+import { readQualification } from '../qualification'
 import { mayEdit, stageOf } from '@/lib/requisition-stage'
 import {
   evaluateRequisition,
@@ -421,6 +424,8 @@ export async function PATCH(
       // Where the work is done and whether sponsorship is offered, which
       // the edit form asks as the raise form does.
       workMode: true, workAuthRequired: true, workAuthBasis: true, workAuthCite: true,
+      // The qualification the job asks for, a word change like the rest.
+      requiredQualification: true,
       // Who it goes to: the site, and the hiring manager's ticks, which the
       // edit form draws as the raise form does (the founder's tester,
       // 2026-11-08).
@@ -455,7 +460,19 @@ export async function PATCH(
   const office = hasPermission(deskPermissions, 'governance.write')
   const editor =
     caller.person.id === requisition.ownerId || caller.person.id === requisition.raisedById || office
-  if (!hasPermission(deskPermissions, 'requirements.write') || !editor) {
+  // An Owner's grant of job requests for one team (or one's own) opens
+  // changing a job inside it, and never another team's.
+  const writeReach = !desk?.seat && !hasPermission(deskPermissions, 'requirements.write')
+    ? await reachFor(caller, 'requirements.write')
+    : null
+  const grantedWrite = writeReach != null && (writeReach.scope === 'UNIT' || writeReach.scope === 'PERSON')
+  if (grantedWrite && !jobInReach(writeReach!, requisition, caller.person.id)) {
+    return NextResponse.json(
+      { error: { code: 'OUTSIDE_YOUR_REACH', message: outsideReachSays('jobs', writeReach!, writeReach!.teamNames, desk?.companyName ?? caller.company?.name ?? 'your firm') } },
+      { status: 403 }
+    )
+  }
+  if ((!hasPermission(deskPermissions, 'requirements.write') && !grantedWrite) || !editor) {
     return NextResponse.json(
       {
         error: {
@@ -597,9 +614,19 @@ export async function PATCH(
       { status: 422 }
     )
   }
+  // The qualification the job asks for: read by the raise's own reader,
+  // refused in its sentence, and changed like any other word.
+  let qualificationAfter: { requiredQualification: string | null } | null = null
+  if ('requiredQualification' in body) {
+    const q = readQualification(body.requiredQualification)
+    if (!q.ok) {
+      return NextResponse.json({ error: { code: 'VALIDATION', message: q.says, field: q.field } }, { status: 422 })
+    }
+    qualificationAfter = { requiredQualification: q.value }
+  }
   const workNow = workFactsOf(requisition)
   const before = { ...asItStands(requisition), workMode: workNow.workMode, sponsorship: sponsorshipValue(workNow) }
-  const after: Record<string, unknown> = { ...proposed(body), ...workEdit.after }
+  const after: Record<string, unknown> = { ...proposed(body), ...workEdit.after, ...(qualificationAfter ?? {}) }
   const changes = diff(before, after)
 
   // Whose need it is. Not one of the rule's fields, because a supplier
@@ -928,6 +955,7 @@ function asItStands(r: Record<string, any>): Record<string, unknown> {
     headcount: r.headcount ?? null,
     budgetCents: r.budgetCents ?? null,
     hoursPerWeek: r.hoursPerWeek ?? null,
+    requiredQualification: r.requiredQualification ?? null,
   }
 }
 
@@ -1039,15 +1067,28 @@ async function checksFor(
 
   const skillMedianCents = await medianRateForSkills(companyId, r.skills)
 
+  // The client's own money, as the raise reads it (`jobCurrency`).
+  const currency = await jobCurrency(companyId)
   const value = annualValue({
     budgetCents: r.budgetCents,
     billMaxCents: r.billMax,
     headcount: r.headcount,
     months: r.months,
     hoursPerWeek: r.hoursPerWeek,
+    currency,
   })
 
+  // The limits and the budget are in the client's own currency, and a
+  // value in another is put beside them only at the company's own rate
+  // (regulatory's rule); with no own rate a person decides. Today the job's
+  // currency is the client's, so nothing is converted.
+  const limitCurrency = currency
+  const convert = await companyLimitConverter(companyId)
+
   const facts: RequisitionFacts = {
+    currency,
+    limitCurrency,
+    convert,
     annualValueCents: value.cents,
     valueBasis: value.basis,
     valueSays: value.says,

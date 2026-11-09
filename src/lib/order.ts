@@ -45,6 +45,8 @@
  * ways without reshaping anything.
  */
 
+import { amount } from '@/lib/money-display'
+
 export type PostingKind =
   | 'REVENUE'
   | 'PAY'
@@ -224,8 +226,8 @@ export function resultOf(all: Posting[]): Result {
     paidOutCents: paidOut,
     weOweCents: weOwe,
     cashCents: collected + paidOut,
-    cashSays: cashSaysFor(collected, paidOut, owedToUs, weOwe),
-    says: saysFor(revenue, gross, net, overhead, costUnknown),
+    cashSays: cashSaysFor(collected, paidOut, owedToUs, weOwe, currencyOf(ps)),
+    says: saysFor(revenue, gross, net, overhead, costUnknown, currencyOf(ps)),
   }
 }
 
@@ -233,8 +235,10 @@ function cashSaysFor(
   collected: number,
   paidOut: number,
   owedToUs: number,
-  weOwe: number
+  weOwe: number,
+  currency: string,
 ): string {
+  const money = (c: number) => moneyOf(c, currency)
   if (collected === 0 && paidOut === 0) {
     return owedToUs === 0 && weOwe === 0
       ? 'No money has moved on this yet.'
@@ -257,8 +261,10 @@ function saysFor(
   gross: number,
   net: number,
   overhead: number,
-  costUnknown: boolean
+  costUnknown: boolean,
+  currency: string,
 ): string {
+  const money = (c: number) => moneyOf(c, currency)
   if (costUnknown) {
     return (
       `${money(revenue)} billed and no cost posted against it. ` +
@@ -396,8 +402,11 @@ export function allocate(
   // one billing two hundred and fifty, so spreading by revenue would make
   // the expensive consultant subsidise the cheap one. Even shares make a
   // low-billing consultant look worse, which may simply be the truth.
-  basis: Basis = 'EVEN'
+  basis: Basis = 'EVEN',
+  /** The pot's currency; omitted, dollars. */
+  currency: string = 'USD',
 ): Allocation[] {
+  const money = (c: number) => moneyOf(c, currency)
   if (targets.length === 0 || potCents === 0) return []
 
   const weightOf = (t: AllocationTarget) =>
@@ -443,6 +452,56 @@ export function allocate(
   }))
 }
 
+/** An order to spread overhead onto, in the currency its own postings are in. */
+export interface CurrencyTarget extends AllocationTarget {
+  currency: string
+}
+
+export interface CurrencyAllocation extends Allocation {
+  currency: string
+}
+
+export interface OverheadSpread {
+  allocations: CurrencyAllocation[]
+  /** A pot in a currency no order is in: left where it is, and said. */
+  unspread: { currency: string; amountCents: number; says: string }[]
+}
+
+/**
+ * Overhead in several currencies, spread within each.
+ *
+ * Coordinator's call, 2026-11-08, reversible by the founder in a sentence:
+ * two currencies are never added or weighed against each other as raw
+ * numbers. So rupee overhead is spread over the orders billed in rupees,
+ * by their rupee revenue, and dollar overhead over the dollar orders; no
+ * rate is needed and none is guessed. A pot in a currency no order is in
+ * is not moved onto another currency's orders: it is left and said.
+ */
+export function allocateByCurrency(
+  pots: readonly { currency: string; amountCents: number }[],
+  targets: readonly CurrencyTarget[],
+  basis: Basis = 'EVEN',
+): OverheadSpread {
+  const up = (c: string) => (c || 'USD').toUpperCase()
+  const byCurrency = new Map<string, number>()
+  for (const p of pots) byCurrency.set(up(p.currency), (byCurrency.get(up(p.currency)) ?? 0) + p.amountCents)
+  const allocations: CurrencyAllocation[] = []
+  const unspread: OverheadSpread['unspread'] = []
+  for (const [currency, cents] of byCurrency) {
+    if (cents === 0) continue
+    const mine = targets.filter((t) => up(t.currency) === currency)
+    if (mine.length === 0) {
+      unspread.push({
+        currency, amountCents: cents,
+        says: `${moneyOf(Math.abs(cents), currency)} of overhead in ${currency} is not spread: no order here bills in ${currency}, and it is never moved onto another currency's orders.`,
+      })
+      continue
+    }
+    for (const a of allocate(cents, mine, basis, currency)) allocations.push({ ...a, currency })
+  }
+  return { allocations, unspread }
+}
+
 // ── The budget ────────────────────────────────────────────────────────
 
 export interface BudgetStanding {
@@ -462,6 +521,8 @@ export interface BudgetStanding {
  * pound should see before they commit it, not in a month-end report.
  */
 export function standing(budgetCents: number | null, postings: Posting[]): BudgetStanding {
+  const ccy = currencyOf(postings)
+  const money = (c: number) => moneyOf(c, ccy)
   const spent = -live(postings)
     .filter((p) => p.amountCents < 0)
     .reduce((n, p) => n + p.amountCents, 0)
@@ -542,10 +603,19 @@ export function reversalOf(p: Posting, why: string): Omit<Posting, 'id'> {
   }
 }
 
-export function money(cents: number): string {
-  const n = Math.abs(cents) / 100
-  const s = n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return `${cents < 0 ? '-' : ''}$${s}`
+/**
+ * An amount in the order's own currency and its own decimals, through the
+ * one formatter. Omitted, dollars, which is what a caller naming none meant.
+ */
+export function money(cents: number, currency: string | null | undefined = 'USD'): string {
+  return amount(cents, currency || 'USD')
+}
+
+const moneyOf = (c: number, currency: string) => money(c, currency)
+
+/** The order's currency, read off its postings: every posting on one order is in it. */
+function currencyOf(ps: readonly Posting[]): string {
+  return ps.find((p) => p.currency)?.currency ?? 'USD'
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -626,6 +696,7 @@ export interface SettlementInput {
  * across a closed period.
  */
 export function settlementPlan(i: SettlementInput): SettlementPlan {
+  const money = (c: number) => moneyOf(c, i.currency)
   const nothing = { balanceCents: 0, postings: [], postedAt: null }
 
   if (i.status === 'SETTLED' || i.status === 'CLOSED') {

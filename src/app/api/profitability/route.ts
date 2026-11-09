@@ -18,7 +18,7 @@ import {
 } from '@/lib/money/placement-margin'
 import {
   resultOf, byPerson as postingsByPerson, byCustomer as postingsByCustomer,
-  byMonth, allocate, standing, type Posting,
+  byMonth, allocateByCurrency, standing, type Posting,
 } from '@/lib/order'
 
 /**
@@ -377,19 +377,19 @@ export async function GET(request: NextRequest) {
     // What the sheet left at the bottom of the page. Overhead belongs to
     // the work that caused it, and the basis is stated rather than
     // buried, because an allocated cost is an opinion.
-    const pot = ps
-      .filter((p) => p.kind === 'OVERHEAD' && !p.sellContractId)
-      .reduce((n, p) => n + p.amountCents, 0)
-
-    const spread = allocate(
-      pot,
+    // Spread within each currency (`allocateByCurrency`): rupee overhead
+    // onto rupee orders by rupee revenue, never summed with dollars or
+    // weighed against dollar revenue.
+    const { allocations: spread, unspread } = allocateByCurrency(
+      ps.filter((p) => p.kind === 'OVERHEAD' && !p.sellContractId).map((p) => ({ currency: p.currency ?? 'USD', amountCents: p.amountCents })),
       rows.map((r) => ({
         key: r.orderId,
         label: r.name,
+        currency: r.currency,
         revenueCents: r.result.revenueCents,
         people: r.people.length,
       })),
-      'REVENUE'
+      'REVENUE',
     )
 
     return NextResponse.json({
@@ -404,6 +404,8 @@ export async function GET(request: NextRequest) {
           }))
           .sort((a, b) => b.result.revenueCents - a.result.revenueCents),
         overall: resultOf(ps),
+        /** Overhead in a currency no order bills in, left where it is and said. */
+        overheadUnspread: unspread,
         note:
           'Everything posts to the order — what was billed, what was paid, ' +
           'burden, expenses, commission. Ask it by person, by customer or by month.',

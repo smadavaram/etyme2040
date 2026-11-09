@@ -22,7 +22,9 @@ import { rate as rateSays } from '@/lib/money-display'
 import { payersBook } from '@/lib/money/payers-acceptance-read'
 import { firmsAcceptingOnlyFor } from '@/lib/money/own-firm-acceptance'
 import { disputedBillDecision } from './disputed-bill'
-import { receiptToPayDecision, heldReceiptDecision } from './receipt-to-pay'
+import { receiptToPayDecision, heldReceiptDecision, bankHeldReceiptDecision, type BankHold } from './receipt-to-pay'
+import { mayPayFirm } from '@/lib/setup-gates'
+import { bankHoldAt } from '@/lib/money/bank-check-read'
 import { matchInvoices, payGate } from '@/lib/invoice-match'
 import { daysSays, hoursSays, agoSays, rollsOffTitle, signedWeekTitle } from './words'
 import { invoiceBetween, partiesOf, directionFrom } from '@/lib/money/invoice-parties'
@@ -31,6 +33,7 @@ import { ACCEPTS_EXPENSES, expenseAcceptanceDecision } from './expense-acceptanc
 import { expensesWaitingOn } from '@/lib/money/expense-acceptance-read'
 import { ownFirmExpenseIds } from '@/lib/money/own-firm-expense'
 import { ENDING_SOON_READERS, rateOnEndingSoon } from '@/lib/releasing-soon'
+import { billRateReach } from '@/lib/consultant-portfolio/margin-reach'
 import { waitingQuestions } from '@/lib/twin/ledger'
 import { TWIN_ACTS } from '@/lib/autonomy'
 import { ASK_ETYME_HREF } from '@/lib/nav-table'
@@ -537,7 +540,7 @@ export async function GET(request: NextRequest) {
       const row = disputedBillDecision(
         {
           id: b.id, number: b.number, vendorName: b.vendorCompany.name,
-          totalCents: b.totalCents, dueAt: b.dueAt, receivedAt: b.receivedAt,
+          totalCents: b.totalCents, currency: b.currency, dueAt: b.dueAt, receivedAt: b.receivedAt,
         },
         book && book.waiting.length > 0 ? book.notAccepted : null,
         billDesk
@@ -795,6 +798,11 @@ export async function GET(request: NextRequest) {
         : []
     )
 
+    // Which lines this seat reads a price on (supply's `billRateReach`, as
+    // Rolloff and the consultant's page read it): a team grant of
+    // margin.read opens that team's lines only, never every line here.
+    const priceReach = hasPermission(caller.permissions, 'margin.read') ? await billRateReach(caller) : null
+
     for (const sc of endingSoon) {
       const daysLeft = Math.ceil(
         (sc.endDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
@@ -804,7 +812,7 @@ export async function GET(request: NextRequest) {
       const endClientName = sc.endClientCompany?.name ?? sc.clientCompany?.name ?? 'Unknown'
       // Null where this seat may not read a bill rate; then no rate at all.
       const shownRate = rateOnEndingSoon(
-        { companyId: caller.company?.id ?? null, permissions: caller.permissions },
+        { companyId: caller.company?.id ?? null, permissions: caller.permissions, lines: priceReach },
         sc
       )
       decisions.push({
@@ -1126,10 +1134,27 @@ export async function GET(request: NextRequest) {
       // Settled to the cent is not waiting, whatever the status says.
       const outstandingCents = minorFromWhole(inv.total, inv.currency) - minorFromWhole(inv.paid, inv.currency)
       if (outstandingCents <= 1) return []
-      return [{ inv, outstandingCents, vendorName: parties.vendor?.name ?? 'Your supplier' }]
+      return [{ inv, outstandingCents, vendorName: parties.vendor?.name ?? 'Your supplier', parties }]
     })
     const checked = await matchInvoices(payable.map((p) => p.inv.id))
-    for (const { inv, outstandingCents, vendorName } of payable) {
+    // The bank gate the payment write reads (`mayPayFirm`), once per
+    // supplier rather than once per receipt, and where it holds, money's
+    // own sentence to this reader (`bankHoldAt`): who checks, or "Check
+    // them" to the person who does. Never a second rule.
+    const bankHolds = new Map<string, Promise<BankHold | null>>()
+    const bankHoldFor = (payer: { id: string; name: string }, payee: { id: string; name: string }) => {
+      const key = `${payer.id}:${payee.id}`
+      if (!bankHolds.has(key)) {
+        bankHolds.set(key, (async () => {
+          const gate = await mayPayFirm(payer.id, payee.id)
+          if (gate.ok) return null
+          const held = await bankHoldAt({ payer, payee, viewerId: caller.isService ? null : caller.person.id })
+          return { says: held.says, mayCheck: held.mayCheck }
+        })())
+      }
+      return bankHolds.get(key)!
+    }
+    for (const { inv, outstandingCents, vendorName, parties } of payable) {
       const receipt = {
         id: inv.id, number: inv.number, vendorName, outstandingCents, currency: inv.currency,
         dueAt: inv.dueAt, receivedAt: inv.receivedAt ?? inv.submittedAt ?? null,
@@ -1138,6 +1163,22 @@ export async function GET(request: NextRequest) {
       const twinApprovalId = askedOn.get(inv.id) ?? null
       if (twinApprovalId) foldedQuestions.add(twinApprovalId)
       if (payGate(inv, match).ok) {
+        const payer = parties.client ?? caller.company
+        const hold = payer && parties.vendor
+          ? await bankHoldFor(
+              { id: payer.id, name: payer.name ?? 'Your company' },
+              { id: parties.vendor.id, name: vendorName },
+            )
+          : null
+        if (hold) {
+          decisions.push({
+            type: 'INVOICE_RECEIPT_HELD',
+            named: { whose: vendorName, what: 'held invoice receipt', whats: 'held invoice receipts' },
+            ...bankHeldReceiptDecision(receipt, hold, now),
+            twinApprovalId,
+          })
+          continue
+        }
         decisions.push({
           type: 'INVOICE_RECEIPT_TO_PAY',
           named: { whose: vendorName, what: 'invoice receipt', whats: 'invoice receipts' },

@@ -245,7 +245,7 @@ describe('13 · a link to bench profit shows the server’s sentence to a seat t
   it('the recruiter and the client are each refused in a sentence', () => {
     const rec = mayReadBenchProfit({ companyName: 'Pellwright Validation Partners', companyKind: 'VENDOR', roleName: 'Recruiter', consultantSeat: false })
     const client = mayReadBenchProfit({ companyName: 'Corveldt Aerospace', companyKind: 'CLIENT', roleName: 'Owner', consultantSeat: false })
-    expect(rec.ok || rec.message).toContain('Your seat (Recruiter) is none of them.')
+    expect(rec.ok || rec.message).toContain('Your seat (Recruiter) has neither. Ask the Owner.')
     expect(client.ok || client.message).toContain('no client reads it')
   })
 
@@ -311,7 +311,7 @@ describe('17 · adding a consultant says what it did, and one set of words for t
 
   it('the Consultants form asks who sees them and at what rate, and shows the route’s sentence when done', () => {
     const page = src('src/app/dashboard/consultants/page.tsx')
-    expect(page).toContain('addConsultantBody(form, rates)')
+    expect(page).toContain('addConsultantBody(form, rates, currency)')
     const forms = src('src/lib/consultant-portfolio/forms.ts')
     expect(forms).toContain('tier: form.tier')
     expect(forms).toContain('rateMin: rates.rateMin')

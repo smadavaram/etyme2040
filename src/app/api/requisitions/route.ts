@@ -1,3 +1,7 @@
+import { reachFor, jobInReach, outsideReachSays } from './grant-reach'
+import { wholeFromMinor } from '@/lib/money'
+import { jobCurrency, companyLimitConverter } from './job-currency'
+import { readQualification } from './qualification'
 import { NextRequest, NextResponse } from 'next/server'
 import { panelFrom } from './panel'
 import { readWorkFacts } from './work-facts'
@@ -201,7 +205,15 @@ export async function POST(request: NextRequest) {
   // It is deliberately not `requirements.distribute`: raising the role
   // and choosing which suppliers see it are two desks on purpose, and
   // the procurement lead who holds the second does not get the first.
-  if (!hasPermission(acting.permissions, 'requirements.write')) {
+  // An Owner's grant of job requests for one team opens raising one in
+  // that team or a team under it (checked once the team is known, below);
+  // an own-work grant opens raising one's own. Never under a seat in
+  // another company's program.
+  const writeReach = !seat && !hasPermission(acting.permissions, 'requirements.write')
+    ? await reachFor(caller, 'requirements.write')
+    : null
+  const grantedWrite = writeReach != null && (writeReach.scope === 'UNIT' || writeReach.scope === 'PERSON')
+  if (!hasPermission(acting.permissions, 'requirements.write') && !grantedWrite) {
     return NextResponse.json(
       {
         error: {
@@ -233,6 +245,9 @@ export async function POST(request: NextRequest) {
     // Where the work is done (ONSITE · HYBRID · REMOTE), and whether the
     // job offers sponsorship, with the firm's own words where it does not.
     workMode, sponsorship, sponsorshipPolicy,
+    // The qualification the job asks for, in the hiring manager's words;
+    // regulatory's degree rules read it (warn, never block).
+    requiredQualification,
   } = body
 
   if (!title || typeof title !== 'string' || title.trim().length < 3) {
@@ -247,6 +262,14 @@ export async function POST(request: NextRequest) {
   if (!work.ok) {
     return NextResponse.json(
       { error: { code: 'VALIDATION', message: work.says, field: work.field } },
+      { status: 422 }
+    )
+  }
+
+  const qualification = readQualification(requiredQualification)
+  if (!qualification.ok) {
+    return NextResponse.json(
+      { error: { code: 'VALIDATION', message: qualification.says, field: qualification.field } },
       { status: 422 }
     )
   }
@@ -297,15 +320,29 @@ export async function POST(request: NextRequest) {
   const skillMedianCents = await medianRateForSkills(client.id, Array.isArray(skills) ? skills : [])
 
   // A stated budget beats an estimate, and the answer says which it was.
+  // The client's own money, so the band, the budget, the estimate and the
+  // limit are said in it; dollars where none is on record.
+  const currency = await jobCurrency(client.id)
   const value = annualValue({
     budgetCents: Number.isFinite(budget) ? Number(budget) : null,
     billMaxCents: billMax ?? null,
     headcount: heads,
     months: months ?? null,
     hoursPerWeek: Number.isFinite(hoursPerWeek) ? Number(hoursPerWeek) : null,
+    currency,
   })
 
+  // The limits and the budget are in the client's own currency, and a
+  // value in another is put beside them only at the company's own rate
+  // (regulatory's rule); with no own rate a person decides. Today the job's
+  // currency is the client's, so nothing is converted.
+  const limitCurrency = currency
+  const convert = await companyLimitConverter(client.id)
+
   const facts: RequisitionFacts = {
+    currency,
+    limitCurrency,
+    convert,
     annualValueCents: value.cents,
     valueBasis: value.basis,
     valueSays: value.says,
@@ -333,6 +370,13 @@ export async function POST(request: NextRequest) {
   // the department it funds, so asking twice for something the budget
   // knows is a question with a wrong answer available.
   const team = orgUnitId ?? costCenter?.orgUnitId ?? null
+  // A team grant raises only in its own team and the teams under it.
+  if (grantedWrite && writeReach!.scope === 'UNIT' && !jobInReach(writeReach!, { orgUnitId: team }, caller.person.id)) {
+    return NextResponse.json(
+      { error: { code: 'OUTSIDE_YOUR_REACH', message: outsideReachSays('jobs', writeReach!, writeReach!.teamNames, client.name), field: 'orgUnitId' } },
+      { status: 403 }
+    )
+  }
 
   // ── And who that makes responsible ─────────────────────────────────
   //
@@ -522,6 +566,7 @@ export async function POST(request: NextRequest) {
         // Where the work is done; null where the caller did not say, which
         // reads as onsite (lib/work-country).
         workMode: work.facts.workMode,
+        requiredQualification: qualification.value,
         // No sponsorship offered: the restriction lib/work-authorisation
         // reads, with its basis and the firm's words, so it holds back only
         // somebody who would need a visa filed.
@@ -675,7 +720,8 @@ export async function POST(request: NextRequest) {
         // The figure, and where it came from — so the person reading a
         // routing decision can see whether it rests on their own budget
         // or on an estimate.
-        annualValue: value.cents / 100,
+        // Whole units of the job's own currency, never minor units over a hundred.
+        annualValue: wholeFromMinor(value.cents, currency),
         valueBasis: value.basis,
         valueSays: value.says,
         site: site ? { id: site.id, name: site.name } : null,

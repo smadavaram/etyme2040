@@ -1912,6 +1912,29 @@ over a bank hold (demand); Document requests' "At your suppliers" and
 three money faults first; the fix deploy follows their green files and
 a short re-walk of items 5, 6 and 11.
 
+**Shipped to production 2026-11-08, evening (a4b67b905 on the deploy
+branch, source fda026207).** Money (aed73debf, 8d97d8316, f62a350fa):
+Bills opens again, the duplicate-drafts read dating a draft by its
+first line because a bill has no created stamp, with the select typed
+against the client so a missing column fails the type check and an
+integration test on the real database; a typed-in invoice receipt is
+paid through one gate with the bank check (`keyedPayGateNow`), read by
+the route and the screen, the hold naming who checks and the checker
+checking from the receipt. Architect (fda026207): the twin's nightly
+run decides on `receiptFlag`, so a bank hold reads "held: the bank
+details are not checked" and its line closes once the receipt is paid.
+Coordinator (aa88ea5fe): the bank check's facts stack on a phone.
+Release pass 44 fully green: type check, 14,067 unit, 2,652
+integration, build. The re-walk on that build proved all three on
+screens and in the rows (Rosa's later draft withdrawn with a reason;
+AP & Payroll refused Consultis' receipt until Rosalind Tay checked the
+bank, then paid $4,160; PR-2026-0441 told as held and gone after
+payment). Smoke: health "Serving a4b67b90" with the database ready;
+every public page and `/site/tapin` 200; the inbound email door 404 to
+a POST. Still open: the pay card says Pay over a bank hold (demand);
+Document requests' two counts (regulatory); notices written with the
+old mismatch title keep it until paid (conversation).
+
 ## Ask Etyme is full screen, keeps its conversations, and shows an answer as data — the founder, 2026-11-03
 
 *"Ask Etyme should work like Claude harness model with conversations
@@ -4964,10 +4987,20 @@ because two of them are money.
 2. **No final partial period.** A contract ending on a Wednesday has no hours
    cycle and no invoice cycle for its last two days; generation stops at the
    last whole boundary. The Rails version emitted the short trailing group.
+   **Decided by the founder, 2026-11-09** ("yes to both pay-date
+   recommendations"): the last regular period runs through the contract's
+   end date, so the final short stretch has its hours-due, invoice and pay
+   dates; it is not a stranded short cycle, because an extension moves the
+   end and the last period with it. Needs `Cycle.periodStart`/`periodEnd`
+   (architect) before money builds it.
 3. **Business days only shift forward.** US payroll pays a Saturday pay day on
    the Friday before; this moves it to the Monday after, which pays after the
    work. The direction is a money decision, per kind rather than globally —
-   pay backward, bill forward. Nobody has made it.
+   pay backward, bill forward. **Decided by the founder, 2026-11-09:** a pay
+   date that falls on a day off moves to the working day before it (the
+   worker is never paid late), and a bill date moves to the working day
+   after it. Per kind, read from the kind's side (PAY backward, BILL
+   forward), money's to build, with tests first.
 4. **No salary lag.** A contract's payment term is not mapped into `offsetDays`,
    so pay day is the period end itself.
 5. **Nothing marks pay cleared.** Legacy ran calculate → process → clear. If AP

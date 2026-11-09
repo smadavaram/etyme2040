@@ -22,6 +22,7 @@
 import { plainDate } from '@/lib/plain-date'
 import { calendarDaysBetween } from '@/lib/document-stages'
 import { humanKey } from '@/lib/document-type'
+import { productNameKey, sameName } from '@/lib/document-stages/paper-names'
 import { orderedBySays, orderedNotCollected, readVerdict } from '@/lib/attestation'
 import { COMPLETED_FROM_SHOWN } from '@/lib/document-stages/examine-form'
 // The bench answer is read through one door — `lib/bench-filter` — so two
@@ -852,6 +853,19 @@ export interface SentDocument {
   issuerName: string
   sentAt: Date | null
   signedAt: Date | null
+  /** When the firm examined it, where it has. Until then an upload is sent, never on file. */
+  examinedAt?: Date | null
+}
+
+/**
+ * The word the worker's own list reads for a paper she sent. "On file"
+ * only once the firm examined it; until then it is sent and waiting to be
+ * checked (walk 5 and 7: an upload nobody had looked at read "On file" on
+ * her own list while Paperwork read "Arrived, not examined"). Pure.
+ */
+export function workerPaperWord(p: { status: string; examinedAt?: Date | string | null }): string {
+  if (p.status === 'UPLOADED') return p.examinedAt ? 'On file' : 'Sent, waiting to be checked'
+  return statusWord(p.status)
 }
 
 /** One thing asked for inside a packet. */
@@ -1004,7 +1018,8 @@ export interface Paper {
 export function askWord(state: string): string {
   switch (state) {
     case 'PENDING': return 'Asked for'
-    case 'RECEIVED': return 'On file'
+    // Sent at the link and nobody has looked yet: never "On file" (walk 7).
+    case 'RECEIVED': return 'Sent, waiting to be checked'
     case 'ACCEPTED': return 'Accepted'
     case 'REJECTED': return 'Sent back'
     default: return state.toLowerCase()
@@ -1492,7 +1507,7 @@ export function myPapers(input: {
         : null,
       needsSignature: d.needsSignature,
       status: d.status,
-      word: statusWord(d.status),
+      word: workerPaperWord(d),
       askedAt: d.sentAt?.toISOString() ?? null,
       doneAt: d.signedAt?.toISOString() ?? null,
       dueOn: null,
@@ -1651,8 +1666,9 @@ export function myPapers(input: {
       partOf: null,
       // Nobody has asked yet. `owedByName` is the party that OWES it,
       // which on her own page is her, and "Helena Marsh asked for Helena
-      // Marsh's I-9" reads as though she asked herself.
-      askedBy: null,
+      // Marsh's I-9" reads as though she asked herself. Where a firm opened
+      // the request, it is that firm who asked, as the placement says (walk 7).
+      askedBy: opened?.issuerName ?? null,
       // Whose move it is comes first on a check she cannot produce. The
       // order's own words still follow it, so the row never loses who
       // asked for the check in the first place.
@@ -1798,10 +1814,17 @@ export function typeKeyForTemplate(
 ): string | null {
   const name = templateName.trim()
   if (!name) return null
+  const asSaid = sameName(name)
   const exact = types.find(
-    (t) => t.label.trim().toLowerCase() === name.toLowerCase() || t.key.toLowerCase() === name.toLowerCase()
+    (t) => sameName(t.label) === asSaid || t.key.toLowerCase() === name.toLowerCase()
   )
   if (exact) return exact.key
+  // Every name the product itself gives one kind (the dictionary and the
+  // start packets), after the caller's own, so a reader that knows the NDA
+  // as "Non-disclosure agreement" still knows "Signed non-disclosure
+  // agreement" (walk 7). An exact name, never a guess.
+  const named = productNameKey(name)
+  if (named) return named
   // A form named by its number is that form, guessing or not.
   const form = formNumberKey(name)
   if (form) return form

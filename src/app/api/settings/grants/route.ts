@@ -13,7 +13,7 @@ import {
   permissionScope,
   GRANT_RIGHT,
   GRANT_SCOPES,
-  NARROWED_AT_THE_QUERY,
+  GRANTABLE_TO_A_TEAM,
   PERSON_ONLY,
   type GrantRow,
   type HolderSet,
@@ -104,8 +104,10 @@ export async function GET(request: NextRequest) {
     key,
     label: labelOf(key),
     personOnly: key === GRANT_RIGHT || (PERSON_ONLY as readonly string[]).includes(key),
-    // Only the scopes a reader narrows by are offered; the rest are refused by the rules.
-    scopes: key !== GRANT_RIGHT && NARROWED_AT_THE_QUERY.has(key) ? GRANT_SCOPES : ['COMPANY'],
+    // Every scope a reader narrows by is offered: margin and profit and
+    // loss, and since demand narrowed them at the query (37c14618b) jobs
+    // and submissions. Anything else is the whole company's only.
+    scopes: key !== GRANT_RIGHT && GRANTABLE_TO_A_TEAM.has(key) ? GRANT_SCOPES : ['COMPANY'],
   }))
 
   return NextResponse.json({

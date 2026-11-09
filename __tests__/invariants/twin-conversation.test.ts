@@ -240,7 +240,8 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(chat).toContain("const THREAD = '/api/conversations/twin'")
     expect(chat).toContain("const RENEW = '/api/me/benches'")
     const calls = [...chat.matchAll(/fetch\(([^,)]+)/g)].map((m) => m[1].trim())
-    expect(calls).toEqual(['THREAD', '`${THREAD}?only=thread&take=1000`', 'THREAD', 'THREAD', 'THREAD', 'url', 'card.act.url', 'RENEW', 'GRANTS'])
+    // Every read of the conversation, Show earlier and Clear name the conversation open (2026-11-08).
+    expect(calls).toEqual(['named(THREAD', 'named(`${THREAD}?only=thread&take=1000`', 'named(THREAD', 'THREAD', 'THREAD', 'url', 'card.act.url', 'RENEW', 'GRANTS'])
     // The Owner's give-access card posts to Give access's one route and nowhere else (2026-11-08).
     expect(chat).toContain("const GRANTS = '/api/settings/grants'")
     // After a yes the reply links to the record and to the ledger entry,
@@ -253,7 +254,7 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     // The route writes the conversation only through lib/ask-etyme-thread,
     // and keeps a yes or a no only where the record already bears it out.
     const route = readFileSync(join(root, 'app/api/conversations/twin/route.ts'), 'utf8')
-    expect(route).toContain("import { readThread, appendTurn, markCard, clearThread, type SavedThread, type SavedTurn, type CardState } from '@/lib/ask-etyme-thread'")
+    expect(route).toContain("import { readThread, appendTurn, markCard, clearThread, listThreads, startThread, type SavedThread, type SavedTurn, type CardState } from '@/lib/ask-etyme-thread'")
     expect(route).toMatch(/const onRecord = await prisma\.twinApproval\.findUnique\(\{ where: \{ id: approvalId \}, select: \{ decision: true \} \}\)\n\s+if \(onRecord\?\.decision !== state\)/)
   })
 
@@ -349,7 +350,8 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     expect(list).not.toContain('Always here')
     expect(list).toContain('<RailSlot name="conversations">')
     expect(list).toContain("const ASK_ETYME_HREF = '/dashboard/conversations/etyme'")
-    expect(list).toContain('<AskEtyme />')
+    expect(list).toContain('<AskEtyme\n')
+    expect(list).toContain('threadId={askThread}')
     // On a phone one screen at a time: the list is in the menu sheet, the pane is the chat or the thread.
     expect(list).toContain('const showAsk = askOpen || (!activeConvo && !openId && !openRefused)')
     expect(readFileSync(join(root, 'app/dashboard/conversations/etyme/page.tsx'), 'utf8')).toContain('return <ConversationsPage />')

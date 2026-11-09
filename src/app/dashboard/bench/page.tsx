@@ -20,6 +20,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ListSurface, type Column } from '@/components/list-surface'
 import { FilterChips, Stat, FormMessage } from '@/components/ui'
 import { addToBenchBody, nudgeBody } from '@/lib/consultant-portfolio/forms'
+import { useFirmCurrency } from '@/app/dashboard/consultants/firm-currency'
 
 /**
  * Bench — working surface for the company's consultant bench.
@@ -237,6 +238,8 @@ function AddBenchListingModal({ onClose, onCreated, listed }: {
   /** Your own listings, by consultant: the listing and what the person said. */
   listed: Map<string, { listingId: string; consent: string | null }>
 }) {
+  // Rates typed here are in the firm’s own currency, by its own exponent.
+  const currency = useFirmCurrency()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ConsultantOption[]>([])
   const [searching, setSearching] = useState(false)
@@ -313,7 +316,7 @@ function AddBenchListingModal({ onClose, onCreated, listed }: {
       return
     }
 
-    const rates = listingRates({ min: rateMin, max: rateMax }, null)
+    const rates = listingRates({ min: rateMin, max: rateMax }, null, currency)
     if (!rates.ok) {
       setError(rates.says)
       return
@@ -535,12 +538,16 @@ export default function BenchPage() {
   const [scope, setScope] = useState<BenchScope>(opensOn)
   const [scopeChosen, setScopeChosen] = useState(false)
   // Bench profit (2026-09-30): the owner's, the admin's and the finance
-  // desk's, and drawn for nobody else — the same rule the route refuses by.
+  // desk's, and since 2026-11-08 anybody the Owner gives the right to read
+  // what placements make — the same rule the route refuses by. The session
+  // carries the granted permissions; which people the grant reaches is the
+  // route's to decide, so any reach but none draws the tab.
   const readsProfit = mayReadBenchProfit({
     companyName: session.company?.name ?? 'your firm',
     companyKind: session.company?.kind ?? null,
     roleName: session.roleName,
     consultantSeat: session.contextType === 'CONSULTANT',
+    marginScope: hasPermission(session.permissions, 'margin.read') || hasPermission(session.permissions, 'pnl.read') ? 'PERSON' : 'NONE',
   }).ok
   // A seat that reads people opens on the bench; the finance desk, which
   // reads bench profit and no people, opens on bench profit; a client

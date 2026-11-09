@@ -115,7 +115,8 @@ describe('a seated MSP reads its client’s program, not its own book (walk thre
   })
 
   it('a seated MSP asking what another client spends is refused in a sentence, never answered as “you”', async () => {
-    const a = await respond('What is Northbend Athletic spending on contractors?', readers(), {
+    // Northbend Athletic is a company on Etyme's record: a firm by the record, never by its capitals.
+    const a = await respond('What is Northbend Athletic spending on contractors?', readers({ firmOnRecord: async (n: string) => n === 'Northbend Athletic' }), {
       env: {}, companyKind: 'CLIENT', ownKind: 'MSP', party: 'MSP', permissions: ['invoices.read'],
       ownCompany: 'Aptiva Workforce', client: 'Cavanaugh Glassworks',
     })
@@ -203,7 +204,7 @@ describe('the mismatch notice names the receipt and the supplier (walk three, it
   it('“An invoice receipt does not match what was accepted” is said with the receipt’s number and who sent it', () => {
     expect(MISMATCH_TITLE).toBe('An invoice receipt does not match what was accepted')
     expect(mismatchSays('PR-2026-0442', 'Pinnacle Resourcing')).toBe('PR-2026-0442 from Pinnacle Resourcing does not match what was accepted')
-    expect(src('src/app/api/conversations/twin/notices.ts')).toContain('title: named.get(n.id) ?? asReceived(n.type, n.title)')
+    expect(src('src/app/api/conversations/twin/notices.ts')).toContain('title: today?.title ?? asReceived(n.type, n.title)')
   })
 })
 

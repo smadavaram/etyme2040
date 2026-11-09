@@ -24,6 +24,7 @@ import { ratePeriods } from '@/lib/contract-rate'
 import { placementEarned, hoursSigned } from '@/lib/money/placement-earned'
 import { placementMoneySheets } from '@/lib/money/placement-pay-terms'
 import { placementBooks, AGREED_SPREAD, EARNED_MARGIN } from '@/lib/money/margin'
+import { wholeFromMinor } from '@/lib/money'
 import { chainBelow } from './chain'
 import { weeksWhere } from '@/lib/money/weeks-read'
 import { paperDoorsForLine } from '@/lib/document-stages/arrived-papers'
@@ -1010,6 +1011,11 @@ export async function GET(
             id: submission.id,
             status: submission.status,
             rate: seeBill ? money(submission.rate) : null,
+            // The same figure in minor units of its currency, for a screen that
+            // says it through money's one formatter (2026-11-09). A submission
+            // stores no currency: it is priced in the line's bill currency.
+            rateCents: seeBill ? submission.rate : null,
+            currency: placement.billCurrency,
             submittedAt: submission.submittedAt?.toISOString() ?? null,
             forwardedAt: submission.forwardedAt?.toISOString() ?? null,
             from: firm(submission.fromCompany),
@@ -1024,6 +1030,9 @@ export async function GET(
                   at: sentOnBy.submittedAt?.toISOString() ?? null,
                   // Their asking price is our cost, so we may see it.
                   rate: seePay ? money(sentOnBy.rate) : null,
+                  // Their price is what our buy line pays, in its currency.
+                  rateCents: seePay ? sentOnBy.rate : null,
+                  currency: ourBuy?.payCurrency ?? placement.billCurrency,
                 }
               : null,
           }
@@ -1047,6 +1056,8 @@ export async function GET(
           id: placement.id,
           // Today's, not the one the line started on.
           billRate: billToday ? money(billToday.cents) : null,
+          billRateCents: billToday ? billToday.cents : null,
+          currency: placement.billCurrency,
           // "$120/hr since July 29, 2026 — was $112", where a change is recorded.
           billRateSays: billToday?.says ?? null,
           state: placement.state,
@@ -1073,6 +1084,8 @@ export async function GET(
               // Null means we employ them. That is the fact, not a gap.
               vendor: ourBuy.vendorCompany,
               payRate: payToday ? money(payToday.cents) : null,
+              payRateCents: payToday ? payToday.cents : null,
+              currency: seat?.payCurrency ?? ourBuy.payCurrency,
               payRateSays: payToday?.says ?? null,
               // How overtime is priced on this pay line, read the way
               // payroll reads it. A pay term, so it follows the pay rate's
@@ -1329,7 +1342,13 @@ export async function GET(
         agreed: seeMargin && books?.agreed
           ? {
               label: AGREED_SPREAD,
-              perHour: books.agreed.spreadRateCents == null ? null : books.agreed.spreadRateCents / 100,
+              // In the agreement's own currency: a dong spread has no cents
+              // to divide off (the \u20ab170.00 class, 2026-11-08).
+              currency: books.agreed.currency ?? placement.billCurrency,
+              perHourCents: books.agreed.spreadRateCents,
+              perHour: books.agreed.spreadRateCents == null
+                ? null
+                : wholeFromMinor(books.agreed.spreadRateCents, books.agreed.currency ?? placement.billCurrency),
               pct: books.agreed.pct,
               says: books.agreed.refusedBecause ?? books.agreed.says,
             }
