@@ -393,6 +393,14 @@ export const DOMAINS: Domain[] = [
       // The model boundary (2026-10-13): the per-company switch and the
       // log of what left. The masking at the edge is conversation's.
       'lib/model-boundary',
+      // Which model each kind of call uses, the one place an id is written;
+      // Ask Etyme's allowance per person and company; and whether the key
+      // and the ids are ready, for health and /ready (2026-11-11).
+      'lib/model-ids', 'lib/model-allowance', 'lib/model-health',
+      // The Superadmin screen (founder, 2026-11-11): platform settings set
+      // by Etyme's own staff, never a company's data; first, Ask Etyme's two
+      // limits, which lib/model-allowance reads before its environment.
+      'lib/platform-settings', 'lib/ask-etyme-limits', 'app/api/superadmin', 'app/dashboard/superadmin',
       // Forwarded business email, received securely (founder, 2026-10-22,
       // "security beats everything"): the address, the checks, the hold,
       // the log, the switch and the nightly deletion. The cards each kind
@@ -487,6 +495,10 @@ export const DOMAINS: Domain[] = [
       // regulatory's routes; the rules are here so there is one copy.
       'lib/setup-checklist', 'lib/setup-checklist-state', 'lib/setup-fill', 'lib/setup-fill-model',
       'lib/setup-gates', 'lib/setup-gate-rules',
+      // The checklist's twelfth item, automatic forwarding (founder,
+      // 2026-11-11): the words, the two mail-rule recipes and what the item
+      // shows about the intake's address. The intake itself is lib/email-intake.
+      'lib/setup-forwarding',
       // A password door, until the single sign-on keys exist (founder,
       // 2026-10-08): the rules with no database in them, the sign-up,
       // confirm, sign-in and reset against the database, and the one way
@@ -561,6 +573,14 @@ export const DOMAINS: Domain[] = [
       // Microsoft Entra ID, Google Workspace), read only. The nightly
       // difference in the Owner's greeting is conversation's.
       'lib/team-structure',
+      // Enterprise identity, pass 1 (founder, 2026-11-11): the sign-in
+      // policy per company, every door it answers, the session kill and the
+      // identity ledger; the settings route that reads and sets the mode.
+      'lib/identity', 'app/api/settings/sign-in',
+      // Stage B: the company's own directory as a sign-in door, the mock
+      // directory for the demo (reserved domains only), and SCIM 2.0.
+      'app/api/sso', 'app/api/mock-directory', 'app/api/scim', 'app/dashboard/settings/sign-in',
+      'scripts/identity-walk',
       // A seat that reads one region of a client's program (founder,
       // 2026-10-27, the region map): the scope, the where-fragments and the
       // door, read by lib/api-context. The views over it are demand's.

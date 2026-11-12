@@ -995,3 +995,201 @@ every unconfirmed line. What the founder should know:
   `issuedAt` for a bill sent before that column was written).
 - **A client's cash flow is built and not shown**: the page says Reports is
   not open for a client yet while its link is held back.
+
+## Identity, pass 1 — etyme-architect (2026-11-11)
+
+Stage A of the enterprise identity build: the sign-in policy, the doors
+it answers, the session kill and the ledger. Every shortcut, stub and
+untested path, plainly.
+
+**What stage A left for stage B, and where it stands now:** the directory
+door, the mock directory, SCIM, the settings screen and LinkedIn are built
+(see "Identity, pass 1, stage B" below). Still true from stage A:
+`requiredAssurance` and `dataRegion` are recorded and never enforced.
+
+**Wired in another domain's files, asked for and not done here:**
+- **Wired by etyme-regulatory, 2026-11-11.** `POST /api/access/invite`
+  asks `checkDoor` (the door `inviteRefusal` wraps) before it seats
+  anybody, so an address off a directory-only company's own domain is
+  refused in its sentence, the row written first; an allowed invitation
+  writes `INVITE_SENT` in the same transaction as the seat and marks the
+  seat `source: INVITE`. `POST /api/access/[contextId]` writes
+  `MEMBERSHIP_REVOKED` with every revoke, in the seat's transaction, and
+  calls `endSessions` when a revoke or suspend leaves the person no live
+  seat anywhere (not revoked, not paused, not expired). The identity names
+  and `DIRECTORY_READ` are in `AccessAction`. The architect's three
+  follow-ups are done (stage B): `WRITTEN_BY` names both routes, the casts
+  are gone, and the Google directory reads file under `DIRECTORY_READ`. The surface on both
+  routes is written as WEB. The invite route refuses a caller with no
+  person, so that is true there; the revoke route does not, so a revoke
+  made with an API key is recorded as WEB with no actor.
+- **The security posture's counts move** (`docs/security-posture.md`,
+  etyme-regulatory's): two new API route files, so the legal-pages test
+  reads 61 of 355 route files where the document says 61 of 353, and fails
+  until regulatory changes the second number (the logging count does not
+  move: both routes write their rows through `lib/identity`, which writes
+  through `lib/access-log`).
+- The claim route (etyme-conversation's) is enforced through
+  `claimOrJoin`, which it already calls; a refusal answers 409 with the
+  sentence, the route's existing code for a claim that is not taken.
+
+**Shortcuts in what is built:**
+- **A public address is a consumer provider's address** (the list in
+  `lib/company-domains`). A seat on another company's work address at a
+  hybrid company is not limited.
+- **The limit on a hybrid public-address seat withholds eleven
+  permissions**, including `requirements.write`, because the award route
+  asks for it; so such a seat cannot post or change a job either.
+  `timesheets.approve` and `vendors.manage` are withheld as signing and
+  bank-check acts. The founder may narrow the list in a sentence.
+- **The INVITE_ONLY refusal is written as `JOIN_REFUSED_BY_POLICY`**, and
+  "sign out everywhere" as `SESSIONS_ENDED`: two names beyond the eleven,
+  because neither is a refused SSO sign-in.
+- **A session check that cannot read the database lets the token stand**
+  for that request rather than signing the person out on a blip; the seat
+  read on the same request fails with it, so nothing is served.
+- **A session minted before this build carries no door.** At a
+  directory-only company it is refused, which is right; nowhere else does
+  the missing door matter.
+- **Directory-only refuses a join by domain even after a directory
+  sign-in**: seats there come by SCIM or just-in-time, both stage B.
+- **`LOGIN_SUCCEEDED` is not written for somebody's very first sign-in on
+  a new address**, because the person is made after it by `/start`.
+- **The demo cookie and the dev bypass carry no door and no version**, so
+  "sign out everywhere" does not end a demo visitor's cookie.
+- The policy is read per request on two identity tables (and once on the
+  person) in the session callback; there is no cache, on purpose, so a
+  change is felt on the next request.
+
+**Untested paths** (the testing budget allows three files): the email
+link (magic link) refusal is tested only through the pure function; the
+reset-confirm route, the link in a sign-up email (`verifyEmail`) and the
+onboarding route's join refusal are covered by the policy function, not by
+calling them; the `DOMAIN_VERIFIED` row is not tested; nothing is tested
+against a real database.
+
+## Identity, pass 1, stage B — etyme-architect (2026-11-11)
+
+The company's own directory as a sign-in door, the mock directory, SCIM,
+Settings → Sign-in and LinkedIn. Every shortcut, mock and untested path.
+
+**Mocked, and said so:**
+- **The mock directory is a mock.** `/api/mock-directory/[slug]/…`
+  (discovery, authorize, token, jwks, people). It asks for no password:
+  picking a name on its page is its whole idea of proof. It serves only a
+  company whose every verified domain is reserved (.example, .invalid,
+  .local), under an issuer at `mock-directory.etyme.invalid`; the settings
+  route refuses its issuer for any other company and the door refuses it
+  again at sign-in. It signs with an Ed25519 key derived from
+  `NEXTAUTH_SECRET`. Its people are the directory identities Etyme holds
+  under its issuer, so turning somebody off "at the mock" is the same act as
+  a SCIM deprovision. Etyme's door answers the mock's token and key requests
+  in process rather than over the network, so a preview behind deployment
+  protection still runs the demo; a real directory is always fetched. Its
+  POST has no CSRF token: a page elsewhere could sign a browser in as a mock
+  person, on a demo company only.
+- **Seeded only at Northbend Athletic**, under the hybrid mode, with Ines
+  Okafor (Owner) and Mateo Silva (Hiring Manager, by the group
+  nb-hiring-managers). The seed never chooses directory only, because that
+  would close the demo door on every seeded Northbend seat.
+
+**Not built:**
+- **SAML.** The settings screen stores a SAML directory (entity id,
+  certificate) and says it is not built; it cannot be turned on, and the
+  door answers `SamlNotBuilt`. No SAML response is parsed anywhere.
+- **SCIM is minimal, not a conformance suite.** Unsupported: filters other
+  than `userName eq`, `externalId eq`, `displayName eq` and `id eq`;
+  `/ServiceProviderConfig`, `/Schemas`, `/ResourceTypes`, `/Bulk`, `/Me`;
+  ETags; sorting; `attributes` and `excludedAttributes`; enterprise user
+  extensions; DELETE on a Group (405); PATCH on any User attribute but
+  `active` and `userName`. A Group nobody mapped to a role is answered and
+  not kept. A SCIM call with an unknown token names no company and is
+  answered 401 with no ledger row (there is nobody to file it under).
+- **A SCIM seat meets a directory sign-in on the issuer and the subject.**
+  SCIM's `externalId` is stored as the subject, so the directory's claim
+  named on the screen (`sub` by default) must carry the same value; for
+  Entra ID that is usually `oid`. Where they differ, the directory sign-in
+  finds no identity and either seats a second one (just-in-time on) or
+  refuses.
+- **The Owner rules' card is not built.** A directory never pauses an
+  Owner's seat: the last Owner is refused outright (409, ledgered, nothing
+  changes); any other Owner loses their directory sign-in and every
+  session and keeps the seat, and the SCIM answer (409) says another Owner
+  removes it in Etyme.
+- **`requireDirectorySuppliers` is decided and worded, not read.**
+  `supplierDirectoryCheck` in `lib/identity/supplier-directory` says the
+  sentence; the supplier approval is etyme-demand's
+  (`app/api/supplier-requests`, `lib/supplier-onboarding`) and is asked to
+  call it and keep the reason (WARN, capture a reason, proceed).
+- **`requiredAssurance` and `dataRegion`** are stored, shown and said "not
+  yet enforced" on the screen. No `acr` is checked.
+- **LinkedIn is registered only with `LINKEDIN_CLIENT_ID` and
+  `LINKEDIN_CLIENT_SECRET`,** and has never signed anybody in: no keys on
+  any deployment. It is LinkedIn's OpenID Connect sign-in through NextAuth's
+  generic OAuth provider (no new dependency), state checked, no nonce or
+  PKCE because LinkedIn's sign-in does not take them. A LinkedIn session is
+  refused at any seat whose company is not a one-person firm.
+
+**Shortcuts in what is built:**
+- **A host name in a directory's address is not resolved before it is
+  fetched.** https only, no redirects followed, five seconds, 256 KB, no
+  literal private or link-local address, no user name in the address; a
+  public name pointing at a private address is not caught.
+- **The state is single-use by its cookie,** cleared on every answer from
+  the callback, and by the directory's one-time code; there is no server
+  row for a state. The ticket after it is single-use on the record: it
+  carries the identity's last sign-in stamp and spending it moves the stamp.
+- **Ending sessions is per person, not per company:** a directory turning
+  somebody off ends their sessions at every company they hold a seat at;
+  they sign in again elsewhere.
+- **Just-in-time links an existing Etyme person by address** where the
+  address is on the company's verified domain, because Etyme's person is
+  still keyed by email; the seat is then bound to the directory identity.
+- **The client secret is locked with `ETYME_DIRECTORY_TOKEN_KEY`** (the key
+  team structure's Google directory already uses), or named in the secret
+  store as `ETYME_IDP_<NAME>`; only names of that shape are read, so a
+  stored reference can never read `NEXTAUTH_SECRET` or `DATABASE_URL`.
+- **Shared-secret id tokens (HS256) are refused,** so a directory that only
+  signs that way cannot be connected.
+- **`/api/me` reports a hybrid public-address seat's permissions without
+  the money and signing limit** (its own reader, not `getCallerContext`'s),
+  so that seat's menu may draw Bills or Payroll that the routes then refuse
+  (owner of `app/api/me`; walk check 3).
+
+**The demo checks, walked 2026-11-11 on a local copy of the seeded world**
+(`scripts/identity-walk`, `next dev` on port 3123, never production):
+1. Northbend set to directory only by Ines Okafor from her own directory
+   session (200). The route refuses it from any other session, so the Owner
+   cannot lock herself out (unit-tested, not walked). Mateo Silva signed in through the mock directory and
+   read Jobs as a Hiring Manager, and was refused Settings → Sign-in (403).
+   SCIM `active: false` for Mateo: his next request answered 401 (session
+   ended), his seat paused, and the mock refused his next sign-in. A new
+   person signed in just-in-time and was seated as Hiring Manager through
+   the group. SCIM DELETE on Ines (an Owner) answered 409 with the Owner
+   rule; a guessed SCIM token 401.
+2. For rosa.lindqvist@northbend.example under directory only: the Google
+   and LinkedIn doors refused in process with `LOGIN_REFUSED_SSO_ONLY`
+   written (no provider keys locally); the demo door into a Northbend seat
+   refused on the next route (403 DIRECTORY_ONLY, row written). The
+   password door refused first as a demo address ("A demo seat opens only
+   from the demo page"), which is its older rule for reserved addresses, so
+   no SSO-only row is written for a password on a reserved domain; the
+   password door's SSO-only refusal is covered by stage A's unit tests.
+3. A Gmail partner seated at Brightmoor under hybrid signed in with a
+   password and read timesheets; raising a bill was refused; after the
+   Owner revoked the seat (regulatory's route), the next request answered
+   401: the last seat's sessions ended.
+4. Techpeple's seat read its own eight weeks; a Brightmoor week it is not
+   party to was absent from its list and 404 by id.
+5. Settings → Sign-in's activity read back LOGIN_SUCCEEDED,
+   USER_PROVISIONED, USER_DEPROVISIONED, LOGIN_REFUSED_SSO_ONLY,
+   SSO_CONFIGURED and AUTH_POLICY_CHANGED, each with its surface and
+   sentence.
+
+**Untested paths:** a real directory (no Entra ID, Google Workspace or
+Okta tenant was connected); the token exchange's client_secret_basic and
+client_secret_post against a real token endpoint; ES256 and RS256 keys
+fetched over the network (signatures are tested in process); the screen on
+a phone (built in one column, not walked at 390 wide); the SCIM Groups
+routes over HTTP (unit-tested helpers only).
+

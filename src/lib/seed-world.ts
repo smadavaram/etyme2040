@@ -55,6 +55,7 @@ import { seedSectorSuppliers, seedSectorPapers, SECTOR_SUPPLIERS, SECTOR_OWNERS 
 import { seedBenchMatching } from '@/lib/seed-bench-matching'
 import { seedInternalMoves } from '@/lib/seed-internal-moves'
 import { seedWeekApproval } from '@/lib/seed-week-approval'
+import { seedMockDirectory } from '@/lib/identity/seed-mock'
 import { seedBenchProfit, seedBenchProfitWeeks, postBenchProfitWeeks, NICHE_VENDOR, NICHE_POSTING_SHARES } from '@/lib/seed-bench-profit'
 import { seedPipeline } from '@/lib/seed-pipeline'
 import { costCenterCode, legacyCostCenterCode, findCostCenter } from '@/lib/seed-coding'
@@ -286,6 +287,8 @@ export function worldStepNames(): string[] {
     'program-sites',
     // Every firm's setup checklist reads what the seed holds (2026-10-28).
     'setup-checklists',
+    // Northbend's mock company directory (2026-11-11, lib/identity/seed-mock).
+    'mock-directory',
     'own-seats',
     'claim',
   ]
@@ -2296,6 +2299,13 @@ export async function seedWorld(plan: SeedPlan = {}): Promise<{
     // and one write per firm, and a second seeding writes nothing.
     await seedAccountManagers([...WORLD_SLUGS])
   })
+
+  // ── The demo's company directory (2026-11-11) ──────────────────────
+  //
+  // Northbend's mock directory, turned on under the hybrid mode, with two
+  // people its directory seated (lib/identity/seed-mock). After the setup
+  // checklists, which write Northbend's domain facts it reads.
+  await step('mock-directory', () => seedMockDirectory())
 
   // ── Everybody on their own work holds their own seat ───────────────
   //

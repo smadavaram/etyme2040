@@ -19,6 +19,13 @@ import { invoiceBetween } from '@/lib/money/invoice-parties'
 import { seatFor } from '@/lib/program-seat'
 import { recordRefusal } from '@/lib/access-log'
 import { ownSeatFor, ownWorkOf, ownSeatWasRemoved, openOwnSeat } from '@/lib/own-seat'
+import {
+  seatRefusal, linkedInSeatRefusal, effectiveMode, isLimitedPublicSeat, narrowForPublicSeat, publicSeatRefusal, needsWithheld, directoryTurnedOffSays, DIRECTORY_SUSPEND_REASON,
+  type CompanyPolicy, type Door, type SignInMode,
+} from '@/lib/identity/policy'
+import { recordIdentityEvent } from '@/lib/identity/ledger'
+import { domainOfEmail, isConsumerDomain } from '@/lib/company-domains'
+import { PERMISSIONS, askTheDesk, type Permission } from '@/lib/permissions'
 
 /**
  * Caller context — resolved once per request, used by every endpoint
@@ -124,6 +131,12 @@ export interface CallerContext {
    * the check refuses it first, so no route has to remember to.
    */
   readOnly?: boolean
+  /**
+   * True when the seat is an invited public address at a hybrid company
+   * (founder, 2026-11-11): its money and signing acts were taken off
+   * `permissions` above. `refusalFor` reads it so the refusal says why.
+   */
+  publicSeat?: boolean
 }
 
 /**
@@ -133,6 +146,50 @@ export interface CallerContext {
  * references one is a foreign-key error at best and, where the column is
  * nullable and unchecked, a dangling reference nobody notices for months.
  */
+/**
+ * The refusal for an act the caller's seat does not hold, said for this
+ * caller. A limited public-address seat refused an act the limit took
+ * away is told that, in one sentence (publicSeatRefusal); everybody else
+ * reads askTheDesk's sentence naming who does it. A route that refuses on
+ * a permission passes its caller here rather than calling askTheDesk.
+ */
+export function refusalFor(
+  caller: Pick<CallerContext, 'publicSeat' | 'company'>,
+  args: { doing: string; needs: Permission | readonly Permission[] }
+): string {
+  if (caller.publicSeat && needsWithheld(args.needs)) return publicSeatRefusal(caller.company?.name)
+  return askTheDesk({ ...args, kind: caller.company?.kind ?? null, companyName: caller.company?.name ?? null })
+}
+
+/**
+ * Whether the request still carries a session cookie that a company's
+ * directory ended: the cookie decodes to an address whose directory
+ * identity is off. The session callback refused it, so `getServerSession`
+ * answered nobody; the cookie itself is still on this request. Returns the
+ * sentence, or null for every other kind of signed-out. Never throws.
+ */
+async function endedByDirectory(): Promise<string | null> {
+  try {
+    const secret = process.env.NEXTAUTH_SECRET
+    if (!secret) return null
+    const jar = cookies()
+    const raw = jar.get('__Secure-next-auth.session-token')?.value ?? jar.get('next-auth.session-token')?.value
+    if (!raw) return null
+    const { decode } = await import('next-auth/jwt')
+    const token = await decode({ token: raw, secret })
+    const email = typeof token?.email === 'string' ? token.email.trim().toLowerCase() : null
+    if (!email) return null
+    const off = await prisma.externalIdentity.findFirst({
+      where: { person: { primaryEmail: email }, disabledAt: { not: null } },
+      orderBy: { disabledAt: 'desc' },
+      select: { company: { select: { name: true } } },
+    })
+    return off ? directoryTurnedOffSays(off.company?.name ?? null) : null
+  } catch {
+    return null
+  }
+}
+
 export function realPersonId(caller: CallerContext): string | null {
   return caller.isService ? null : caller.person.id
 }
@@ -239,6 +296,10 @@ export function whenThereIsNoSeat(args: {
 }): NoSeat {
   if (args.isStaff) return { staff: true }
 
+  if (args.paused && args.paused.reason === DIRECTORY_SUSPEND_REASON) {
+    return { staff: false, status: 403, code: 'DIRECTORY_OFF', says: directoryTurnedOffSays(args.paused.companyName) }
+  }
+
   if (args.paused) {
     return {
       staff: false,
@@ -279,21 +340,50 @@ export function whenThereIsNoSeat(args: {
  * Shared by getCallerContext and any route that uses getServerSession directly.
  */
 export async function getSessionEmail(): Promise<string | null> {
+  return (await getSessionIdentity())?.email ?? null
+}
+
+/**
+ * Who the session is, and the door it was signed in through (founder,
+ * 2026-11-11). The door is what a directory-only company's seat is checked
+ * against on every request. An ended session never reaches here: the
+ * session callback in lib/auth refuses it before a session is returned.
+ * The dev bypass and a demo visitor carry no door.
+ */
+export async function getSessionIdentity(): Promise<{ email: string; door: Door | null; issuer: string | null } | null> {
   const devBypass = process.env.DEV_BYPASS_AUTH
   if (devBypass && process.env.NODE_ENV === 'development') {
-    return devBypass
+    return { email: devBypass, door: null, issuer: null }
   }
 
   const session = await getServerSession(authOptions)
   // Lowercased, because the person is found by the email they signed up
   // with, and a Microsoft account may spell it Sharath@Etyme.com.
-  if (session?.user?.email) return session.user.email.trim().toLowerCase()
+  if (session?.user?.email) {
+    const u = session.user as { email: string; door?: Door | null; issuer?: string | null }
+    const email = session.user.email.trim().toLowerCase()
+    return { email, door: u.door ?? null, issuer: u.issuer ?? null }
+  }
 
   // A demo visitor, who has not signed up and should not have to.
   //
   // Checked after the real session, never before: somebody with an
   // account is that account, whatever a stale demo cookie says.
-  return await demoEmail()
+  const demo = await demoEmail()
+  return demo ? { email: demo, door: null, issuer: null } : null
+}
+
+/** The seat company's sign-in policy, as read with the seat. Null where the company has none. */
+export function seatCompanyPolicy(company: {
+  id: string; name: string
+  signInPolicy?: { mode: string } | null
+  identityProviders?: { issuer: string }[] | null
+} | null | undefined): CompanyPolicy | null {
+  if (!company) return null
+  const mode = (company.signInPolicy?.mode as SignInMode | undefined) ?? null
+  const issuers = (company.identityProviders ?? []).map((d) => d.issuer)
+  if (!mode && issuers.length === 0) return null
+  return { companyId: company.id, companyName: company.name, mode, issuers }
 }
 
 /**
@@ -503,13 +593,20 @@ export async function getCallerContext(
   // identity by different code from the handful using getSessionEmail.
   // The two agreed until they did not: a demo visitor was somebody to
   // /api/me and nobody to /api/bench.
-  const sessionEmail = await getSessionEmail()
+  const identity = await getSessionIdentity()
+  const sessionEmail = identity?.email ?? null
 
   if (!sessionEmail) {
     // Nobody signed in and no demo of their own: a visitor looking at the
     // home page's frame is the sample seat, read-only. Last, never first —
     // see lib/sample-seat.
     if (await sampleCookieOn(request)) return sampleCaller(request)
+    // A session the person's own company directory ended is told so, not
+    // treated as somebody who never signed in (walk on 62a498151).
+    const off = await endedByDirectory()
+    if (off) {
+      return { caller: null, error: NextResponse.json({ error: { code: 'DIRECTORY_OFF', message: off } }, { status: 401 }) }
+    }
     return {
       caller: null,
       error: NextResponse.json(
@@ -542,8 +639,14 @@ export async function getCallerContext(
   // believes it worked.
   const usable = { revokedAt: null, suspendedAt: null }
 
+  // How the company's people sign in, read with the seat so the check
+  // below costs no query (lib/identity).
+  const SEAT_POLICY = {
+    signInPolicy: { select: { mode: true } },
+    identityProviders: { where: { enabled: true }, select: { issuer: true } },
+  } as const
   const seatInclude = {
-    company: { select: { id: true, name: true, slug: true, kind: true, outsideAccess: true, accountWalls: true, isDemo: true } },
+    company: { select: { id: true, name: true, slug: true, kind: true, outsideAccess: true, accountWalls: true, isDemo: true, ...SEAT_POLICY } },
     role: { select: { id: true, name: true, permissions: true } },
     // Read with the seat so a region seat is known without a second query.
     orgUnit: { select: { id: true, name: true, kind: true } },
@@ -643,6 +746,49 @@ export async function getCallerContext(
     }
   }
 
+  // ── The company's sign-in policy, on every request ──────────────────
+  //
+  // A directory-only company's seat is used only from a session that
+  // company's own directory signed in (founder, 2026-11-11), whoever holds
+  // the seat and however it was made. A session signed in by any other
+  // door, including one signed in before the Owner changed the policy, is
+  // refused here on its next request, the row written before the answer.
+  const seatPolicy = seatCompanyPolicy(context.company as any)
+  const seatSays = seatRefusal(seatPolicy, { door: identity?.door ?? null, issuer: identity?.issuer ?? null })
+  if (seatSays && seatPolicy) {
+    await recordIdentityEvent({
+      event: 'LOGIN_REFUSED_SSO_ONLY',
+      companyId: seatPolicy.companyId,
+      actorPersonId: person.id,
+      subject: { personId: person.id },
+      policy: 'SSO_ONLY',
+      surface: request?.nextUrl?.pathname?.startsWith('/api/') ? 'API' : 'WEB',
+      says: `Refused the seat at ${seatPolicy.companyName} to a session signed in through ${identity?.door ?? 'a door from before 2026-11-11'}${request?.nextUrl?.pathname ? ` on ${request.nextUrl.pathname}` : ''}: ${seatSays}`,
+    })
+    return {
+      caller: null,
+      error: NextResponse.json({ error: { code: 'DIRECTORY_ONLY', message: seatSays } }, { status: 403 }),
+    }
+  }
+  // LinkedIn is a worker's and a one-person firm's door, never a door to a
+  // company with colleagues (founder, 2026-11-11).
+  const linkedInSays = linkedInSeatRefusal(identity?.door ?? null, context.company as any)
+  if (linkedInSays && context.companyId) {
+    await recordIdentityEvent({
+      event: 'JOIN_REFUSED_BY_POLICY',
+      companyId: context.companyId,
+      actorPersonId: person.id,
+      subject: { personId: person.id },
+      policy: effectiveMode(seatPolicy),
+      surface: request?.nextUrl?.pathname?.startsWith('/api/') ? 'API' : 'WEB',
+      says: `Refused a LinkedIn session the seat at ${(context.company as any)?.name ?? 'the company'}: ${linkedInSays}`,
+    })
+    return {
+      caller: null,
+      error: NextResponse.json({ error: { code: 'LINKEDIN_NOT_FOR_COMPANIES', message: linkedInSays } }, { status: 403 }),
+    }
+  }
+
   // ── Record that this access was actually used ──
   //
   // The access review reports grants nobody has touched, and a review built
@@ -675,11 +821,32 @@ export async function getCallerContext(
   // every `hasPermission` asked over `caller.permissions`. A grant narrowed
   // to a team counts only where its reader narrows the query
   // (lib/permission-grants). One query; a failed read is the role alone.
-  const rolePermissions = (context.role?.permissions as string[]) ?? []
+  let rolePermissions = (context.role?.permissions as string[]) ?? []
   const held = await seatPermissions(
     { companyId: context.companyId, roleId: context.roleId, contextId: context.id },
     rolePermissions
   )
+  let permissions: readonly string[] = held.permissions
+  let grantedPermissions: readonly string[] = held.granted
+
+  // ── An invited seat on a public address at a hybrid company ─────────
+  //
+  // It never pays, bills, signs, awards or runs payroll, whatever its
+  // role or a grant says (founder, 2026-11-11). Taken off the permissions
+  // here, the one place every route reads them from, so no route has to
+  // remember it.
+  const ownDomain = domainOfEmail(person.primaryEmail)
+  const publicSeat = isLimitedPublicSeat(seatPolicy, !ownDomain || isConsumerDomain(ownDomain))
+  if (publicSeat) {
+    permissions = narrowForPublicSeat(permissions, PERMISSIONS)
+    rolePermissions = narrowForPublicSeat(rolePermissions, PERMISSIONS)
+    grantedPermissions = narrowForPublicSeat(grantedPermissions, PERMISSIONS)
+  }
+
+  // The seat's company, without the policy fields read beside it.
+  const { signInPolicy: _policy, identityProviders: _directories, ...seatCompany } =
+    (context.company ?? {}) as NonNullable<typeof context.company> & { signInPolicy?: unknown; identityProviders?: unknown }
+  void _policy; void _directories
 
   const caller: CallerContext = {
     person,
@@ -689,10 +856,10 @@ export async function getCallerContext(
       companyId: context.companyId,
       roleId: context.roleId,
     },
-    company: context.company,
-    permissions: held.permissions,
+    company: context.company ? (seatCompany as CallerContext['company']) : null,
+    permissions,
     rolePermissions,
-    grantedPermissions: held.granted,
+    grantedPermissions,
     // Where they sit in the firm. Null is firm-wide, and that absence is
     // the deliberate act rather than an oversight.
     orgUnitId: context.orgUnitId,
@@ -702,6 +869,7 @@ export async function getCallerContext(
     // way whether or not they have one, so a route asking `caller.staff`
     // gets one answer rather than two.
     staff: isStaffAddress(person.primaryEmail),
+    ...(publicSeat ? { publicSeat: true } : {}),
   }
 
   const refused = await desklessRefusal(caller, request)

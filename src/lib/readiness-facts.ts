@@ -7,12 +7,14 @@
  */
 
 import { prisma } from '@/lib/db'
-import type { ReadinessFacts } from '@/lib/readiness'
+import { emailLinkDoorOn, type ReadinessFacts } from '@/lib/readiness'
 import { staffAddresses } from '@/lib/alerts'
 import { contactEmail } from '@/lib/data-request'
 import { countTeamsLinks, TEAMS_WORKFLOWS_SENT_NOTE, type TeamsFacts } from '@/lib/notify/teams-link'
 import { INBOUND_SECRET_ENV } from '@/lib/texts'
 import { teamsBotEdge, teamsBotFacts } from '@/lib/teams/readiness'
+import { modelHealth } from '@/lib/model-health'
+import { currentAllowanceLimits } from '@/lib/model-allowance'
 
 const DEMO_DOMAIN = '@demo.etyme.local'
 
@@ -23,7 +25,7 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
     cronSecret: Boolean(process.env.CRON_SECRET),
     microsoft: Boolean(process.env.AZURE_AD_CLIENT_ID && process.env.AZURE_AD_CLIENT_SECRET),
     google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    emailLink: Boolean(process.env.EMAIL_SERVER),
+    emailLink: emailLinkDoorOn(),
     emailSender: Boolean(process.env.RESEND_API_KEY && process.env.NOTIFY_FROM_EMAIL),
     anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
   }
@@ -33,8 +35,13 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
   // than a count of button clicks.
   const inbound = { secretSet: Boolean(process.env[INBOUND_SECRET_ENV]), signedDeliveries: null }
 
+  // The allowance in force: the Superadmin screen first, the environment second.
+  const m = modelHealth(process.env, await currentAllowanceLimits())
+  const modelIds = { supported: m.idsSupported, says: m.says }
+
   const empty: ReadinessFacts = {
     env,
+    modelIds,
     db: { reachable: false, schemaCurrent: false, ms: null },
     realCompanies: 0,
     realSignIns: 0,
@@ -100,6 +107,7 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
 
   return {
     env,
+    modelIds,
     db: { reachable: true, schemaCurrent, ms },
     realCompanies,
     realSignIns,
