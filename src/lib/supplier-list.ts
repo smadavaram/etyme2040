@@ -31,6 +31,7 @@
  */
 
 import { hasAnyPermission, type Permission } from '@/lib/permissions'
+import { firmNameKey, type HeldWith } from '@/lib/counterparty'
 
 // ── Who may open the supplier register ───────────────────────────────
 //
@@ -96,6 +97,20 @@ export const CANNOT_SEE_SUPPLIERS =
 export const ADDS_SUPPLIERS = 'vendors.manage' as const
 
 /** What is missing and who to ask. Never a permission code. */
+/**
+ * A firm already on Etyme that does not work with the caller, found from
+ * what the caller typed. Said with no id, name or address of it, in the
+ * words Add a company uses, so the two doors say one thing: a firm on
+ * Etyme is never tied to you from your side alone (review, 2026-11-13).
+ * The only way on is the ask to link and their yes.
+ */
+export function onEtymeAskToLinkSays(as: string): string {
+  return (
+    `That company is on Etyme already, so no copy of it was made. Ask them to link, as your ${as}: ` +
+    `they are asked, and nothing is on either list until they say yes.`
+  )
+}
+
 export const CANNOT_ADD_SUPPLIER =
   'Adding suppliers from a list belongs to whoever manages the approved suppliers — Procurement, ' +
   'a supplier manager or the program manager. To bring in a new firm, recommend it from the ' +
@@ -380,4 +395,107 @@ export function mayClaim(signedInAs: string, invited: string): boolean {
   const da = companyDomain(a)
   const db = companyDomain(b)
   return da != null && db != null && da === db
+}
+
+// ── A company on a Companies list that nobody has classified yet ─────
+//
+// Founder, 2026-11-12 (the neutral Company): a company recorded by name
+// alone is a record and nothing more. It is never sent a job, never
+// put forward to, never invited, until the firm gives it a position by
+// "Extend" (a register row) and, for an invitation, a Kind. These are
+// the demand side's three doors onto one: the send, the onward
+// submission, and the supplier list's paste. Pure; the routes read the
+// Kind and the register rows and pass them in.
+
+/** The register relationships that make a company somebody a job may go to. */
+export const SENDS_A_JOB_TO = ['SUPPLIER', 'PRIME'] as const
+
+/** The register relationships that make a company somebody a person may be put forward to. */
+export const PUTS_FORWARD_TO = ['CLIENT', 'PRIME', 'MSP'] as const
+
+/**
+ * Whether the sender's register must be asked before a job or a person
+ * goes to this company. Decided from the register, never from the Kind
+ * alone (review, 2026-11-13): a company of Kind not classified, one the
+ * sender recorded as not classified and gave a Kind since (`held.recorded`),
+ * and a record of the sender's own that holds no position at all
+ * (`held.notClassified`, the Companies badge) all read the same way.
+ * `held` is `standingWith` in app/api/companies/positions; where a caller
+ * passes none, only the Kind is read. Pure.
+ */
+export function readsNotClassified(
+  company: { kind?: string | null },
+  held?: HeldWith | null,
+): boolean {
+  return company.kind === 'UNCLASSIFIED' || held?.recorded === true || held?.notClassified === true
+}
+
+/**
+ * Whether a job may be sent to this company. A company holding a position
+ * with the sender, or not on its Companies list at all, is the existing
+ * rules' to decide; one not classified needs a Supplier position on the
+ * sender's register, whatever Kind it was given.
+ */
+export function mayBeSentJob(
+  company: { name: string; kind?: string | null },
+  relationships: readonly string[],
+  held?: HeldWith | null,
+): { ok: true } | { ok: false; says: string } {
+  if (!readsNotClassified(company, held)) return { ok: true }
+  if (relationships.some((r) => (SENDS_A_JOB_TO as readonly string[]).includes(r))) return { ok: true }
+  return { ok: false, says: `${company.name} is on your Companies list and is not classified yet. Extend it to Supplier first.` }
+}
+
+/**
+ * The one refusal for a job sent to a firm the sender may not send it to:
+ * a firm it does not deal with, a firm it reaches only through a prime,
+ * or an id that is not there. One sentence for all three, so the answer
+ * never tells the caller which it was. Names nobody. Pure.
+ */
+export function notYourSupplierSays(count: number, sender: string): string {
+  const one = count <= 1
+  return (
+    `${one ? 'One of the firms you picked is' : `${count} of the firms you picked are`} not a supplier of ${sender}, ` +
+    `so this job request cannot be sent to ${one ? 'it' : 'them'}. ` +
+    'Send it to the suppliers you buy from, or add the firm as a supplier of your own first.'
+  )
+}
+
+/**
+ * The one refusal for a person sent on to a company the sender has no
+ * dealing with: the same words as an id that is not there, with the next
+ * step. Names nobody. Pure.
+ */
+export const NO_COMPANY_BY_THAT_ID = 'No company by that id. Send this person on to a company you already work with.'
+
+/**
+ * Whether a person may be put forward to this company. One not classified
+ * yet needs a Customer position (or a prime or MSP row) on the sender's
+ * register, because a submission goes up to whoever buys.
+ */
+export function mayBePutForwardTo(
+  company: { name: string; kind?: string | null },
+  relationships: readonly string[],
+  held?: HeldWith | null,
+): { ok: true } | { ok: false; says: string } {
+  if (!readsNotClassified(company, held)) return { ok: true }
+  if (relationships.some((r) => (PUTS_FORWARD_TO as readonly string[]).includes(r))) return { ok: true }
+  return { ok: false, says: `${company.name} is on your Companies list and is not classified yet. Extend it to Customer first.` }
+}
+
+/**
+ * Which of a firm's own records a pasted or approved supplier is, by name:
+ * a company this firm recorded, nobody has claimed, under the same name
+ * (`firmNameKey`). One record of a firm, never a second Vendor copy beside
+ * the one already on the Companies list. Pure.
+ */
+export function ownRecordByName<T extends { id: string; name: string }>(name: string, mine: readonly T[]): T | null {
+  const key = firmNameKey(name)
+  if (!key) return null
+  return mine.find((c) => firmNameKey(c.name) === key) ?? null
+}
+
+/** Whether a company held in a send-on picker is one a person may be sent on to. Pure. */
+export function offeredToSendOn(c: { notClassified?: boolean | null }): boolean {
+  return c.notClassified !== true
 }

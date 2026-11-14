@@ -15,6 +15,12 @@ import { CloseBand } from './close-band'
  * gone; the footer's one row carries the demo, the documentation, About
  * and the rest, and the four steps are the documentation's own spine.
  *
+ * One exception, the home page alone (founder's brief, 2026-11-13): it
+ * passes `button`, and its header carries Start free beside Sign in; and,
+ * since his reference page the same day, `links`, four in-page links
+ * drawn from 760 wide. Every other page passes neither and its header is
+ * exactly as it was.
+ *
  * Links are plain anchors on purpose: every page here is a
  * server-rendered document that works with JavaScript off.
  */
@@ -36,7 +42,7 @@ const TAP = 'inline-flex h-11 items-center justify-center rounded-lg'
  * under it rather than behind it. A change to its padding or to `TAP`
  * changes the figure.
  */
-export function SiteHeader() {
+export function SiteHeader({ button, links }: { button?: { t: string; href: string }; links?: readonly { t: string; href: string }[] } = {}) {
   return (
     <header
       className="sticky top-0 z-40 border-b border-etyme-rule bg-etyme-canvas/95 backdrop-blur
@@ -47,6 +53,19 @@ export function SiteHeader() {
           <EtymeLogo size="md" />
         </a>
 
+        {links && (
+          // The home page's four in-page links (the founder's reference page,
+          // 2026-11-13), from 760 wide only: on a phone the header stays the
+          // wordmark, Sign in and Start free.
+          <div data-header-links="" className="ml-auto hidden items-center gap-x-1 min-[760px]:flex">
+            {links.map((l) => (
+              <a key={l.href} href={l.href} className={`${TAP} whitespace-nowrap px-2.5 text-sm font-medium text-etyme-muted transition-colors hover:text-etyme-ink ${FOCUS}`}>
+                {l.t}
+              </a>
+            ))}
+          </div>
+        )}
+
         <div className="ml-auto flex items-center">
           <a
             href={HEADER.signIn.href}
@@ -55,6 +74,16 @@ export function SiteHeader() {
           >
             {HEADER.signIn.t}
           </a>
+          {button && (
+            <a
+              href={button.href}
+              data-header-button=""
+              className={`${TAP} ml-1 whitespace-nowrap bg-etyme-action px-4 text-sm font-semibold text-white shadow-sm
+                         transition-opacity hover:opacity-90 ${FOCUS}`}
+            >
+              {button.t}
+            </a>
+          )}
         </div>
       </nav>
     </header>

@@ -52,11 +52,16 @@ full dependency list is eleven runtime packages (`package.json`).
 | Email and password sign-in | Built — argon2id hash, at least 12 characters, five failed tries in 15 minutes and the door waits a minute, reset and verification links stored only as a hash | `src/lib/password.ts`, `src/lib/password-door.ts` |
 | A provider with no credentials is not offered at all | Built | `configuredProviders()` in `src/lib/auth.ts` |
 | Consumer email domains cannot register a company | Built | `isExcludedDomain()` in `src/lib/auth.ts` |
-| Session | JWT cookie, 30 days | `src/lib/auth.ts` |
+| Session | JWT cookie, 30 days, checked on every request against a session version on the person, so ending a person's sessions takes effect on their next click | `src/lib/auth.ts`, `sessionStands()` in `src/lib/identity/policy.ts`, `endSessions()` in `src/lib/identity/read.ts` |
 | Role-based permissions per seat | Built | `src/lib/permissions.ts`, `src/lib/seat.ts`, `src/lib/company-roles.ts` |
 | Seat lifecycle — invited, active, suspended, revoked | Built | `src/lib/account-lifecycle.ts` |
 | MFA | **Not enforced by Etyme.** Inherited from the corporate tenant where one is connected. The email link path has no second factor. | — |
-| SSO enforcement / SCIM provisioning | **Not built.** | — |
+| Sign-in through the company's own directory (OpenID Connect) | Built — the directory's signed ID token is checked (issuer, audience, signature, expiry), and the person is known by the directory's issuer and subject, not the email. Configured per company; the client secret is held as a reference to the platform's secret store or sealed, never stored in the database in plain text | `src/lib/identity/oidc.ts`, `src/lib/identity/directory.ts`, `src/app/api/sso/callback/route.ts` |
+| Directory-only enforcement | Built — at a company set to sign in through its directory only, every other door refuses at the API, not only on the screen: password, emailed link, Google and Microsoft social sign-in, claim links and the staff bootstrap. Each refusal is written to the identity ledger | `decideDoor()` and `seatRefusal()` in `src/lib/identity/policy.ts` |
+| SCIM 2.0 provisioning | Built — users and groups, by a per-company token stored only as a hash; a group maps to a role by company setting | `src/app/api/scim/v2/Users`, `src/app/api/scim/v2/Groups`, `src/lib/identity/scim.ts`, `src/lib/identity/provision.ts` |
+| Deprovisioning | Built — a person turned off or removed in the directory has every seat at that company paused and every live session ended on the next request, and the event is logged | `src/lib/identity/provision.ts` |
+| SAML 2.0 sign-in | **Not built.** A SAML directory can be configured and stored; signing in through one is refused in a sentence that says so | `SAML_NOT_BUILT` in `src/lib/identity/directory.ts` |
+| Directory conformance and certification | **Not done.** No third-party SCIM or OpenID conformance suite has been run, and the demo's stand-in directory is a mock | `KNOWN-LIMITS.md` |
 
 **Roles are in the trade's own words**, per kind of company — Account
 Manager, Contract Manager, Accounts Receivable, AP & Payroll, Compliance
@@ -304,8 +309,8 @@ systems drop and the half an investigation needs.
 
 `src/lib/access-log.ts`, `AccessLog` in `prisma/schema.prisma`.
 
-**Coverage, stated honestly.** 62 route files write an access-log row
-through `src/lib/access-log.ts`, out of 371 API route files. They are the routes that
+**Coverage, stated honestly.** 88 route files write an access-log row
+through `src/lib/access-log.ts`, out of 382 API route files. They are the routes that
 read a named person: a profile, a consultant record, a resume file, a
 placement, submissions, a shared document packet, a bench list, an alumni
 list, match results, a compliance record, a classification position, a
@@ -486,14 +491,14 @@ Named on the common autonomy ladder, because that is the vocabulary every
 enterprise buyer is currently asking in, and recorded per action in
 `src/lib/autonomy.ts`.
 
-Recomputed from the module on 2026-10-22:
+Recomputed from the module on 2026-11-13:
 
 | | Count |
 |---|---|
-| Actions named in the automation log | **220** |
+| Actions named in the automation log | **236** |
 | Unprompted — the system did it and nobody asked | **38** |
-| Enforcement — the system decided what a person was allowed to do | **13** |
-| Attributed — a person did it and the row is the record | **169** |
+| Enforcement — the system decided what a person was allowed to do | **14** |
+| Attributed — a person did it and the row is the record | **184** |
 
 **The finding is the last row.** Most of what sits in an automation log
 is an audit trail of human acts, not automation. Giving those a rung
@@ -888,7 +893,7 @@ Stated in one place so a reviewer does not have to assemble it.
   feed in the message metadata. It is a write path rather than a read, so
   the scanner above does not look at it. `etyme-demand` owns it and is
   closing it; it is recorded here as **open** until that commit lands.
-- Access logging covers 62 route files of 371 (section 4).
+- Access logging covers 88 route files of 382 (section 4).
 - An ordinary read or a list of people is logged fire-and-forget, so a log
   write failure there does not fail the request; staff are told instead.
   Refusals and the reads that must not proceed unlogged wait for their

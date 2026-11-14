@@ -1,3 +1,4 @@
+import { ownerOnlyLine } from '@/lib/owner-gate'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { staffOnly } from '@/lib/seat'
@@ -8,6 +9,9 @@ import { getTemplatePack, TEMPLATE_PACKS } from '@/lib/template-packs'
 import { SHIFT_CATEGORIES, SHIFT_WORDS, isShiftDirection, policyFrom } from '@/lib/cycle-shift'
 import { checkTeamsLink, teamsLinkStanding } from '@/lib/notify/teams-link'
 import { changeCompanyKind, isOwnerSeat } from './kind'
+import { readCompanySeats, countsByRole, countSeats, peopleOf, roleHeldWords, peopleWords, NO_SEATS, type SeatCounts } from '@/lib/company-seats'
+import { joinSentenceFor } from '@/lib/join-words'
+import { roleCanDo } from '@/lib/company-roles'
 
 /**
  * GET  /api/settings — everything about how this company is set up
@@ -71,7 +75,7 @@ export async function GET(request: NextRequest) {
   const companyId = caller.company.id
   const thisYear = new Date().getFullYear()
 
-  const [company, roles, locations, holidays, costCenters, memberCounts] = await Promise.all([
+  const [company, roles, locations, holidays, costCenters, seats, joins] = await Promise.all([
     prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -80,7 +84,7 @@ export async function GET(request: NextRequest) {
         teamsWebhookUrl: true, networkVerifiedAt: true, siteLiveAt: true,
         outsideAccess: true, accountWalls: true,
         cycleShiftHours: true, cycleShiftPay: true, cycleShiftBill: true, daysOff: true,
-        kindSetById: true, kindSetAt: true,
+        kindSetById: true, kindSetAt: true, ownerProofRequiredAt: true, ownerVerifiedAt: true,
       },
     }),
     prisma.role.findMany({
@@ -105,14 +109,20 @@ export async function GET(request: NextRequest) {
       orderBy: { code: 'asc' },
       select: { id: true, code: true, name: true, glAccount: true },
     }),
-    prisma.context.groupBy({
-      by: ['roleId'],
-      where: { companyId, revokedAt: null },
-      _count: { _all: true },
-    }),
+    // One reader of the company's seats (lib/company-seats), so a role's
+    // count here is the one every other screen gives.
+    readCompanySeats(companyId),
+    joinSentenceFor(companyId),
   ])
 
-  const heldBy = new Map(memberCounts.map((m) => [m.roleId, m._count._all]))
+  // Every seat not ended, invited and paused included: what the role
+  // editor's delete guard counts, so a role with only an invited person
+  // never reads as held by nobody.
+  const heldBy = new Map<string | null, number>()
+  for (const s of seats) heldBy.set(s.roleId, (heldBy.get(s.roleId) ?? 0) + 1)
+  // The company's own people per role, by state: what a person reads.
+  const byRole = countsByRole(seats)
+  const none: SeatCounts = NO_SEATS
   // Who last changed the type, by name, and whether this seat may: the
   // Owner alone (lib/company-kind).
   const [typeSetBy, mayChangeType] = await Promise.all([
@@ -154,14 +164,32 @@ export async function GET(request: NextRequest) {
         // answer is editing a role.
         canSeeOutside: roles
           .filter((r) => hasPermission(r.permissions, 'network.read'))
-          .map((r) => ({ role: r.name, heldBy: heldBy.get(r.id) ?? 0 })),
+          // Only people who have access can see anything: an invited
+          // person who never signed in sees nothing yet.
+          .map((r) => ({ role: r.name, heldBy: (byRole.get(r.id) ?? none).withAccess })),
       },
-      roles: roles.map((r) => ({
-        ...r,
-        // How many people hold it. A role nobody holds is either new or
-        // dead, and the difference matters before deleting one.
-        heldBy: heldBy.get(r.id) ?? 0,
-      })),
+      roles: roles.map((r) => {
+        const c = byRole.get(r.id) ?? none
+        const can = roleCanDo(r)
+        return {
+          ...r,
+          // Every seat not ended that holds it. A role nobody holds is
+          // either new or dead, and the difference matters before deleting one.
+          heldBy: heldBy.get(r.id) ?? 0,
+          // The company's own people holding it, by state, and in words:
+          // "2 with access · 3 invited", "nobody holds this yet".
+          withAccess: c.withAccess,
+          invited: c.invited,
+          paused: c.paused,
+          heldWords: roleHeldWords(c),
+          // What it can do, against the whole catalog (lib/company-roles).
+          canDo: { everything: can.everything, count: can.count, of: can.of, words: can.words, list: can.list },
+        }
+      }),
+      // The company's people, counted once, in words.
+      people: peopleWords(countSeats(peopleOf(seats))),
+      // How people join this company, from what the code does (lib/join-words).
+      joins,
       locations,
       holidays: holidays.map((h) => ({ ...h, date: h.date.toISOString().slice(0, 10) })),
       costCenters,
@@ -193,6 +221,10 @@ export async function GET(request: NextRequest) {
       canEditGovernance: hasPermission(caller.permissions, 'governance.write'),
       // The type is the Owner's to change, and nobody else's.
       canChangeType: mayChangeType,
+      // What a reader who may not change it is told: the gate's sentence
+      // with the link to Prove ownership where there is no verified Owner
+      // to ask, the Owner-only sentence otherwise (lib/owner-gate).
+      typeLine: mayChangeType || !company ? null : ownerOnlyLine(company, 'COMPANY_TYPE'),
     },
   })
 }

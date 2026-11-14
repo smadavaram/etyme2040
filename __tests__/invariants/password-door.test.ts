@@ -284,19 +284,24 @@ describe('the login page offers email and password even when no provider key is 
     expect(mod.configuredProviders().map((p: any) => p.options?.id ?? p.id)).toEqual(['credentials', 'directory-oidc'])
   })
 
-  it('draws the email and password form before any provider button, and never behind a provider check', () => {
+  it('draws the password form wherever the doors route names it, and never behind a provider check', () => {
+    // Since 2026-11-12 Google and Microsoft are drawn above the password
+    // (lib/login-doors orderDoors); the password is still always offered
+    // where the address's company allows it, alone where it is the only door.
+    // Since the evening of 2026-11-12 the password is asked on the second
+    // screen, after Continue with the email, wherever the route names it.
     const page = read('src/app/(auth)/login/page.tsx')
-    const form = page.indexOf("signIn('credentials'")
-    const microsoft = page.indexOf('<AccountDoors')
-    expect(form).toBeGreaterThan(0)
-    expect(page.indexOf('id="pw"')).toBeLessThan(microsoft)
+    expect(page.indexOf("signIn('credentials'")).toBeGreaterThan(0)
+    expect(page).toContain("const offersPassword = ordered.includes('password')")
+    expect(page).toContain('{offersPassword ? (')
     expect(page).not.toContain("has('credentials')")
     expect(page).not.toContain('No sign-in method is switched on')
   })
 
   it('links to sign-up and to a reset from the sign-in form', () => {
     const page = read('src/app/(auth)/login/page.tsx')
-    expect(page).toContain('href="/signup"')
+    // "New here? Sign up" is a link under the heading, carrying the address typed.
+    expect(page).toContain('href={signUpWith(email)}')
     expect(page).toContain('href="/reset"')
   })
 })
@@ -327,7 +332,8 @@ describe('round one of the sign-up walk, said as the walk found it', () => {
   })
 
   it('with no email sender, reset says so before any form, because a reset link kept for staff would open an existing account', () => {
-    expect(RESET_SHUT).toBe('Password reset is off on this deployment until an email sender is set up.')
+    // Reworded 2026-11-12 (fault 5): it points to Set a password in the account menu.
+    expect(RESET_SHUT).toBe('Etyme cannot send email here yet, so a reset link cannot reach you. If you can still sign in with Google or Microsoft, do that, then choose Set a password in the account menu.')
     const src = read('src/app/(auth)/reset/page.tsx')
     expect(src.indexOf('mailLeaves()')).toBeGreaterThan(0)
     expect(src.indexOf('{RESET_SHUT}')).toBeGreaterThan(src.indexOf('mailLeaves()'))
@@ -380,15 +386,6 @@ describe('round one of the sign-up walk, said as the walk found it', () => {
     expect(door).not.toContain("type: 'SYSTEM'")
   })
 
-  it('the sign-in page names only the ways in this deployment has set up, in one sentence', async () => {
-    const { loginSubtitle } = await import('@/lib/login-doors')
-    expect(loginSubtitle(new Set(['credentials', 'azure-ad', 'google']))).toBe('Sign in with your email and password, or your company\u2019s Microsoft or Google account.')
-    expect(loginSubtitle(new Set(['credentials', 'google']))).toBe('Sign in with your email and password, or your company\u2019s Google account.')
-    expect(loginSubtitle(new Set(['credentials']))).toBe('Sign in with your email and password.')
-    expect(loginSubtitle(null)).toBe('Sign in with your email and password.')
-    expect(read('src/app/(auth)/login/page.tsx')).toContain('{loginSubtitle(available)}')
-  })
-
   it('the sign-in page draws no Microsoft, Google or magic-link door until it knows the deployment has one', async () => {
     const { offers, companyAccounts } = await import('@/lib/login-doors')
     // Null is "not known yet" — the second before the list arrives, or a list that could not be read.
@@ -396,9 +393,11 @@ describe('round one of the sign-up walk, said as the walk found it', () => {
     expect(companyAccounts(null)).toEqual([])
     expect(offers(new Set(['credentials', 'email']), 'email')).toBe(true)
     expect(offers(new Set(['credentials']), 'azure-ad')).toBe(false)
-    const page = read('src/app/(auth)/login/page.tsx')
-    expect(page).toContain('const has = (id: string) => offers(available, id)')
-    expect(page).not.toContain('available === null ||')
+    // The account buttons are drawn from the deployment's own list, and from nothing else.
+    const { accountButtons } = await import('@/lib/login-doors')
+    expect(accountButtons(null, 'google')).toEqual([])
+    expect(accountButtons(new Set(['credentials']), null)).toEqual([])
+    expect(read('src/app/(auth)/account-doors.tsx')).toContain('const drawn = accountButtons(available, retry ?? last)')
   })
 
   it('the sign-up form offers the one-person firm, which may use a personal email', async () => {
@@ -471,5 +470,33 @@ describe('round two of the sign-up walk, said as the walk found it', () => {
     expect(page).not.toContain('bg-white')
     expect(page).not.toContain('A personal address signs you in as a consultant')
     expect(page).toContain('<Link href="/terms"')
+  })
+})
+
+
+describe('a claim link to a company nobody has said the kind of', () => {
+  it('the password door refuses it before any email or password is asked about, in the claim route’s own sentence', () => {
+    const src = read('src/lib/password-door.ts')
+    expect(src).toContain("select: { id: true, name: true, kind: true, claimedAt: true }")
+    const claim = src.slice(src.indexOf('export async function signUpClaim'))
+    const refusal = claim.indexOf("const classified = mayClaimRecorded({ name: invite.company.name, kind: invite.company.kind })")
+    expect(refusal).toBeGreaterThan(0)
+    expect(claim).toContain("if (!classified.ok) return refuse(classified.says, 'token', 409)")
+    expect(refusal).toBeLessThan(claim.indexOf('if (!mayClaim(email, invite.email))'))
+    expect(refusal).toBeLessThan(claim.indexOf('weakPasswordReason('))
+  })
+
+  it('claimOrJoin never folds such a record into a firm, and refuses in the same sentence', () => {
+    const src = read('src/lib/company-create.ts')
+    const fn = src.slice(src.indexOf('export async function claimOrJoin'))
+    expect(fn).toContain("company: { select: { id: true, name: true, kind: true, claimedAt: true, isDemo: READ } }")
+    expect(fn).toContain("if (!classified.ok) return { kind: 'REFUSED', says: classified.says }")
+    expect(fn.indexOf('mayClaimRecorded(')).toBeLessThan(fn.indexOf('db.$transaction('))
+  })
+
+  it('a firm’s record not classified yet never counts as a second company of the same name when the real one joins', () => {
+    const src = read('src/lib/company-create.ts')
+    const fn = src.slice(src.indexOf('async function honorNamedClientsAt'))
+    expect(fn).toContain("kind: { not: 'UNCLASSIFIED' }")
   })
 })

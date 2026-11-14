@@ -1,5 +1,6 @@
 'use client'
 
+import { OwnerGateLine } from '@/components/owner-gate-line'
 import { useEffect, useState } from 'react'
 import { compact as fmtMinor, amount as fmtMinorExact, fromUnits } from '@/lib/money-display'
 import { minorPerUnit } from '@/lib/money'
@@ -8,6 +9,7 @@ import { PAYMENT_METHODS, payMethodFor } from '@/lib/money/pay-method'
 import type { PayDeskVerdict } from '@/lib/money/pay-desk'
 import type { ReceiptPayPanel } from '@/lib/money/receipt-pay-panel'
 import { withBooks, type Books } from '@/lib/money/books-view'
+import type { OwnBillView } from '@/lib/money/own-bill-read'
 
 /**
  * The money half of one invoice: who it is paid to, how it is coded,
@@ -140,14 +142,23 @@ export function InvoiceMoney({
   const [status, setStatus] = useState(invoice.status)
   const per = minorPerUnit(invoice.currency)
 
-  // The PO, remit-to and cost-center split. Hidden rather than errored
-  // where the caller is not a party to the invoice.
+  // The PO, remit-to and cost-center split, for the company that pays it
+  // only. The cost centers and accounts are the payer's own: the supplier
+  // that issued the bill is never shown them, nor an export of them, so
+  // its side does not ask (`lib/money/coding-reader`). Hidden rather than
+  // errored wherever the route returns nothing.
+  const readsCoding = invoice.direction === 'PAYABLE'
   useEffect(() => {
     let cancelled = false
+    if (!readsCoding) {
+      setCoding(null)
+      setCodingLoading(false)
+      return () => { cancelled = true }
+    }
     ;(async () => {
       setCodingLoading(true)
       try {
-        const res = await fetch(`/api/invoices/${invoice.id}/coding`)
+        const res = await fetch(withBooks(`/api/invoices/${invoice.id}/coding`, books))
         if (!res.ok) throw new Error('not available')
         const body = await res.json()
         if (!cancelled) setCoding(body.data)
@@ -158,7 +169,47 @@ export function InvoiceMoney({
       }
     })()
     return () => { cancelled = true }
-  }, [invoice.id])
+  }, [invoice.id, readsCoding, books])
+
+  // The firm that issued the bill reads its own two facts beside it: what
+  // is left on the order after this bill, and its own pay-to details,
+  // through a read that carries nothing of the client's
+  // (GET /api/invoices/:id/own-bill, `lib/money/own-bill-read`).
+  const readsOwnBill = invoice.direction === 'RECEIVABLE'
+  const [ownBill, setOwnBill] = useState<OwnBillView | null>(null)
+  const [ownBillLoading, setOwnBillLoading] = useState(readsOwnBill)
+  useEffect(() => {
+    let cancelled = false
+    if (!readsOwnBill) {
+      setOwnBill(null)
+      setOwnBillLoading(false)
+      return () => { cancelled = true }
+    }
+    ;(async () => {
+      setOwnBillLoading(true)
+      try {
+        const res = await fetch(withBooks(`/api/invoices/${invoice.id}/own-bill`, books))
+        if (!res.ok) throw new Error('not available')
+        const body = await res.json()
+        if (!cancelled) setOwnBill(body.data)
+      } catch {
+        if (!cancelled) setOwnBill(null)
+      } finally {
+        if (!cancelled) setOwnBillLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [invoice.id, readsOwnBill, books])
+
+  // Who it is paid to and against which order: the payer's coding view,
+  // or the issuer's own read. The same block draws either.
+  const orderAndPayTo: {
+    workOrder: string | null
+    purchaseOrderBalance: InvoiceCoding['purchaseOrderBalance']
+    remitTo: { legalName: string; paymentMethod: string; bankName: string | null; accountLast4: string | null } | null
+  } | null =
+    readsCoding ? coding : ownBill
+  const orderAndPayToLoading = readsCoding ? codingLoading : ownBillLoading
 
   const remitMethod = payMethodFor(coding?.remitTo?.paymentMethod)
   const payMethod = methodChosen ?? remitMethod ?? ''
@@ -236,22 +287,22 @@ export function InvoiceMoney({
   return (
     <section className="space-y-6">
       {/* Who it is paid to, and against which order. */}
-      {!codingLoading && coding && (
+      {!orderAndPayToLoading && orderAndPayTo && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <p className="eyebrow mb-1">Purchase order</p>
-            {coding.workOrder ? (
+            {orderAndPayTo.workOrder ? (
               <>
-                <p className="text-sm font-mono">{coding.workOrder}</p>
-                {coding.purchaseOrderBalance && 'unreadable' in coding.purchaseOrderBalance && (
-                  <p className="text-[11px] mt-0.5 text-etyme-muted">{coding.purchaseOrderBalance.unreadable}</p>
+                <p className="text-sm font-mono">{orderAndPayTo.workOrder}</p>
+                {orderAndPayTo.purchaseOrderBalance && 'unreadable' in orderAndPayTo.purchaseOrderBalance && (
+                  <p className="text-[11px] mt-0.5 text-etyme-muted">{orderAndPayTo.purchaseOrderBalance.unreadable}</p>
                 )}
-                {coding.purchaseOrderBalance && !('unreadable' in coding.purchaseOrderBalance) && (
+                {orderAndPayTo.purchaseOrderBalance && !('unreadable' in orderAndPayTo.purchaseOrderBalance) && (
                   <p className={`text-[11px] tabular-nums mt-0.5 ${
-                    coding.purchaseOrderBalance.overdrawn ? 'text-etyme-attention' : 'text-etyme-muted'
+                    orderAndPayTo.purchaseOrderBalance.overdrawn ? 'text-etyme-attention' : 'text-etyme-muted'
                   }`}>
-                    {fmtMinor(coding.purchaseOrderBalance.remainingCents)} left after this bill
-                    {' · '}{coding.purchaseOrderBalance.consumedPercent}% drawn
+                    {fmtMinor(orderAndPayTo.purchaseOrderBalance.remainingCents, invoice.currency)} left after this bill
+                    {' · '}{orderAndPayTo.purchaseOrderBalance.consumedPercent}% drawn
                   </p>
                 )}
               </>
@@ -261,13 +312,13 @@ export function InvoiceMoney({
           </div>
           <div>
             <p className="eyebrow mb-1">{payer ? 'Pay to' : 'Paid to'}</p>
-            {coding.remitTo ? (
+            {orderAndPayTo.remitTo ? (
               <>
-                <p className="text-sm">{coding.remitTo.legalName}</p>
+                <p className="text-sm">{orderAndPayTo.remitTo.legalName}</p>
                 <p className="text-[11px] text-etyme-muted mt-0.5">
-                  {coding.remitTo.paymentMethod}
-                  {coding.remitTo.bankName && ` · ${coding.remitTo.bankName}`}
-                  {coding.remitTo.accountLast4 && ` ····${coding.remitTo.accountLast4}`}
+                  {orderAndPayTo.remitTo.paymentMethod}
+                  {orderAndPayTo.remitTo.bankName && ` · ${orderAndPayTo.remitTo.bankName}`}
+                  {orderAndPayTo.remitTo.accountLast4 && ` ····${orderAndPayTo.remitTo.accountLast4}`}
                 </p>
               </>
             ) : (
@@ -278,7 +329,7 @@ export function InvoiceMoney({
       )}
 
       {/* Cost coding */}
-      {coding && coding.rows.length > 0 && (
+      {readsCoding && coding && coding.rows.length > 0 && (
         <div>
           <div className="flex items-baseline justify-between mb-2">
             <p className="eyebrow">Cost coding</p>
@@ -401,6 +452,17 @@ export function InvoiceMoney({
           {payPanel.bank?.mayCheck && payPanel.bank.facts && (
             <BankCheck invoiceId={invoice.id} facts={payPanel.bank.facts} onChecked={onPaid} onToast={onToast} />
           )}
+        </div>
+      )}
+
+      {/* The paying company still waits for a verified Owner: the gate's own
+          sentence and its link, before anybody presses Pay, and no Pay. */}
+      {outstanding > 0 && !notSubmitted && payPanel.kind === 'OWNER_WAITS' && (
+        <div id="pay" className="border-t border-etyme-rule pt-6">
+          <p className="text-sm text-etyme-ink">
+            {fmtMinorExact(outstanding, invoice.currency)} is not payable yet, due {plainDate(invoice.dueAt)}.
+          </p>
+          <OwnerGateLine className="mt-2" line={{ says: payPanel.says, href: payPanel.href, linkSays: payPanel.linkSays }} />
         </div>
       )}
 

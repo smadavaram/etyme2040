@@ -9,6 +9,11 @@ import { whyNotOpen } from '../../words'
 import { landingFor } from './landing'
 import { actingDesk } from '@/lib/program-seat'
 import { sendOnActor } from '../../row-doors'
+import { recordRefusal } from '@/lib/access-log'
+import { mayBePutForwardTo, readsNotClassified, NO_COMPANY_BY_THAT_ID, PUTS_FORWARD_TO } from '@/lib/supplier-list'
+import { dealsWith } from '@/app/api/suppliers/direct'
+import { isMine } from '@/lib/counterparty'
+import { standingWith } from '@/app/api/companies/positions'
 
 /**
  * POST /api/submissions/:id/forward
@@ -110,13 +115,75 @@ export async function POST(
   if (via === 'ONWARD') {
     const destination = await prisma.company.findUnique({
       where: { id: body.toCompanyId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, kind: true, claimedAt: true, listedById: true },
     })
     if (!destination) {
+      // Logged as the refusal of a firm with no dealing is, so the two
+      // read alike in the log as on the screen.
+      await recordRefusal([{ companyId: desk!.companyId }], {
+        actorPersonId: caller.person.id,
+        actorCompanyId: desk!.companyId,
+        action: 'CONTRACT_VIEW',
+        reason: `Refused to send ${submission.person.name} on to a company id that is not on Etyme: ${NO_COMPANY_BY_THAT_ID}`,
+      })
       return NextResponse.json(
-        { error: { code: 'NOWHERE_TO_SEND', message: 'No company by that id.' } },
+        { error: { code: 'NOWHERE_TO_SEND', message: NO_COMPANY_BY_THAT_ID } },
         { status: 404 }
       )
+    }
+
+    // ── Only up to a firm this firm deals with ─────────────────────────
+    //
+    // Review, 2026-11-13: sending on writes on the destination's books (a
+    // submission, and where it sent nothing a copy of the role, open and
+    // approved) and tells its people the candidate's name. So a person
+    // goes up only to a firm that sent this firm the job, or that this
+    // firm deals with (`dealsWith`: its own register as a client, prime or
+    // MSP, an agreement, the firm's register naming it, an order, a
+    // contract, or a job either way). Any other firm on Etyme is answered
+    // exactly as an id that is not there, logged before the reply. A
+    // company this firm recorded itself is its own list's to decide, below.
+    if (!isMine(destination, desk!.companyId)) {
+      const dealt = await dealsWith(desk!.companyId, [destination.id], PUTS_FORWARD_TO)
+      if (!dealt.has(destination.id)) {
+        await recordRefusal([{ companyId: destination.id }], {
+          actorPersonId: caller.person.id,
+          actorCompanyId: desk!.companyId,
+          action: 'CONTRACT_VIEW',
+          reason: `Refused to send ${submission.person.name} on to ${destination.name}, a firm ${desk!.companyName} does not deal with: answered as no company by that id.`,
+        })
+        return NextResponse.json(
+          { error: { code: 'NOWHERE_TO_SEND', message: NO_COMPANY_BY_THAT_ID } },
+          { status: 404 }
+        )
+      }
+    }
+
+    // Never a company holding no position with this firm (the neutral
+    // Company, 2026-11-12): a person goes up only to a firm extended to
+    // Customer on this firm's register. Decided from the register, never
+    // from the Kind: a record given a Kind and no position is still not a
+    // customer (review, 2026-11-13). Another firm's record is never named.
+    const held = await standingWith(desk!.companyId, destination)
+    if (readsNotClassified(destination, held)) {
+      const rows = await prisma.counterparty.findMany({
+        where: { companyId: desk!.companyId, otherCompanyId: destination.id },
+        select: { relationship: true },
+      })
+      const may = mayBePutForwardTo(destination, rows.map((r) => r.relationship), held)
+      if (!may.ok) {
+        const says =
+          destination.listedById === desk!.companyId
+            ? may.says
+            : 'That company is not on your Companies list. Add it there first.'
+        await recordRefusal([{ companyId: destination.id }], {
+          actorPersonId: caller.person.id,
+          actorCompanyId: desk!.companyId,
+          action: 'CONTRACT_VIEW',
+          reason: `Refused to send ${submission.person.name} on to ${destination.name}: ${says}`,
+        })
+        return NextResponse.json({ error: { code: 'NOT_CLASSIFIED', message: says, field: 'toCompanyId' } }, { status: 403 })
+      }
     }
     toName = destination.name
 

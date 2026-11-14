@@ -38,7 +38,8 @@ import { formatDay } from '@/lib/format-date'
 import { format, fromMinor } from '@/lib/money'
 import { isDeskless } from '@/lib/nav-table'
 import { generalAsk, anotherBook } from './transaction'
-import { sinceSays, type Link, type RichLine, type NoticeLine, type ThreadNote } from './ask'
+import { countWord, countWordLower } from './count-words'
+import { sinceSays, type Link, type RichLine, type NoticeLine, type ThreadNote, type QueueCard } from './ask'
 
 // ── Whose Ask Etyme this is ──────────────────────────────────────────
 
@@ -182,6 +183,13 @@ export interface SentWeek {
    * 2026-10-26: "$1,440 owed" for a 40-hour week of which 24 were paid).
    */
   partPaid?: { hours: number; on: string | null } | null
+  /**
+   * Where the week waits for a client not on Etyme: nobody there can sign
+   * it here, so the chat says what her own page says (`clientOffEtymeAfterSays`
+   * in lib/consultant-portfolio) and offers her page's links, the attach
+   * link first (`clientWaitingLinks`). Absent for a client on Etyme.
+   */
+  offEtyme?: { says: string; links: Array<{ href: string; says: string }> } | null
 }
 
 /** Something asked of her on her paperwork page. */
@@ -334,12 +342,19 @@ export interface WorkerAnswer {
   tail?: RichLine[]
   table?: WorkerTable
   links?: Link[]
+  /**
+   * In the greeting, an Owner ask addressed to her at her own company
+   * (./owner-asks), as the firm's queue card with Yes and No through
+   * POST /api/settings/owners/:id: a seat with no role is greeted here,
+   * and the ask is hers to answer whatever her role (the Owner walk,
+   * 2026-11-12: "Nothing needs you today" while the ask waited on her).
+   */
+  queue?: QueueCard[]
 }
 
 // ── Small words ──────────────────────────────────────────────────────
 
-const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
-const numberWord = (n: number) => (n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : String(n))
+const numberWord = (n: number) => countWord(n)
 const r2 = (n: number) => Math.round(n * 100) / 100
 const hoursWord = (n: number) => `${r2(n).toLocaleString('en-US')} hour${r2(n) === 1 ? '' : 's'}`
 /** "Oct 19", the year left off: the chat is read today. */
@@ -554,8 +569,22 @@ export function needNamesSays(cards: readonly Pick<WorkerCard, 'name'>[]): strin
   return needSays(n)
 }
 
-const LOWER_NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
-const lowerNumber = (n: number) => (n < LOWER_NUMBERS.length ? LOWER_NUMBERS[n] : String(n))
+const lowerNumber = (n: number) => countWordLower(n)
+
+/**
+ * The headline where an Owner ask waits on her beside her own work, one
+ * count for both: "One thing needs you: the Owner ask below.", "Three
+ * things need you: the Owner ask below, your week of Oct 11–17 and your
+ * I-9." Her own things are named after the ask, two at most.
+ */
+export function withOwnerAsksSays(asks: number, cards: readonly Pick<WorkerCard, 'name'>[]): string {
+  const total = asks + cards.length
+  const head = `${countWord(total)} thing${total === 1 ? ' needs' : 's need'} you`
+  const own = cards.slice(0, 2).map((c) => c.name)
+  const rest = cards.length - own.length
+  const parts = [`the Owner ask${asks === 1 ? '' : 's'} below`, ...own, ...(rest > 0 ? [`${lowerNumber(rest)} more`] : [])]
+  return `${head}: ${listed(parts)}.`
+}
 /** "Professional license" → "professional license"; an acronym ("I-9", "W-4") keeps its capitals. */
 const lowerFirst = (x: string) => (/^[A-Z][A-Z0-9-]/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1))
 /** Her own page, opened at the week a card is about. */
@@ -578,6 +607,8 @@ export function weekStandsSays(w: SentWeek, ownFirm?: string | null): string {
     case 'NOT_SENT':
       return `${which} is saved and not sent.`
     case 'WAITING_FOR_CLIENT':
+      // A client not on Etyme signs nothing here: her page's own words, never "to sign".
+      if (w.offEtyme) return `${which}: ${w.offEtyme.says}`
       return `${which} is waiting for ${w.waitingOn ?? w.client ?? 'the client'} to sign.`
     case 'WAITING_FOR_EMPLOYER': {
       const signed = w.approvedBy ? `${w.approvedBy.replace(/\.$/, '')}.` : `${which} is signed${w.client ? ` by ${w.client}` : ''}.`
@@ -616,7 +647,7 @@ export function stageWord(w: SentWeek, ownFirm?: string | null): string {
   if (ownFirm && w.stage === 'WAITING_FOR_EMPLOYER' && (w.waitingOn ?? w.employer) === ownFirm) return 'Signed by every firm above you'
   switch (w.stage) {
     case 'NOT_SENT': return 'Not sent'
-    case 'WAITING_FOR_CLIENT': return `Waiting for ${w.waitingOn ?? w.client ?? 'the client'} to sign`
+    case 'WAITING_FOR_CLIENT': return `Waiting for ${w.waitingOn ?? w.client ?? 'the client'} to ${w.offEtyme ? 'approve' : 'sign'}`
     case 'WAITING_FOR_EMPLOYER': return `Signed; waiting for ${w.waitingOn ?? w.employer ?? 'your employer'}`
     case 'OWED': {
       const part = partPaidWord(w)
@@ -726,9 +757,7 @@ function noWork(f: WorkerFacts): boolean {
 /** Lines in the greeting under the headline, before the papers: what fits. */
 export const WORKER_LINES = 4
 
-const NUMBER_WORDS_LOWER = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
-  'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
-const lowerWord = (n: number) => (n >= 0 && n < NUMBER_WORDS_LOWER.length ? NUMBER_WORDS_LOWER[n] : String(n))
+const lowerWord = (n: number) => countWordLower(n)
 
 /**
  * Where she stands against a client's time limit, in whole months:
@@ -764,6 +793,10 @@ const cap1 = (x: string) => (x ? x[0].toUpperCase() + x.slice(1) : x)
 export function latestWeekLine(f: Pick<WorkerFacts, 'sent'> & Partial<Pick<WorkerFacts, 'ownFirm'>>): RichLine | null {
   const latest = newest(f.sent.filter((w) => w.stage !== 'NOT_SENT'))[0]
   if (!latest) return null
+  // A week waiting for a client not on Etyme offers her page's links, the attach link first.
+  if (latest.stage === 'WAITING_FOR_CLIENT' && latest.offEtyme?.links.length) {
+    return { says: weekStandsSays(latest, f.ownFirm), links: latest.offEtyme.links.map((l) => ({ text: l.says, href: l.href })) }
+  }
   return { says: weekStandsSays(latest, f.ownFirm), links: [{ text: `Your week of ${weekWords(latest.periodStart, latest.periodEnd)}`, href: `/dashboard/weeks/${latest.id}` }] }
 }
 
@@ -777,7 +810,14 @@ export function latestWeekLine(f: Pick<WorkerFacts, 'sent'> & Partial<Pick<Worke
  */
 export function workerToday(
   f: WorkerFacts,
-  opts: { greeting?: boolean; notices?: { shown: readonly NoticeLine[]; older: number }; threads?: { shown: readonly ThreadNote[]; more: number }; now?: Date } = {},
+  opts: {
+    greeting?: boolean
+    notices?: { shown: readonly NoticeLine[]; older: number }
+    threads?: { shown: readonly ThreadNote[]; more: number }
+    now?: Date
+    /** The Owner asks addressed to her (./owner-asks): said first, as the recommendation, and counted in the headline. */
+    owners?: { lead: RichLine | null; cards: readonly QueueCard[] }
+  } = {},
 ): WorkerAnswer {
   const cards = cardsFor(f)
   // A paper that does not stop the work waits until after the money.
@@ -816,11 +856,15 @@ export function workerToday(
   if (opts.greeting) tail.push({ says: WORKER_CLOSE }, { says: WORKER_BOUNDARY })
 
   const lead = shown[0] ?? later[0]
+  // An Owner ask addressed to her leads: only she can answer it, and the company's ownership waits on it.
+  const asks = opts.greeting ? [...(opts.owners?.cards ?? [])] : []
+  const askLead = asks.length ? opts.owners?.lead ?? null : null
   return {
     kind: 'WORKER',
     ...(opts.greeting ? { greeting: true, where: chainsToSay(f.placements) } : {}),
-    ...(lead ? { recommend: recommendFor(lead) } : firstAct ? { recommend: firstAct } : {}),
-    says: `${needNamesSays([...first, ...later])} Checked just now.`,
+    ...(askLead ? { recommend: askLead } : lead ? { recommend: recommendFor(lead) } : firstAct ? { recommend: firstAct } : {}),
+    says: `${asks.length ? withOwnerAsksSays(asks.length, [...first, ...later]) : needNamesSays([...first, ...later])} Checked just now.`,
+    ...(asks.length ? { queue: asks } : {}),
     cards: shown,
     more,
     ...(later.length ? { papers: { says: papersLine(later), cards: later } } : {}),
@@ -1061,7 +1105,11 @@ export async function respondWorker(question: string, read: WorkerReaders): Prom
           head: ['Week', 'Hours', 'Where it is'],
           rows: ws.map((w) => ({ cells: [weekWords(w.periodStart, w.periodEnd), r2(w.hours).toLocaleString('en-US'), stageWord(w, f.ownFirm)], href: `/dashboard/weeks/${w.id}` })),
         },
-        links: [{ label: 'Open Your work', href: YOUR_WORK }],
+        links: [
+          // The newest week waiting for a client not on Etyme: the way to attach, as her page offers it.
+          ...(ws[0].stage === 'WAITING_FOR_CLIENT' ? (ws[0].offEtyme?.links ?? []).map((l) => ({ label: l.says, href: l.href })) : []),
+          { label: 'Open Your work', href: YOUR_WORK },
+        ],
       }, 'weeks')
     }
 

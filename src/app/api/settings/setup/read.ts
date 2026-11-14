@@ -6,6 +6,7 @@
  * screen does.
  */
 import { prisma } from '@/lib/db'
+import { ownerOnlyLine } from '@/lib/owner-gate'
 import {
   ITEM_WORDS, itemsFor, sourceWords, itemStamp, ITEM_SLUG, bankWords, bankStanding, inviteRoleFor, DUTIES, DUTY_WORDS,
   type ItemKey, type AnswerSource, type Duty,
@@ -19,6 +20,8 @@ import { verificationRecord } from '@/lib/domains-owned'
 import { teamsLinkStanding } from '@/lib/notify/teams-link'
 import { intakeLive } from '@/lib/email-intake/live'
 import { intakeStateFor } from '@/lib/email-intake/settings'
+import { readCompanySeats, peopleOf, countSeats, peopleWords, seatTotal } from '@/lib/company-seats'
+import { joinSentenceFor } from '@/lib/join-words'
 import { forwardingView, WHY, keptLine, RECIPES, CONSOLE_NOTE, NARROW, REPLACE_LINE, checkLine } from '@/lib/setup-forwarding'
 
 export async function readSetup(companyId: string, reader: { personId: string; email: string }) {
@@ -34,7 +37,7 @@ export async function readSetup(companyId: string, reader: { personId: string; e
   // characters, never the address. Read only where the deployment is open.
   const open = intakeLive()
   const intake = open ? await intakeStateFor(companyId) : null
-  const [{ checklist, record, facts }, reminder, answers, addresses, sites, inCharge, seats, papers, remit, domains] = await Promise.all([
+  const [{ checklist, record, facts }, reminder, answers, addresses, sites, inCharge, seats, papers, remit, domains, headcount, joins] = await Promise.all([
     checklistOf(companyId),
     setupReminderFor(companyId, { mayRun: true }),
     prisma.setupAnswer.findMany({ where: { companyId } }),
@@ -56,6 +59,9 @@ export async function readSetup(companyId: string, reader: { personId: string; e
     }),
     prisma.remitTo.findFirst({ where: { companyId }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] }),
     prisma.companyDomain.findMany({ where: { companyId }, orderBy: { createdAt: 'asc' } }),
+    // The company's people, counted by the one reader every screen uses.
+    readCompanySeats(companyId).then((all) => countSeats(peopleOf(all))),
+    joinSentenceFor(companyId),
   ])
 
   // Names for every "who": answers, items, the bank, the people in charge.
@@ -69,6 +75,17 @@ export async function readSetup(companyId: string, reader: { personId: string; e
   const checkedAt = remit?.verifiedByCompanyId
     ? await prisma.company.findUnique({ where: { id: remit.verifiedByCompanyId }, select: { name: true } })
     : null
+
+  // A record another firm made of this company, before somebody here
+  // claimed it, may carry what that firm typed about it: the domain it
+  // noted (kept in `website`) and the kind of company it guessed. That is
+  // the other firm's note, never this company's answer, so here it is
+  // offered only where this company saved it itself, which the setup
+  // records as an answer row (review, 2026-11-13).
+  const recordedByAnother = (await prisma.automationLog.count({
+    where: { action: 'COMPANY_CREATED', companyId: { not: companyId }, payload: { path: ['otherCompanyId'], equals: companyId } },
+  })) > 0
+  const ownAnswer = (field: string) => !recordedByAnother || answers.some((a) => a.field === field)
 
   const domainFill = fromWorkEmail(reader.email)
   const sources: Record<string, string> = {}
@@ -100,8 +117,13 @@ export async function readSetup(companyId: string, reader: { personId: string; e
     }
   })
 
+  const keys = itemsFor(c.kind, { ownerProofRequired: facts.ownerProofRequired })
+  // Bank details wait for a verified Owner under the proof rule; the item
+  // says so before Save, in the gate's own sentence with its link.
+  const bankGate = ownerOnlyLine({ name: c.name, ownerProofRequiredAt: facts.ownerProofRequired ? new Date(0) : null, ownerVerifiedAt: facts.ownerVerified ? new Date(0) : null }, 'BANK')
+  const bankWaits = bankGate.href ? bankGate : null
   const stamps: Partial<Record<ItemKey, string>> = {}
-  for (const k of itemsFor(c.kind)) {
+  for (const k of keys) {
     const r = record[k]
     stamps[k] = r
       ? itemStamp(r.outcome, nameOf(r.byId), r.at, checklist.rows.find((x) => x.key === k)?.state)
@@ -112,17 +134,17 @@ export async function readSetup(companyId: string, reader: { personId: string; e
     company: { id: c.id, name: c.name, kind: c.kind },
     checklist,
     reminder,
-    words: Object.fromEntries(itemsFor(c.kind).map((k) => [k, ITEM_WORDS[k]])),
+    words: Object.fromEntries(keys.map((k) => [k, joinWordsFor(k, joins)])),
     stamps,
-    slugs: Object.fromEntries(itemsFor(c.kind).map((k) => [k, ITEM_SLUG[k]])),
+    slugs: Object.fromEntries(keys.map((k) => [k, ITEM_SLUG[k]])),
     detail: {
       COMPANY: {
         legalName: c.legalName ?? '',
         signedUpAs: c.name,
         dba: c.dba ?? '',
-        entityType: c.entityType ?? '',
+        entityType: ownAnswer('entityType') ? c.entityType ?? '' : '',
         establishedYear: c.establishedYear ? String(c.establishedYear) : '',
-        website: c.website ?? '',
+        website: ownAnswer('website') ? c.website ?? '' : '',
         phone: c.phone ?? '',
         taxId: c.taxId ?? '',
         currency: c.currency,
@@ -177,10 +199,16 @@ export async function readSetup(companyId: string, reader: { personId: string; e
             shows: bankWords({ bankName: remit.bankName, accountName: remit.accountName ?? remit.legalName, last4: remit.accountLast4 }),
             standing: bankStanding({ verifiedAt: remit.verifiedAt, verifiedBy: nameOf(remit.verifiedById), verifiedAtFirm: checkedAt?.name ?? null }),
             enteredBy: nameOf(remit.enteredById),
+            waits: bankWaits,
           }
-        : { bankName: '', accountName: c.legalName ?? c.name, last4: '', routingLast4: '', shows: null, standing: bankStanding({ verifiedAt: null }), enteredBy: null },
+        : { bankName: '', accountName: c.legalName ?? c.name, last4: '', routingLast4: '', shows: null, standing: bankStanding({ verifiedAt: null }), enteredBy: null, waits: bankWaits },
       COMPANIES: { count: facts.counterparties, href: c.kind === 'CLIENT' ? '/dashboard/suppliers' : '/dashboard/companies' },
-      TEAM: { seats: seats.length },
+      TEAM: {
+        seats: seatTotal(headcount),
+        // "3 people: 1 with access · 2 invited": what the count counts.
+        says: peopleWords(headcount),
+        joins,
+      },
       DOMAIN: {
         suggested: domainFill?.domain ?? (c.domain && !/\.(example|invalid|local|test)$/.test(c.domain) ? c.domain : ''),
         claims: [
@@ -193,6 +221,8 @@ export async function readSetup(companyId: string, reader: { personId: string; e
           })),
         ],
       },
+      // The proofs themselves are read by the item from /api/settings/owner-proof.
+      OWNERSHIP: { verified: facts.ownerVerified },
       INTEGRATIONS: { teams: teamsLinkStanding(c.teamsWebhookUrl) },
       FORWARDING: {
         ...forwardingView({ open, demo: c.isDemo, enabled: intake?.enabled === true, addressHint: intake?.addressHint ?? null }),
@@ -206,4 +236,23 @@ export async function readSetup(companyId: string, reader: { personId: string; e
       },
     },
   }
+}
+
+/**
+ * An item's words, with how people join said from what the code does
+ * (lib/join-words) on the two items that are about it, never the shipped
+ * copy, which assumed a domain the company may never be able to verify.
+ */
+function joinWordsFor(k: ItemKey, joins: string | null) {
+  const w = ITEM_WORDS[k]
+  if (!joins) return w
+  if (k === 'TEAM') return { ...w, sub: `Each person gets the role for what they do here. ${joins}` }
+  if (k === 'DOMAIN') {
+    return {
+      ...w,
+      sub: `Prove you own your domain with one DNS record. Today: ${joins}`,
+      skipStops: `If you skip: people join as they do today. ${joins}`,
+    }
+  }
+  return w
 }

@@ -80,6 +80,7 @@ import { STEPS } from '@/lib/public-site/steps'
 import { STEP_PAGES, stepEyebrow } from '@/lib/public-site/docs/process'
 import { MODULES } from '@/lib/public-site/modules'
 import { PARTY_PAGES } from '@/lib/public-site/parties'
+import { homeDemo } from '@/lib/public-site/home-demo'
 
 const ROOT = process.cwd()
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
@@ -180,6 +181,19 @@ describe('Every name and figure on the panel is the seeded demo’s', () => {
       ['Lucía Fernández', firm(live('Lucía Fernández').via[1]), dollars(live('Lucía Fernández').rates[0]), `14 of ${nike.governance.tenureCapMonths} · 2 suppliers`],
     ])
     expect(step('Job').chat[1].text).toContain(`Lucía Fernández has 14 months here across two suppliers. The limit is ${nike.governance.tenureCapMonths}.`)
+  })
+
+  it('Lucía Fernández’s 14 of 18 on the Northbend panel is her months here, counted from the seed, against Northbend’s limit; the home page reads Corvane Packaging instead, and leaves this story unchanged', () => {
+    const lines = nike.placements.filter((p) => p.person === 'Lucía Fernández')
+    const months = monthsOf(daysOnSite(lines.map((p) => ({
+      startDate: back(p.startedDaysAgo), endDate: p.state === 'ENDED' ? back(-p.endsInDays) : null,
+    })), BORN))
+    expect(cellText(step('Job').table.rows[2][3])).toBe(`${months} of ${nike.governance.tenureCapMonths} · 2 suppliers`)
+    // Since 2026-11-13 the home page's demo and glance are Corvane's (home-demo.test.ts); Northbend plays every other page.
+    const d = homeDemo()
+    expect(d.company).toBe('Corvane Packaging')
+    expect(d.rows.flat()).not.toContain('Lucía Fernández')
+    expect(read('src/app/page.tsx')).toContain('{DEMO.watch.months} / {DEMO.watch.limit}')
   })
 
   it('the job step’s card sends the seeded open job, at its band and months, to the three suppliers the seed releases it to, and the job appears under the contractors when it presses', () => {

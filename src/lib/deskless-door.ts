@@ -74,6 +74,13 @@ export const ANSWERS_BY_ID: Readonly<Record<string, string>> = {
   // document is about reads their own, a seat at the issuer without the
   // paperwork desk is refused in a sentence, and a stranger is told
   // nothing is there.
+  // Screen walk on df3074094: a person asked to take ownership, or an
+  // Owner asked to agree to a removal, said yes on no screen. The Owners
+  // routes answer such a reader only the asks addressed to them
+  // (asksAddressedTo in lib/owner-asks), and the yes is decided by
+  // mayDecide in lib/owner-rules; everything else there is an Owner's.
+  'settings/owners': 'A seat reads only the Owner asks addressed to it, and nothing else about who owns the company.',
+  'settings/owners/*': 'A seat answers only an Owner ask addressed to it.',
   'documents/*/file': 'A seat that sees only its own work opens a document that is about its holder, and no other.',
 }
 
@@ -159,7 +166,9 @@ export const OWN_ROWS_ON_READ: Readonly<Record<string, string>> = {
   // requisition approval names its approver, and a supplier review asks
   // mayActAt of this person. A seat that sees only its own work holds none of those
   // permissions, so it reads only what names it, and no colleague's
-  // rolloff or rate.
+  // rolloff or rate. An Owner ask (pass ownership, remove or demote an
+  // Owner) addressed to this seat is one of those: it names the seat by
+  // person id and sits behind no permission, so it reaches here too.
   decisions: 'A seat that sees only its own work reads only what names it — an approval it was named on — and nothing a role’s permission gates.',
 }
 

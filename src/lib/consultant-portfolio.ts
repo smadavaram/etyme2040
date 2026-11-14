@@ -34,6 +34,7 @@ import { mayReadPayOf, type PayViewer } from '@/lib/money/pay-visibility'
 import { canReadBillRate } from '@/lib/permissions'
 import { OWN_WORK_READS } from '@/lib/console-home'
 import { INVITE_LINK_KEPT_SAYS } from '@/lib/bench-filter'
+import { isShell } from '@/lib/off-system'
 
 export type Visibility = 'INTERNAL' | 'FEED' | 'CLIENT_VISIBLE' | 'VERIFIED'
 
@@ -1121,7 +1122,14 @@ export async function honorNamedClients(companyId: string, name: string): Promis
   const { prisma } = await import('@/lib/db')
   const wanted = name.trim()
   if (!wanted) return 0
-  const sameName = await prisma.company.count({ where: { name: { equals: wanted, mode: 'insensitive' } } })
+  // A company not classified yet is one firm's record, never a company
+  // joining: it neither takes a worker's typed name nor counts against
+  // the company of that name that truly joins (2026-11-13).
+  const joining = await prisma.company.findUnique({ where: { id: companyId }, select: { kind: true } })
+  if (!joining || joining.kind === 'UNCLASSIFIED') return 0
+  const sameName = await prisma.company.count({
+    where: { name: { equals: wanted, mode: 'insensitive' }, kind: { not: 'UNCLASSIFIED' } },
+  })
   if (sameName !== 1) return 0
   const named = await prisma.doNotSubmit.findMany({
     where: { companyId: null, companyName: { equals: wanted, mode: 'insensitive' } },
@@ -1828,11 +1836,49 @@ export function waitingCard(states: ReadonlyArray<WeekState>): SummaryCard {
 export function signingOrder(signers: ReadonlyArray<WeekSigner>): string {
   if (signers.length === 0) return 'After you send, they go for approval.'
   const [first, ...below] = signers
+  // A client not on Etyme approves in its own timesheet system, and she
+  // attaches what it approved (the founder, 2026-11-14). Nothing she sends
+  // reaches anybody there, so the card never says they approve it here.
+  const offEtyme = first.role === 'CLIENT_APPROVAL' && first.offEtyme === true
+  if (offEtyme && below.length === 0) return clientOffEtymeBeforeSays(first.name)
   if (below.length === 0) return `After you send, ${first.name} approves them.`
-  const head = `After you send, ${first.name} approves them first.`
+  const head = offEtyme ? clientOffEtymeBeforeSays(first.name) : `After you send, ${first.name} approves them first.`
   if (below.length === 1) return `${head} Then ${below[0].name} accepts them.`
   const names = below.map((s) => s.name)
   return `${head} Then ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} accept them, in that order.`
+}
+
+/**
+ * Before she files, for a client not on Etyme: it approves in its own
+ * system, and she attaches that approval after she sends.
+ */
+export function clientOffEtymeBeforeSays(clientName: string): string {
+  return `${clientName} is not on Etyme, so they approve your hours in their own system. ` +
+    `After you send, attach the timesheet they approved.`
+}
+
+/**
+ * After she files, on a week waiting for a client not on Etyme: it is
+ * filed, nothing went to the client, and what she does next. Never
+ * "Sent to <client>": nothing reached anybody there (walk, 2026-11-14).
+ */
+export function clientOffEtymeAfterSays(clientName: string, filedOn: string | null): string {
+  return `Filed${filedOn ? ` on ${filedOn}` : ''}. ${clientName} is not on Etyme, so nothing was sent to them. ` +
+    `Attach the timesheet ${clientName} approved, or ask them to approve by email.`
+}
+
+/**
+ * The links on a week waiting for the client. A client not on Etyme gets
+ * two, the approval she already holds first, each opening the week's page
+ * on its own tab; a client on Etyme keeps the one link it always had.
+ */
+export function clientWaitingLinks(t: { id: string; clientName: string; offEtyme: boolean }): WeekDoor[] {
+  const href = `/dashboard/weeks/${t.id}`
+  if (!t.offEtyme) return [{ href, says: 'Ask the client to approve by email' }]
+  return [
+    { href: `${href}?mode=EVIDENCE`, says: `Attach the timesheet ${t.clientName} approved` },
+    { href: `${href}?mode=LINK`, says: `Ask ${t.clientName} to approve by email` },
+  ]
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2579,6 +2625,12 @@ export interface WeekSigner {
   companyId: string
   name: string
   role: SignRole
+  /**
+   * On the client's signature only: the client is a record its supplier
+   * listed and nobody there has claimed, so nobody at it signs in Etyme.
+   * Read through `isShell` in lib/off-system, the one reader of that.
+   */
+  offEtyme?: boolean
 }
 
 /**
@@ -2593,12 +2645,15 @@ export interface WeekSigner {
  */
 export function weekSigners(
   line: { rungs: Array<{ companyId: string; companyName: string }> },
-  client: { id: string; name: string }
+  // `claimedAt` where the caller read it: null is a client not on Etyme
+  // (`isShell`). Left out, nothing is said about it either way.
+  client: { id: string; name: string; claimedAt?: Date | null }
 ): WeekSigner[] {
   if (line.rungs.length === 0) return []
   const [own, ...above] = line.rungs
+  const offEtyme = client.claimedAt !== undefined && isShell({ claimedAt: client.claimedAt })
   return [
-    { companyId: client.id, name: client.name, role: 'CLIENT_APPROVAL' },
+    { companyId: client.id, name: client.name, role: 'CLIENT_APPROVAL', ...(offEtyme ? { offEtyme: true } : {}) },
     ...above.reverse().map((r) => ({ companyId: r.companyId, name: r.companyName, role: 'PASS_THROUGH' as const })),
     { companyId: own.companyId, name: own.companyName, role: 'EMPLOYER_ACCEPTANCE' },
   ]
@@ -2658,6 +2713,10 @@ export interface WaitingWeek {
   /** The firm that pays her. */
   employer: string
   says: string
+  /** Where the week is waiting for the client, whether that client is not on Etyme. */
+  clientOffEtyme: boolean
+  /** What she can open from the row, in order (`clientWaitingLinks`, or "Open this week"). */
+  links: WeekDoor[]
 }
 
 /**
@@ -2687,9 +2746,12 @@ export function waitingWeek(s: WaitingSheet, today: Date = new Date()): WaitingW
 
   let stage: WaitingStage
   let says: string
+  const offEtyme = client?.offEtyme === true
   if (client && !client.signedAt) {
     stage = 'WAITING_FOR_CLIENT'
-    says = `Sent to ${client.name}${s.submittedAt ? ` on ${day(s.submittedAt)}` : ''}. Waiting for them to sign.`
+    says = offEtyme
+      ? clientOffEtymeAfterSays(client.name, s.submittedAt ? day(s.submittedAt) : null)
+      : `Sent to ${client.name}${s.submittedAt ? ` on ${day(s.submittedAt)}` : ''}. Waiting for them to sign.`
   } else {
     stage = 'WAITING_FOR_EMPLOYER'
     const done = s.signers.filter((x) => x.signedAt && x !== employer)
@@ -2715,6 +2777,10 @@ export function waitingWeek(s: WaitingSheet, today: Date = new Date()): WaitingW
     waitingOn: stage === 'WAITING_FOR_CLIENT' ? client!.name : next.name,
     employer: employer.name,
     says,
+    clientOffEtyme: stage === 'WAITING_FOR_CLIENT' && offEtyme,
+    links: stage === 'WAITING_FOR_CLIENT'
+      ? clientWaitingLinks({ id: s.id, clientName: client!.name, offEtyme })
+      : [{ href: `/dashboard/weeks/${s.id}`, says: 'Open this week' }],
   }
 }
 
@@ -2729,6 +2795,8 @@ export function waitingWeek(s: WaitingSheet, today: Date = new Date()): WaitingW
 export interface WeekDoor {
   href: string
   says: string
+  /** A second link beside it, where there is one (a client not on Etyme). */
+  also?: WeekDoor
 }
 
 export function weekDoor(t: {
@@ -2751,10 +2819,30 @@ export function weekDoor(t: {
     refused: string | null
     /** A link that has gone and is still waiting for an answer. */
     linkWaiting: { to: string; on: string } | null
+    /**
+     * Whether an email can leave this deployment (`mailLeaves`, read by the
+     * route and handed here). Where it cannot, a link row is not a link
+     * sent, and a client not on Etyme keeps "Ask <client> to approve by
+     * email". Left out, it is read as cannot.
+     */
+    emailLeaves?: boolean
   }
+  /**
+   * The client's signature off her placement (`weekSigners`), where it was
+   * read: its name, and whether it is not on Etyme (`isShell`).
+   */
+  client?: { name: string; offEtyme: boolean }
 }): WeekDoor | null {
   if (t.status === 'OPEN') return null
   const href = `/dashboard/weeks/${t.id}`
+  if (t.status === 'SUBMITTED' && !t.clientApproved && t.client?.offEtyme) {
+    // Nobody at a client not on Etyme signs here, so a refusal from the
+    // week's page is read there, never as "<client> signs this week in Etyme".
+    if (t.email?.refused) return { href, says: 'See what this week needs' }
+    const [attach, ask] = clientWaitingLinks({ id: t.id, clientName: t.client.name, offEtyme: true })
+    const link = t.email?.emailLeaves ? t.email.linkWaiting : null
+    return { ...attach, also: link ? { href: ask.href, says: `Link sent to ${link.to}, ${link.on}` } : ask }
+  }
   if (t.status === 'SUBMITTED' && !t.clientApproved) {
     if (t.email?.linkWaiting) return { href, says: `Link sent to ${t.email.linkWaiting.to}, ${t.email.linkWaiting.on}` }
     if (t.email?.refused) return { href, says: `${t.email.clientName} signs this week in Etyme` }

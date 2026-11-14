@@ -48,11 +48,12 @@ import { supplierToldSays } from '@/lib/money/invoice-hold'
 import { offRecord, asksAboutFirmMoney, anotherFirmsMoneyOnRecord, writingAsk, NOT_ANOTHER_BOOK, ONLY_THE_RECORD } from './transaction'
 import type { WorkerAnswer } from './worker'
 import { isTwinAct } from '@/lib/autonomy'
+import { countWord, countWordLower } from './count-words'
 import {
   readGiveAccess, readWhoHolds, draftGiveAccess, whoHoldsSays, whoHoldsTable, asksFirmWide, ACCESS_LINK, GIVE_ACCESS_ACT,
   type GiveAccessAsked, type GrantOffer, type GrantBody, type RoleHolders, type GrantHeld,
 } from './access'
-import { getNavForKind, menuFor, ASK_ETYME_HREF, type NavSection, type NavItem, type CompanyKind, type MenuGroup } from '@/lib/nav-table'
+import { getNavForKind, menuFor, ASK_ETYME_HREF, ACTIVITY_LOG_LABEL, IMPORT_RECORDS_LABEL, SETTINGS_GROUPS, type NavSection, type NavItem, type CompanyKind, type MenuGroup } from '@/lib/nav-table'
 
 // ── What was asked ───────────────────────────────────────────────────
 
@@ -261,6 +262,12 @@ const NAV_TOPICS: readonly NavTopic[] = [
   // Ask Etyme is the switch at the top of the left column, never a menu
   // link (founder, 2026-11-08, "One app, two tabs"): answered as that.
   { re: /\bask etyme\b|\bthe chat\b/, subject: 'Ask Etyme', plural: false, pages: [] },
+  // Settings reads People, Company and Records (2026-11-12): the log of
+  // what Etyme did, and the records import, by the words the menu prints.
+  { re: /\b(activity|audit|automation) log\b|\bwhat (did )?etyme do\b|\bautomation\b/, subject: 'The activity log', plural: false, pages: [ACTIVITY_LOG_LABEL] },
+  { re: /\bimport(s|ing)?\b|\bupload (a |my |our )?(file|sheet|spreadsheet|list)\b/, subject: 'Import records', plural: false, pages: [IMPORT_RECORDS_LABEL] },
+  // Reading teams from a directory is on Team structure, never on the records import.
+  { re: /\bteam structure\b|\borg (chart|structure)\b|\bteams? from (the |our |my )?directory\b|\bread teams\b|\bwho leads\b/, subject: 'Team structure', plural: false, pages: ['Team structure'] },
   // The master data sits under Network on every firm's menu (founder,
   // 2026-11-04): the people a firm keeps and the firms it trades with.
   { re: /\bmaster data\b/, subject: 'Your master data', plural: false, pages: ['Candidates', 'Companies', 'Suppliers'] },
@@ -398,7 +405,10 @@ function whereInColumn(column: readonly MenuGroup[], items: readonly NavItem[]):
     const tabs = l.items.filter((i) => i.href !== l.first)
     if (tabs.length === 0) return `under ${name}`
     const said = `${andNames(tabs.map((i) => i.label))} tab${tabs.length === 1 ? '' : 's'}`
-    return tabs.length < l.items.length ? `under ${name}, and on its ${said}` : `under ${name}, on the ${said}`
+    // Settings reads People, Company and Records: a tab in one of them is said with it.
+    const group = tabs.every((i) => i.group === tabs[0].group) ? tabs[0].group : undefined
+    const within = group && (SETTINGS_GROUPS as readonly string[]).includes(group) && tabs.length === l.items.length ? `${name}, ${group}` : name
+    return tabs.length < l.items.length ? `under ${name}, and on its ${said}` : `under ${within}, on the ${said}`
   }).join(', and ')
 }
 
@@ -1624,14 +1634,13 @@ export function needsSays(items: readonly WaitingItem[]): string {
 
 // ── Today: who else is asked, and the time limit ─────────────────────
 
-const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
-/** "Two", "12". Sentence case, for the start of a line. */
+/** "Two", "Twelve". Sentence case, for the start of a line, through the one count helper (./count-words). */
 function numberWord(n: number): string {
-  return String(n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : n)
+  return countWord(n)
 }
-/** "Two invoice receipts", "12 questions". Sentence case, for the start of a line. */
+/** "Two invoice receipts", "Twelve questions". Sentence case, for the start of a line. */
 function counted(n: number, noun: string): string {
-  return `${n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : n} ${noun}${n === 1 ? '' : 's'}`
+  return `${countWord(n)} ${noun}${n === 1 ? '' : 's'}`
 }
 
 /** Every question waiting is a bench person to put forward, so the line says put forward rather than approve. */
@@ -2399,6 +2408,12 @@ export interface Readers {
    * sentence; null otherwise. Optional: a reader for a client has none.
    */
   papersGate?(): Promise<string | null>
+  /**
+   * The Owner gate's line on paying (`payWaitsAt` in lib/money/pay-waits)
+   * where this company still waits for a verified Owner; null where it may
+   * pay. Read only where one of Etyme's own questions asks to pay.
+   */
+  payWaits?(): Promise<PayWaitsLine | null>
   /** A placement or a receipt the message names, at this company, where it names one. */
   named(text: string): Promise<Named>
   /** Weeks waiting for this company's signature, oldest first, at most WEEKS_SHOWN, and how many in all. */
@@ -2919,7 +2934,7 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   const now = opts.now ?? new Date()
   const month = monthOf(now)
   const party = opts.party ?? 'CLIENT'
-  const [items, others, limits, told, spend, needsRaw, held, picture, billing] = await Promise.all([
+  const [asked, others, limits, told, spend, needsRaw, held, picture, billing] = await Promise.all([
     read.waiting(), read.othersWaiting(), read.limits(), read.told(),
     opts.greeting ? read.spendIn(month.from, month.to) : Promise.resolve(null),
     opts.needs ? opts.needs().catch(() => null) : Promise.resolve(null),
@@ -2936,12 +2951,20 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   // The queue's count, and where the route read them, its rows.
   const queue: QueueRead | null = needsRaw == null ? null : typeof needsRaw === 'number' ? { total: needsRaw, items: [] } : needsRaw
   const needs = queue?.total ?? null
+  // Etyme's own pay questions at a company still waiting for a verified
+  // Owner: held, never a Pay card (the payment route refuses it there).
+  // The nightly run raises none there now (a7fcc1324); this holds one
+  // raised before, and is the same gate the queue and the route read.
+  const { items, payHeld } = await withoutHeldPay(asked, queue, read)
 
   // Recommendation first: what this desk should do, in that order. It
   // names the reader's own work only (walk three, 2026-10-26: compliance
   // and HR were told to "ask the AP clerk to approve IN-FMDSDT"); who else
   // is asked stays a fact line below.
+  // An Owner ask addressed to this reader leads, by name (./owner-asks):
+  // only this person can answer it, and the company's ownership waits on it.
   let recommend: RichLine | undefined =
+    (opts.owners?.ask ?? null) ??
     itemsAskSays(items) ??
     (told.told.length ? toldAskSays(told.told[0]) : null) ??
     (held.length ? heldAskSays(held) : null) ??
@@ -3008,10 +3031,16 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   // First, because said after the facts it sat below the first screen and
   // the release walk read the greeting as having none (2026-11-03).
   if (opts.greeting && opts.setup) more.unshift(opts.setup)
+  // Who owns the company (./owner-asks), outside the six lines and never
+  // counted: the asker's own ask waiting on somebody else's yes, once, and
+  // the Become Owner offer for an Admin whose proofs both stand.
+  if (opts.greeting && opts.owners?.waiting) more.splice(opts.setup ? 1 : 0, 0, opts.owners.waiting)
+  if (opts.greeting && opts.owners?.become) more.splice(opts.setup ? 1 : 0, 0, opts.owners.become)
   // Start papers Ask Etyme could not ask for, because the set was never
   // confirmed: the gate's own sentence, once however many starts it held,
   // and like the setup line never counted.
   if (papersGate) more.push(papersGateLine(papersGate))
+  if (payHeld) more.push(payHeld)
   if (opts.greeting && (opts.notices || opts.threads)) {
     const said = heldNoticeTitles(held)
     // Nor is the twin's own question said again as the notice that told
@@ -3020,6 +3049,8 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
     const carded = new Set(items.map((i) => i.approvalId))
     // Nor is a link request said again as the notice that told of it: its card is above.
     for (const d of queue?.items ?? []) if (d.type === LINK_REQUEST) carded.add(d.entityId)
+    // Nor an Owner ask's notice: its card, with Yes, is above.
+    for (const d of queue?.items ?? []) if (d.type === OWNER_ASK) carded.add(d.entityId)
     more.push(...sinceSays((opts.notices?.shown ?? []).filter((n) => !n.settled && !said.has(n.title) && !(n.entityId && carded.has(n.entityId))), opts.notices?.older ?? 0, {
       now, threads: opts.threads?.shown, moreThreads: opts.threads?.more, self: opts.self,
     }))
@@ -3035,6 +3066,42 @@ export async function today(read: Readers, opts: TodayOptions = {}): Promise<Ans
   return {
     kind: 'NEEDS', ...(recommend ? { recommend } : {}), says, ...(headline ? { saysLinks: headline.links } : {}),
     items, ...(held.length ? { held } : {}), ...(cards.length ? { queue: cards } : {}), more, ...(opts.greeting ? { greeting: true } : {}),
+  }
+}
+
+/** Whether one of Etyme's own questions asks this seat to pay an invoice receipt. */
+function asksToPay(i: WaitingItem): boolean {
+  return i.action === RECEIPT_PAY
+}
+
+/**
+ * Etyme's own pay questions, held where the company still waits for a
+ * verified Owner: dropped from the cards, because Pay there is a button
+ * the payment route refuses, and said once in the gate's own sentence with
+ * its link, Prove ownership, unless the queue's held row for the receipt
+ * already says it on its card. Every other question is kept as it is.
+ */
+export async function withoutHeldPay(
+  asked: WaitingItem[],
+  queue: QueueRead | null,
+  read: Pick<Readers, 'payWaits'>,
+): Promise<{ items: WaitingItem[]; payHeld: RichLine | null }> {
+  const pays = asked.filter(asksToPay)
+  if (pays.length === 0) return { items: asked, payHeld: null }
+  // The queue's own held rows first: the same gate, already read for this seat.
+  const fromQueue = (queue?.items ?? []).find((d) => d.type === 'INVOICE_RECEIPT_HELD' && d.payWaits)?.payWaits ?? null
+  const line = fromQueue ?? (read.payWaits ? await read.payWaits().catch(() => null) : null)
+  if (!line) return { items: asked, payHeld: null }
+  // Each keeps its number, so "approve 2" still means the question it meant.
+  const items = asked.filter((i) => !asksToPay(i))
+  const carded = new Set((queue?.items ?? []).filter((d) => d.type === 'INVOICE_RECEIPT_HELD' && d.payWaits).map((d) => d.entityId))
+  const unsaid = pays.filter((i) => !(i.entity?.type === 'Invoice' && carded.has(i.entity.id)))
+  if (unsaid.length === 0) return { items, payHeld: null }
+  const says = /[.!?]$/.test(line.says) ? line.says : `${line.says}.`
+  const which = unsaid.length === 1 ? `Paying ${unsaid[0].title} is held.` : `Paying ${counted(unsaid.length, 'invoice receipt').toLowerCase()} is held.`
+  return {
+    items,
+    payHeld: { says: `${which} ${says}`, ...(line.href && line.linkSays ? { links: [{ text: line.linkSays, href: line.href }] } : {}) },
   }
 }
 
@@ -3084,6 +3151,13 @@ export interface TodayOptions {
    * only, and never counted.
    */
   setup?: RichLine | null
+  /**
+   * Who owns the company, read by ./owner-asks: the Owner ask addressed to
+   * this reader, said first as the recommendation (its card is in the
+   * queue); the asker's own line saying her ask waits on the other person;
+   * and the Become Owner offer. The two lines are facts, never counted.
+   */
+  owners?: { ask?: RichLine | null; waiting?: RichLine | null; become?: RichLine | null }
 }
 
 /**
@@ -3714,6 +3788,8 @@ export function placedSays(f: { personName: string; siteName: string; throughNam
 
 /** Another firm already on Etyme asks to link with this one (./firm-asks). */
 export const LINK_REQUEST = 'LINK_REQUEST'
+/** An Owner ask addressed to this reader: pass ownership, or remove or move an Owner (./owner-asks). */
+export const OWNER_ASK = 'OWNER_ASK'
 /** Somebody asked from the firm's public page to join its bench, where no letter could leave (./firm-asks). */
 export const JOIN_ASK = 'JOIN_ASK'
 
@@ -3736,6 +3812,29 @@ export interface QueueItem {
   reason?: string | null
   /** A receipt held on the bank: whether this seat is the one that checks, where the queue says. */
   mayCheck?: boolean | null
+  /**
+   * A receipt held because the company still waits for a verified Owner
+   * (`payWaits` on GET /api/decisions' INVOICE_RECEIPT_HELD rows): the
+   * gate's own sentence and the step that clears it, Prove ownership.
+   */
+  payWaits?: PayWaitsLine | null
+}
+
+/** The Owner gate's line on paying, as `payWaitsAt` (lib/money/pay-waits) returns it where it holds. */
+export interface PayWaitsLine {
+  says: string
+  href: string | null
+  linkSays: string | null
+}
+
+/** A payWaits object off the wire, kept only where its sentence is said and its link stays on this site. */
+export function payWaitsFrom(x: unknown): PayWaitsLine | null {
+  if (!x || typeof x !== 'object') return null
+  const w = x as Record<string, unknown>
+  if (typeof w.says !== 'string' || !w.says.trim()) return null
+  const href = typeof w.href === 'string' && /^\/(?!\/)/.test(w.href) ? w.href : null
+  const linkSays = href && typeof w.linkSays === 'string' && w.linkSays.trim() ? w.linkSays.trim() : null
+  return { says: w.says.trim(), href, linkSays }
 }
 
 /** The job a candidate to review was put forward to, and the words that tell it apart from the client's other jobs of its title. */
@@ -3832,6 +3931,7 @@ export function queueFrom(body: unknown): QueueRead | null {
       ...(typeof x.reason === 'string' && x.reason.trim() ? { reason: x.reason.trim() }
         : typeof x.says === 'string' && x.says.trim() ? { reason: x.says.trim() } : {}),
       ...(typeof x.mayCheck === 'boolean' ? { mayCheck: x.mayCheck } : {}),
+      ...(payWaitsFrom(x.payWaits) ? { payWaits: payWaitsFrom(x.payWaits) } : {}),
     })
   }
   const says = typeof (data as { says?: unknown }).says === 'string' && (data as { says: string }).says.trim() ? (data as { says: string }).says.trim() : null
@@ -3849,6 +3949,42 @@ export interface QueueAct {
   done: string
 }
 
+/** Whether a greeting drew the queue card with this key (an Owner ask's, a decision's). */
+export function answerHoldsCard(a: Answer, key: string): boolean {
+  return (a.kind === 'NEEDS' || a.kind === 'WORKER') && (a.queue ?? []).some((c) => c.key === key)
+}
+
+/**
+ * The greeting as it reads once an Owner ask on it is answered (the Owner
+ * walk, 2026-11-12: after Yes the "Recommended" line and "Three things
+ * need you" stayed until a reload, while the mark already said nine).
+ * The recommendation and the headline are taken from the greeting read
+ * again just now; the cards, the answered one included, stay as they
+ * were, so the route's own sentence stays under the card that drew it.
+ */
+export function withLeadOf(old: Answer, fresh: Answer): Answer {
+  if (old.kind !== 'NEEDS' && old.kind !== 'WORKER') return old
+  if (fresh.kind !== 'NEEDS' && fresh.kind !== 'WORKER') return old
+  const { recommend: _gone, ...rest } = old
+  void _gone
+  const next = { ...rest, ...(fresh.recommend ? { recommend: fresh.recommend } : {}), says: fresh.says } as Answer
+  if (next.kind === 'NEEDS') {
+    const links = fresh.kind === 'NEEDS' ? fresh.saysLinks : undefined
+    const { saysLinks: _old, ...withoutLinks } = next
+    void _old
+    return { ...withoutLinks, ...(links ? { saysLinks: links } : {}) }
+  }
+  return next
+}
+
+/**
+ * An Owner ask's No: the one route the Owners page presses, { decision: 'no' }.
+ * Nothing changes and the Owner who asked is told, in the route's own sentence.
+ */
+export function ownerAskNo(entityId: string): QueueAct {
+  return { label: 'No', url: `/api/settings/owners/${encodeURIComponent(entityId)}`, body: { decision: 'no' }, done: 'Answered no. Nothing changed, and the Owner who asked is told.' }
+}
+
 /** A decision as a card in the chat: what it is, one line of fact, and its button. */
 export interface QueueCard {
   key: string
@@ -3860,6 +3996,14 @@ export interface QueueCard {
   act: QueueAct | null
   /** The words on the button that opens `href` where `act` is null: "Open", or "Pay" on a receipt to pay. */
   open?: string
+  /** Why this reader is asked, one tap away under the card; absent where the fact says it. */
+  why?: string
+  /**
+   * A second act beside the first, through the same one route, where a no
+   * is as much the person's answer as a yes: an Owner ask's No, which
+   * declines it and tells the Owner who asked. Absent on every other card.
+   */
+  no?: QueueAct
 }
 
 /** What a receipt to pay says where no card of Etyme's pays it here: the button opens the receipt. */
@@ -3900,8 +4044,7 @@ function heldStartSays(d: QueueItem): string {
   return doc ? `${name} cannot start${on} without ${doc}` : `${possessive(name)} start${on} is held by paperwork`
 }
 
-const NUM_LOWER = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
-const lowerNumber = (n: number) => (n < NUM_LOWER.length ? NUM_LOWER[n] : String(n))
+const lowerNumber = (n: number) => countWordLower(n)
 
 /**
  * One decision as the headline names it: the person or the thing, and
@@ -3941,6 +4084,11 @@ export function queueName(d: QueueItem, twin: readonly WaitingItem[] = []): stri
     case 'INVOICE_RECEIPT_HELD': {
       // Held on the bank: said as the hold, in the twin's own words for it,
       // never as a receipt waiting to be paid (walk 7, 2026-11-08).
+      // Held for a verified Owner: whose receipt, and what it waits on.
+      if (d.payWaits) {
+        const number = (d.subtitle ?? '').match(/^Invoice (\S+)/)?.[1]
+        return `${possessive(who)} invoice receipt${number ? ` ${number}` : ''} is held: paying waits for a verified Owner`
+      }
       if (!isBankHeld(d)) return cap(d.title)
       return bankHeldName(d, d.whose?.trim() || afterDash(d.title))
     }
@@ -3956,6 +4104,10 @@ export function queueName(d: QueueItem, twin: readonly WaitingItem[] = []): stri
     // the bench (./firm-asks): the row's own title names them.
     case LINK_REQUEST:
     case JOIN_ASK:
+      return cap(d.title)
+    // An Owner ask addressed to this reader (./owner-asks): the ask's own
+    // sentence, "Camille Ostrander asks you to take over as Owner of …".
+    case OWNER_ASK:
       return cap(d.title)
     case 'OWN_PAPER':
       // A one-person firm's own paper, asked of her as the worker: the card's own name.
@@ -4029,6 +4181,13 @@ export function queueAct(d: QueueItem): QueueAct | null {
   // is a new act kind first, with its tier. The card opens who applied.
   // A link request is answered by the one route Companies presses; Not
   // now on the card changes nothing, so the ask stays for the next look.
+  // An Owner ask is answered by the one route the Owners page presses,
+  // POST /api/settings/owners/:id, never the twin's approval route: it is
+  // the person's own decision about their own seat and their company's
+  // ownership, nothing Etyme drafted. The route's own sentence is shown.
+  if (d.type === OWNER_ASK) {
+    return { label: 'Yes', url: `/api/settings/owners/${id}`, body: { decision: 'yes' }, done: 'Answered yes, and recorded under your name.' }
+  }
   if (d.type === LINK_REQUEST) {
     return { label: 'Yes, link', url: `/api/trade-links/${id}`, body: { action: 'accept' }, done: `Linked. ${d.whose ?? 'They'} ${d.whose ? 'is' : 'are'} on your companies.` }
   }
@@ -4094,6 +4253,20 @@ export function queueCards(
       // "waits for you to pay it" — its button is Pay, to the receipt's own
       // page, where the payment and its bank reference are recorded.
       const pay = d.type === 'INVOICE_RECEIPT_TO_PAY'
+      // Held because the company still waits for a verified Owner: the
+      // gate's own sentence, and the step that clears it, Prove ownership,
+      // in place of Open; never Pay, which the payment route refuses here.
+      if (d.type === 'INVOICE_RECEIPT_HELD' && d.payWaits) {
+        return {
+          key: `${d.type}:${d.entityId}`,
+          type: d.type,
+          title: `${queueName(d)}.`,
+          fact: /[.!?]$/.test(d.payWaits.says) ? d.payWaits.says : `${d.payWaits.says}.`,
+          href: d.payWaits.href ?? heldHref(d, RECEIPTS_HREF),
+          act: null,
+          open: d.payWaits.href ? (d.payWaits.linkSays ?? 'Open') : OPEN_THE_RECEIPT,
+        }
+      }
       // Held on the supplier's bank: the row's own sentence, never Pay. The
       // seat that checks opens the check; anybody else opens the receipt.
       if (isBankHeld(d)) {
@@ -4129,13 +4302,15 @@ export function queueCards(
         type: d.type,
         title: `${queueName(d)}.`,
         fact: d.type === 'NO_AGREEMENT' ? lastSentence(d.subtitle)
-          : d.type === LINK_REQUEST || d.type === JOIN_ASK ? (d.subtitle ?? '')
+          : d.type === LINK_REQUEST || d.type === JOIN_ASK || d.type === OWNER_ASK ? (d.subtitle ?? '')
           : d.type === 'TIMESHEET_APPROVAL' && d.flag ? `${factOf(d.subtitle)} ${d.flag.replace(/[.\s]*$/, '.')} Open it to approve with a reason.`.trim()
           : pay ? `${factOf(d.subtitle)} ${PAY_OPENS_THE_RECEIPT}`.trim()
           : factOf(d.subtitle),
         href: d.actionUrl ?? (pay ? RECEIPTS_HREF : DECISIONS_HREF),
         act: queueAct(d),
         ...(pay ? { open: 'Pay' } : {}),
+        ...(d.type === OWNER_ASK && d.reason ? { why: d.reason } : {}),
+        ...(d.type === OWNER_ASK ? { no: ownerAskNo(d.entityId) } : {}),
       }
     }), jobs)
 }
@@ -4161,6 +4336,15 @@ export function withoutOwnWeek(q: QueueRead | null, self: string | null | undefi
   return { total: Math.max(0, q.total - (q.items.length - kept.length)), items: kept }
 }
 
+/**
+ * A sentence that opens with a figure, "10 things need you", said with the
+ * count spelled out, "Ten things need you", through the one count helper,
+ * whoever wrote the sentence (the Owner walk, 2026-11-12).
+ */
+export function spellLeadingCount(says: string): string {
+  return says.replace(/^(\d{1,3}(?:,\d{3})*|\d+)(?=\s)/, (m) => countWord(Number(m.replace(/,/g, ''))))
+}
+
 /** The words at the end of the headline that open the decisions list. */
 export const OPEN_THE_LIST = 'Open the list'
 
@@ -4172,7 +4356,7 @@ export const OPEN_THE_LIST = 'Open the list'
 export function namedNeedsSays(q: QueueRead, twin: readonly WaitingItem[]): { says: string; links: { text: string; href: string }[] } | null {
   if (q.total <= 0) return null
   // The queue's own sentence, where it gave one: one number, one sentence, everywhere.
-  if (q.says) return { says: `${q.says.replace(/[.\s]*$/, '.')} ${OPEN_THE_LIST}.`, links: [{ text: OPEN_THE_LIST, href: DECISIONS_HREF }] }
+  if (q.says) return { says: `${spellLeadingCount(q.says).replace(/[.\s]*$/, '.')} ${OPEN_THE_LIST}.`, links: [{ text: OPEN_THE_LIST, href: DECISIONS_HREF }] }
   // Inside the sentence a paper of her own reads "your professional
   // license", never a capital after the colon (walk three, 2026-10-26).
   const named = q.items.slice(0, 3).map((d) => (d.type === 'OWN_PAPER' ? midSentence(queueName(d, twin)) : queueName(d, twin)))

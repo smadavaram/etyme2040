@@ -1,5 +1,6 @@
 'use client'
 
+import { OwnerGateLine } from '@/components/owner-gate-line'
 import { readJson } from '@/lib/read-response'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -17,6 +18,8 @@ import { useSession } from '@/components/session-provider'
 import { refusalOf, refusedRead } from '@/lib/money/refused-read'
 import { runDesk, type RunDeskVerdict } from '@/lib/money/pay-desk'
 import { Receipts } from './receipts'
+import { DownloadRunFile, ConfirmRunPaid, MarkRunPaid, RunConfirmSummary } from './payment-run-file'
+import type { ConfirmSummary } from '@/lib/money/run-confirm'
 import { formatDay } from '@/lib/format-date'
 
 /**
@@ -147,6 +150,14 @@ export default function ApPage() {
         books={books}
         onSwitch={readInstead}
       />
+
+      {/* A company still waiting for a verified Owner pays nobody: said here,
+          with its link, before anybody presses Pay on a receipt below. */}
+      {data?.payWaits && (
+        <div className="panel">
+          <OwnerGateLine line={data.payWaits} />
+        </div>
+      )}
 
 
       {loading && !denied && <LoadingState says="Laying the hops end to end…" />}
@@ -763,6 +774,9 @@ function Exceptions({ books, onOpen }: { books: Books; onOpen: (id: string) => v
   return (
     <div className="space-y-3">
       <p className="max-w-[70ch] text-[13px] text-etyme-muted">{data?.note}</p>
+      <p className="max-w-[70ch] text-[13px] text-etyme-ink">
+        Etyme does not send money. Download an approved run for your payment system, then bring back its confirmation.
+      </p>
 
       {rows.length === 0 && (
         <EmptyState
@@ -843,6 +857,12 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
   const [said, setSaid] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [payOn, setPayOn] = useState(() => new Date().toISOString().slice(0, 10))
+  // What was said about one run, on that run's row: the route's sentence
+  // after Approve, Mark it paid or Cancel, and what a confirmation did.
+  // Kept here rather than in the row's form, so it survives the run
+  // turning paid (which takes the form away) until the page is left.
+  const [rowSaid, setRowSaid] = useState<Record<string, { says: string; failed?: boolean }>>({})
+  const [confirmed, setConfirmed] = useState<Record<string, ConfirmSummary>>({})
 
   const load = useCallback(async () => {
     setFailed(null)
@@ -882,7 +902,7 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
     }
   }
 
-  async function move(id: string, action: 'approve' | 'pay' | 'cancel') {
+  async function move(id: string, action: 'approve' | 'cancel') {
     setBusy(true)
     setFailed(null)
     try {
@@ -892,10 +912,10 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
         body: JSON.stringify({ id, action }),
       })
       const b = await readJson(r)
-      setSaid(b.data.note)
+      setRowSaid((m) => ({ ...m, [id]: { says: b.data.note } }))
       await load()
     } catch (e: any) {
-      setFailed(e.message)
+      setRowSaid((m) => ({ ...m, [id]: { says: e.message, failed: true } }))
     } finally {
       setBusy(false)
     }
@@ -1004,7 +1024,7 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
 
       {advice.length > 0 && (
         <div className="panel">
-          <Lbl>Remittance advice</Lbl>
+          <Lbl>Remittance advice, scheduled</Lbl>
           {advice.map((a: any) => (
             <pre
               key={a.vendorCompanyId}
@@ -1042,20 +1062,55 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-etyme-faint">
-                <span className="tabular-nums">
-                  scheduled {new Date(r.scheduledFor).toISOString().slice(0, 10)}
-                </span>
+                {r.status !== 'PAID' && (
+                  <span className="tabular-nums">scheduled for {formatDay(r.scheduledFor)}</span>
+                )}
                 {r.createdBy && <span>assembled by {r.createdBy.name}</span>}
                 {r.approvedBy && <span>approved by {r.approvedBy.name}</span>}
                 {r.paidAt && (
                   <span className="tabular-nums">
-                    paid {new Date(r.paidAt).toISOString().slice(0, 10)}
+                    paid on {formatDay(r.paidAt)}
                   </span>
                 )}
               </div>
+              {r.status === 'PAID' && r.confirmed && (
+                <p className="mt-2 text-[13px] text-etyme-ink">{r.confirmed}</p>
+              )}
+              {/* A paid run's advice says the day its confirmation paid it. */}
+              {r.status === 'PAID' && (r.advice ?? []).length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-[13px]" style={{ color: 'var(--color-action)' }}>Remittance advice</summary>
+                  {r.advice.map((a: any) => (
+                    <pre
+                      key={a.vendorCompanyId}
+                      className="mt-2 overflow-x-auto whitespace-pre-wrap border-t border-etyme-rule pt-2 text-[11px] text-etyme-muted"
+                      style={{ fontFamily: 'IBM Plex Mono, monospace' }}
+                    >
+                      {a.text}
+                    </pre>
+                  ))}
+                </details>
+              )}
+              {/* Approve it is drawn only where the route would take it; the
+                  person who assembled the draft reads who approves instead. */}
+              {desk.mayRun && r.status === 'DRAFT' && r.approve && !r.approve.may && r.approve.says && (
+                <p className="mt-2 text-[13px] text-etyme-ink">{r.approve.says}</p>
+              )}
+              {rowSaid[r.id] && (
+                <p
+                  className={`mt-2 text-[13px] ${rowSaid[r.id].failed ? 'text-etyme-attention' : 'text-etyme-ink'}`}
+                >
+                  {rowSaid[r.id].says}
+                </p>
+              )}
+              {confirmed[r.id] && (
+                <div className="mt-3 border-t border-etyme-rule pt-3">
+                  <RunConfirmSummary summary={confirmed[r.id]} />
+                </div>
+              )}
               {desk.mayRun && r.status !== 'PAID' && r.status !== 'CANCELLED' && (
                 <div className="mt-3 flex flex-wrap gap-3 border-t border-etyme-rule pt-3">
-                  {r.status === 'DRAFT' && (
+                  {r.status === 'DRAFT' && r.approve?.may && (
                     <button
                       className="text-[13px] underline"
                       style={{ color: 'var(--color-action)' }}
@@ -1065,15 +1120,27 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
                       Approve it
                     </button>
                   )}
-                  {r.status === 'APPROVED' && (
-                    <button
-                      className="text-[13px] underline"
-                      style={{ color: 'var(--color-action)' }}
+                  {r.status === 'APPROVED' && <DownloadRunFile runId={r.id} disabled={busy} />}
+                  {/* No Mark it paid or confirmation where the company still waits
+                      for a verified Owner: the page's own line says why, with its link. */}
+                  {r.status === 'APPROVED' && !data?.payWaits && (
+                    <ConfirmRunPaid
+                      runId={r.id}
+                      onDone={(summary) => {
+                        setConfirmed((m) => ({ ...m, [r.id]: summary }))
+                        void load()
+                      }}
+                    />
+                  )}
+                  {r.status === 'APPROVED' && !data?.payWaits && (
+                    <MarkRunPaid
+                      runId={r.id}
                       disabled={busy}
-                      onClick={() => move(r.id, 'pay')}
-                    >
-                      Mark it paid
-                    </button>
+                      onDone={(summary) => {
+                        setConfirmed((m) => ({ ...m, [r.id]: summary }))
+                        void load()
+                      }}
+                    />
                   )}
                   <button
                     className="text-[13px] underline text-etyme-muted"

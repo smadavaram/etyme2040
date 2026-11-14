@@ -21,6 +21,8 @@ import { as, req, json, resetDatabase, prisma } from './harness'
 
 import { POST as registerCompany } from '@/app/api/companies/route'
 import { GET as getCounterparties, POST as addCounterparty } from '@/app/api/counterparties/route'
+import { GET as linkAsks, POST as askToLink } from '@/app/api/trade-links/route'
+import { POST as answerLink } from '@/app/api/trade-links/[id]/route'
 import { POST as addContact } from '@/app/api/contacts/route'
 import { GET as listContracts, POST as createContract } from '@/app/api/contracts/route'
 import { GET as listClients, POST as addClient } from '@/app/api/clients/route'
@@ -79,11 +81,21 @@ describe('Chapter 1 — a one-person corporation registers on a gmail address', 
     expect(listing).not.toBeNull()
   })
 
-  it('a company of one has one role that runs it, Owner, and no staff desks', async () => {
+  it('a company of one has the Owner she earns by proof, the Admin seat she holds until then, and no staff desks', async () => {
     // Member is the seat anybody arriving on a claimed domain is given at
-    // once (founder, 2026-10-07): their own work only, no desk.
+    // once (founder, 2026-10-07): their own work only, no desk. Since
+    // 2026-11-12 the person who signs a company up is its Admin until an
+    // Owner is verified; a one-person firm proves the person alone.
     const roles = await prisma.role.findMany({ where: { companyId: soloCompanyId } })
-    expect(roles.map((r) => r.name).sort()).toEqual(['Member', 'Owner'])
+    expect(roles.map((r) => r.name).sort()).toEqual(['Admin', 'Member', 'Owner'])
+    const seat = await prisma.context.findFirstOrThrow({
+      where: { companyId: soloCompanyId, person: { primaryEmail: SHARATH }, revokedAt: null },
+      include: { role: true },
+    })
+    expect(seat.role?.name).toBe('Admin')
+    const company = await prisma.company.findUniqueOrThrow({ where: { id: soloCompanyId } })
+    expect(company.ownerProofRequiredAt).not.toBeNull()
+    expect(company.ownerVerifiedAt).toBeNull()
   })
 })
 
@@ -99,6 +111,19 @@ describe('Chapter 2 — the client exists, on the register, with somebody to cal
     )
     expect(r.body?.error, JSON.stringify(r.body)).toBeUndefined()
     clientCompanyId = r.body.data.company.id
+  })
+
+  it('Sharath cannot put a firm on Etyme on his register from his side alone, so he asks them to link and Dana says yes', async () => {
+    as(SHARATH)
+    const alone = await json(await addCounterparty(req('POST', '/api/counterparties', { otherCompanyId: clientCompanyId, relationship: 'CLIENT' })))
+    expect(alone.status).toBe(409)
+    const asked = await json(await askToLink(req('POST', '/api/trade-links', { companyId: clientCompanyId, relationship: 'CLIENT' })))
+    expect(asked.status, JSON.stringify(asked.body)).toBe(201)
+    as(DANA)
+    const open = await json(await linkAsks(req('GET', '/api/trade-links')))
+    const mine = open.body.data.received.find((r: any) => r.company.id === soloCompanyId)
+    const yes = await json(await answerLink(req('POST', `/api/trade-links/${mine.id}`, { action: 'accept' }), { params: Promise.resolve({ id: mine.id }) }))
+    expect(yes.status, JSON.stringify(yes.body)).toBe(200)
   })
 
   it('Sharath puts them on his register as a client', async () => {

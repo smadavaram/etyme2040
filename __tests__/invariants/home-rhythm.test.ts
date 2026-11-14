@@ -23,32 +23,37 @@ import { gridsWithoutBreakpoint } from '@/lib/positioning'
  * home page's shape ("make sure even the sub pages and doors follow the
  * same structure"), so the bands, the file and that sentence went.
  * The panel, the band and the security line are drawn by the skeleton
- * the home page shares with those pages (`lib/public-site/skeleton`), and
- * are read here with the page.
+ * those pages share (`lib/public-site/skeleton`).
+ *
+ * Since the founder's brief of 2026-11-13 the home page is six short
+ * sections of its own, drawn by the page and `lib/public-site/home-parts`,
+ * which are read here. The same day they took the structure of the
+ * reference page the brief names: the hero in two columns from 900 wide
+ * with the "At a glance" panel on the right, the Ask Etyme demo, the CFO
+ * view as a card, "Held until it agrees" with the strip on ink, price and
+ * security as two cards from 760 wide, and the last call on ink.
  */
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 const OWN = read('src/app/page.tsx')
 const SKELETON = read('src/lib/public-site/skeleton.tsx')
-const PAGE = [OWN, SKELETON].join('\n')
+/** The home page's own pieces since the founder's brief of 2026-11-13: See it work, the demo and the CFO view. */
+const PARTS = read('src/lib/public-site/home-parts.tsx')
+const PAGE = [OWN, PARTS].join('\n')
 /** The panel that shows the product working, since it replaced the live frame (2026-10-14). */
 const DEMO = read('src/lib/public-site/story-panel.tsx')
 
 /** The opening tag of every section written on the page, in order. */
 const sections = [...PAGE.matchAll(/<section[\s\S]*?>/g)].map((m) => m[0])
 
-describe('The home page is four short sections in one column, at every width', () => {
+describe('The home page is six short sections in one column, at every width', () => {
 
-  it('is one column with a 16px gutter on a phone, and every section sits inside it', () => {
+  it('is one column with a 16px gutter on a phone, and every section sits inside it, in the reference page’s order: the hero, the demo, the CFO view, the proof with its strip, price and security, the last call', () => {
     const main = OWN.slice(OWN.indexOf('<main'), OWN.indexOf('</main>'))
     expect(OWN).toContain('<main className="mx-auto max-w-6xl px-4 sm:px-6">')
-    expect(sections.map((s) => s.match(/id="([\w-]+)"/)![1])).toEqual(['top', 'map', 'demo', 'sign-up'])
-    // The hero and the map are the page's own (the map since 2026-10-27);
-    // the panel, the band and the security line are the skeleton's, drawn
-    // inside the same column.
-    expect(main).toContain(sections[0])
-    expect(main).toContain(sections[1])
-    expect(main).toMatch(/id="map"[\s\S]*<LiveDemo phoneButton=\{false\}>[\s\S]*<WhyBelow \/>[\s\S]*<SignUpBand talk \/>[\s\S]*<SecurityLine \/>/)
+    expect(sections.map((s) => s.match(/id="([\w-]+)"/)![1])).toEqual(['top', 'demo', 'cfo', 'proof', 'pricing', 'start'])
+    for (const s of sections) expect(main).toContain(s)
+    expect(OWN).not.toMatch(/<LiveDemo|<WhyBelow|<SignUpBand|CorvaneMapView/)
     // Nothing is wider than the screen: the page clips any stray overflow
     // rather than scrolling sideways at 375.
     expect(PAGE).toContain('overflow-x-hidden')
@@ -61,12 +66,15 @@ describe('The home page is four short sections in one column, at every width', (
     expect(PAGE).not.toMatch(/\bsnap-(?:y|mandatory|proximity|start)\b/)
   })
 
-  it('stacks every split on a phone: the sign-up band beside its buttons only from md, its buttons side by side only from sm', () => {
+  it('stacks every split on a phone: the hero’s two columns only from 900 wide, the three proof cards side by side only from md, price and security only from 760 wide', () => {
     expect(gridsWithoutBreakpoint(PAGE)).toEqual([])
     expect(gridsWithoutBreakpoint(DEMO)).toEqual([])
-    const band = sections.find((s) => s.includes('id="sign-up"'))!
-    expect(band).toContain('md:grid-cols-[1fr_auto]')
-    expect(PAGE).toContain('flex flex-col gap-2.5 sm:flex-row sm:flex-wrap')
+    // The three proof cards stack on a phone and sit three across from md.
+    expect(OWN).toContain('mt-4 grid gap-3 md:grid-cols-3')
+    expect(OWN).toContain('min-[900px]:grid-cols-[1.15fr_0.85fr]')
+    expect(OWN).toContain('min-[760px]:grid-cols-2')
+    // On a phone the glance panel comes after the left column, in the source's order.
+    expect(OWN.indexOf('{HOME_HEADLINE}')).toBeLessThan(OWN.indexOf('aria-label={GLANCE_TITLE}'))
   })
 
   it('puts the four chips in one row on a phone that scrolls sideways with no scrollbar, and scrolls the row, never the page, to the step playing', () => {
@@ -114,43 +122,31 @@ describe('The home page is four short sections in one column, at every width', (
     expect(DEMO).toContain('<div className="min-w-0 bg-etyme-surface p-3.5">')
   })
 
-  it('shows the demo button and "Talk to a person" in the hero at every width, stacked full width on a phone, and the demo button again in the panel’s footer from md up', () => {
-    // The founder, 2026-10-19: no button above the fold on a phone; it sat
-    // in the panel's footer two screens down. The same button is drawn
-    // twice and each copy is display:none at the other's widths, so a
-    // screen reader and the Tab key meet one.
-    expect(SKELETON).toContain('{phoneButton && <PhoneButton>{children}</PhoneButton>}')
-    expect(SKELETON).toContain('className={`grid md:hidden [&_a]:w-full [&_a]:whitespace-normal ${className}`}')
-    expect(SKELETON.indexOf('<PhoneButton>')).toBeLessThan(SKELETON.indexOf('<StoryPanel'))
-    expect(DEMO).toContain('{i === cur && children && <div className="hidden md:block">{children}</div>}')
-    // Since the founder's "Build it" on the home-page drawing, 2026-10-27,
-    // the hero carries its two calls, as drawn: "Open the demo, no account"
-    // and "Talk to a person", stacked full width on a phone and side by side
-    // from sm. So the page draws no phone-only button, and the panel draws
-    // none above itself; it keeps the demo button in its footer from md up.
+  it('shows Start free and See it work side by side, wrapping on a narrow phone, with the brief’s line under both; every button at least 44 pixels high', () => {
     const hero = OWN.slice(OWN.indexOf('id="top"'), OWN.indexOf('</section>', OWN.indexOf('id="top"')))
-    expect(hero).toContain('className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center"')
-    expect(hero).toMatch(/<OpenTheDemo \/>\s*<TalkToAPerson \/>/)
+    expect(hero).toMatch(/<div data-hero-calls="" className="mt-7 flex flex-wrap gap-3">\s*<a href=\{START_FREE\.href\} className=\{FILLED\}>\{START_FREE\.t\}<\/a>\s*<SeeItWork \/>\s*<\/div>\s*<p className="[^"]*">\{UNDER_START\}<\/p>/)
     expect(OWN).not.toContain('<PhoneButton')
-    expect(OWN).toContain('<LiveDemo phoneButton={false}><OpenTheDemo /></LiveDemo>')
-    // A step page, with Today and With Etyme between its lede and the panel, draws it under its lede.
-    const step = read('src/lib/public-site/module-page.tsx')
-    expect(step).toContain('<PhoneButton className="mt-5"><StepButton m={m} /></PhoneButton>')
-    expect(step.indexOf('<PhoneButton')).toBeLessThan(step.indexOf('id="pair"'))
-    expect(step).toContain('phoneButton={false}')
+    for (const b of ['FILLED', 'OUTLINE', 'FILLED_ON_INK', 'OUTLINE_ON_INK']) {
+      // The shapes live in a file with no client marker, so the server page can read them (0575cc87c).
+      expect(read('src/lib/public-site/home-buttons.ts')).toMatch(new RegExp(`export const ${b} =\\s*\`inline-flex min-h-11 `))
+    }
+    // The header's Start free is the header's 44-pixel tap target.
+    expect(read('src/lib/public-site/frame.tsx')).toMatch(/className=\{`\$\{TAP\} ml-1 whitespace-nowrap bg-etyme-action/)
   })
 
-  it('never waits on anything: no frame, no request, every step written into the page', () => {
-    expect(DEMO).not.toMatch(/<iframe|fetch\(|loading=/)
-    expect(DEMO).toContain('hidden={i !== cur}')
-    // The page itself is a server page with no data to wait for, but one:
-    // since the release walk of 2026-10-27 it asks whether Corvane is
-    // seeded, so the map draws no demo link to a door that would answer
-    // 404. That read is bounded (SEEDED_WAIT_MS) and reads "no" when late,
-    // so the map and the panel are never held for it.
+  it('stays inside a 390-pixel screen: no fixed width, the demo’s table fixed to the column with its words wrapping', () => {
+    expect(PAGE).not.toMatch(/(?<![\w-])(?:w|min-w)-\[\d+px\]/)
+    expect(PARTS).toContain('w-full table-fixed')
+    expect(PARTS).toContain('[overflow-wrap:anywhere]')
+  })
+
+  it('never waits on anything: no frame, no request, no await; the demo and the CFO view are written into the page', () => {
+    expect(PAGE).not.toMatch(/<iframe|fetch\(|loading=/)
     expect(PAGE).not.toMatch(/export const dynamic/)
-    expect(PAGE.match(/await /g) ?? []).toEqual(['await '])
-    expect(PAGE).toContain('await corvaneIsSeeded()')
+    expect(PAGE).not.toMatch(/\bawait /)
+    expect(OWN).toContain('const DEMO = homeDemo()')
+    expect(OWN).toContain('const CFO = homeCfo()')
+    expect(OWN).toContain('const HELD = homeGlanceHeld()')
   })
 
   it('draws every color from the site’s tokens, so the page and the panel follow one theme', () => {

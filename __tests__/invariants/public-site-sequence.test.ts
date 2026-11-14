@@ -23,7 +23,7 @@ import {
 } from '@/lib/public-site/docs-page'
 import { STEP_PAGES, stepRoute, STEP_HEADINGS } from '@/lib/public-site/docs/process'
 import { TOPICS, topicRoute } from '@/lib/public-site/docs/topics'
-import { DOCS_HOME, WHO_DOES_WHAT, REFERENCE, docRoutes, docSlugs } from '@/lib/public-site/docs/index'
+import { DOCS_HOME, WHO_DOES_WHAT, REFERENCE, docRoutes, docSlugs, copyOfDoc as copyOfDocFor } from '@/lib/public-site/docs/index'
 import { oldAddresses, replacementFor } from '@/lib/public-site/docs/redirects'
 import DocsSlugPage from '@/app/(site)/docs/[slug]/page'
 import ProcessHomePage from '@/app/(site)/docs/process/page'
@@ -579,7 +579,7 @@ describe('Every documentation page says its contents once, and in short lines', 
 // Accounting"): a firm reads Today · Network (Candidates, Companies) ·
 // Jobs · Submissions · HR (Contracts, Timesheets, Expenses) · Accounting
 // (Receivables, Payables, Payroll, Reports) · Settings, and a client
-// Accounting with Payables only. The documentation names those links,
+// Accounting with Payables and Reports (since 2026-11-12). The documentation names those links,
 // so it is read against the menu the app draws (`menuFor`), not a list
 // typed here.
 describe('The documentation names the menu the app draws', () => {
@@ -600,15 +600,16 @@ describe('The documentation names the menu the app draws', () => {
     for (const n of named) expect(onAMenu.has(n), `the documentation names “${n}”, which no menu draws`).toBe(true)
   })
 
-  it('the documentation names the money as the menu does: Accounting, with Receivables, Payables and Payroll, and a client sees Payables only', () => {
+  it('the documentation names the money as the menu does: Accounting, with Receivables, Payables and Payroll, and a client sees Payables and Reports', () => {
     const t = timeAndMoney()
     expect(t).toMatch(/a firm’s bills are under Accounting, in Receivables/)
     expect(t).toMatch(/in Payables/)
     expect(t).toMatch(/in Payroll/)
-    expect(t).toMatch(/A client has only Payables/)
+    expect(t).toMatch(/A client has Payables and Reports/)
+    expect(t).not.toMatch(/A client has only Payables/)
     // And that is what the client's menu draws under Accounting.
     const clientMoney = menuFor('CLIENT', false).find((g) => g.heading === 'Accounting')!
-    expect(clientMoney.links.map((l) => l.label)).toEqual(['Payables'])
+    expect(clientMoney.links.map((l) => l.label)).toEqual(['Payables', 'Reports'])
   })
 
   it('no documentation line still says a link is under Bills, Invoice receipts, Payroll or Contracts, the menu of 2026-11-04', () => {
@@ -629,5 +630,67 @@ describe('The documentation names the menu the app draws', () => {
     expect(lines.some((l) => /under Network, in Candidates/.test(l))).toBe(true)
     expect(lines.some((l) => /under HR, in Contracts/.test(l))).toBe(true)
     expect(lines.some((l) => /under Network, in Suppliers/.test(l))).toBe(true)
+  })
+})
+
+describe('Etyme never moves money, and the Invoices step says so (the founder, 2026-11-12)', () => {
+  const invoices = STEP_PAGES.find((p) => p.slug === 'invoices')!
+  const step = STEPS.find((s) => s.route === '/invoices')!
+  const docWords = [invoices.lede, ...invoices.flow.flatMap((b) => [b.role ?? '', b.t]), ...invoices.rules].join(' ')
+
+  it('the Invoices documentation says Etyme never moves money and your own system pays', () => {
+    expect(invoices.rules).toContain('Etyme never moves money. Your own system pays.')
+    expect(invoices.lede).toMatch(/your own system pays it/)
+  })
+
+  it('the Invoices flow chart walks the payment run: the AP clerk approves it, your payment system pays it from a file, the confirmation comes back, and each supplier is told', () => {
+    const order = ['Approves a payment run', 'Pays the run from the file', 'Brings back the confirmation', 'each supplier is told it was paid']
+      .map((t) => invoices.flow.findIndex((b) => b.t.includes(t)))
+    expect(order.every((i) => i >= 0), JSON.stringify(order)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    expect(invoices.flow.find((b) => b.t.startsWith('Pays the run'))!.role).toBe('Your payment system')
+  })
+
+  it('no box on the Invoices step or its documentation says the AP clerk or Etyme pays', () => {
+    const boxes = [...invoices.flow.map((b) => b.t), ...step.flow.map((b) => b.t), ...step.involved.map((i) => i.does)]
+    for (const b of boxes) expect(b, b).not.toMatch(/^(AP )?pays what matched|Etyme pays/i)
+    expect(step.flow.map((b) => b.t)).toContain('Your own system pays it, and the supplier is told')
+    expect(step.involved.find((i) => i.who === 'AP clerk')!.does).toContain('Etyme never moves money.')
+    expect(docWords).not.toMatch(/Etyme (pays|sends the money|transfers)/i)
+  })
+
+  it('the time and money reference says your own system pays what Payables and Payroll approved', () => {
+    expect(REFERENCE.find((r) => r.slug === 'time-and-money')!.lines.join(' ')).toContain('Your own system pays them.')
+  })
+})
+
+describe('The documentation says who runs a company on Etyme, and how its people sign in (the founder, 2026-11-11)', () => {
+  const words = (path: string) => { const c = copyOfDocFor(path)!; return [...c.hero, ...c.body].join(' ') }
+
+  it('who does what says, inside a company, an Owner runs the business, an Admin manages people and settings and never acts on an Owner, and a new company’s first person is an Admin until ownership is proven', () => {
+    expect(WHO_DOES_WHAT.inside.heading).toBe('Inside a company')
+    expect(WHO_DOES_WHAT.inside.lines).toEqual([
+      'An Owner runs the business.',
+      'An Admin manages people and settings, and never acts on an Owner.',
+      'A new company’s first person is an Admin until ownership is proven.',
+    ])
+    expect(words('who-does-what')).toContain('never acts on an Owner')
+    // The two words are used exactly; the Admin is never called a manager of the business or an IT owner.
+    expect(words('who-does-what')).not.toMatch(/IT owner|super-?owner|tenant admin/i)
+  })
+
+  it('the who does what page draws the lines under their own heading, after the table', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/public-site/docs-page.tsx'), 'utf8')
+    const view = src.slice(src.indexOf('export function WhoDoesWhatView'))
+    expect(view.indexOf('<Table')).toBeLessThan(view.indexOf('{w.inside.heading}'))
+    expect(view).toContain('<Lines lines={w.inside.lines} />')
+  })
+
+  it('the integrations page says how people sign in: a client’s team through its own directory with no separate Etyme password, a small team by invitation with the account it already has', () => {
+    const lines = REFERENCE.find((r) => r.slug === 'integrations')!.lines
+    expect(lines).toContain('For a client: your team signs in through your company’s directory. No separate Etyme password.')
+    expect(lines).toContain('For a small team: invited by email, sign in with the account you already have.')
+    // No company-size range, and no claim of a sign-in standard that is not built.
+    expect(words('integrations')).not.toMatch(/\b\d+\s*(?:–|-|to)\s*\d+\s+(?:contractors|people|employees|seats)\b|\bSAML\b|government/i)
   })
 })

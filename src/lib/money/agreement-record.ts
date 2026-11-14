@@ -19,8 +19,11 @@
  *   buys, because either may be the one holding the paper. Both read the
  *   same row.
  * - **A firm on Etyme is named only where the two already trade**: an
- *   order, a contract, an agreement, a job sent, or the firm's own
- *   register. Otherwise any firm could put its name to an agreement with
+ *   order, a contract, an agreement, a job sent, or the other firm's own
+ *   register (`workTogether`), never a row the caller wrote alone. Where
+ *   the caller sells, the other firm must already buy from it, because
+ *   the agreement puts the caller on that firm's approved suppliers.
+ *   Otherwise any firm could put its name to an agreement with
  *   any real tenant (`mayNameCounterparty` in `lib/off-system`, the same
  *   rule said for agreements). A firm not on Etyme is the caller's own
  *   record and may be named.
@@ -41,6 +44,7 @@
 
 import { isAnchor, ANCHORS } from '@/lib/billing-cascade'
 import type { OrderTerms, AgreementTerms as ReadByTheCascade } from '@/lib/money/order-terms'
+import { lacksPosition, type HeldWith, type Position } from '@/lib/counterparty'
 
 /** The period engine's own rhythms: an agreement says nothing the cascade cannot read. */
 export type AgreementRhythm = OrderTerms['frequency']
@@ -190,33 +194,119 @@ export function isPlaceholder(a: ExistingAgreement): boolean {
 
 export type RecordVerdict =
   | { ok: true; fillId: string | null; vendorId: string; clientId: string; says: string }
-  | { ok: false; says: string; field: string }
+  /** `unknown`: answered exactly as an id that is not on Etyme at all. */
+  | { ok: false; says: string; field: string; unknown?: true }
+
+/**
+ * What an id the caller may not name gets: the same words whether nothing
+ * has that id or another firm keeps its own private record under it, so the
+ * answer never confirms another firm holds a record of a company.
+ */
+export const AGREEMENT_UNKNOWN_FIRM_SAYS =
+  'Pick the firm the agreement is with. Add them from Companies first if they are not there; they do not need to be on Etyme.'
 
 export function mayRecordAgreement(input: {
   caller: { id: string; name: string }
-  other: { id: string; name: string; claimedAt: Date | null } | null
+  other: { id: string; name: string; claimedAt: Date | null; listedById?: string | null; kind?: string | null } | null
   /** True where the caller sells to the other firm; false where it buys from them. */
   callerSells: boolean
-  /** Whether the two already trade: an order, a contract, an agreement, a job sent, or the register. */
+  /**
+   * Whether the two already trade, read by `workTogether(caller, other)`
+   * in lib/company-create: an order, a contract, an agreement, a job sent,
+   * or the other firm's own register naming the caller. Never a register
+   * row the caller wrote alone.
+   */
   relationshipExists: boolean
+  /**
+   * Whether the caller's own register names the other firm. Decides only
+   * whether a refusal may name a firm on Etyme: one the caller neither
+   * works with nor keeps on its list is answered as an id nobody has.
+   * Left out, it is read as yes, the reading every caller had before.
+   */
+  onMyList?: boolean
+  /**
+   * For a firm on Etyme where the caller sells: whether something on the
+   * other firm's side already shows it buying from the caller (an
+   * agreement naming it the client, its own register naming the caller as
+   * a supplier or a prime, an order it issued to the caller, a job it sent the
+   * caller). An agreement where the caller sells puts the caller on that
+   * firm's approved suppliers, so it is never written from the caller's
+   * side alone (review, 2026-11-13). Left out, it is read as no.
+   */
+  buysFromCaller?: boolean
+  /**
+   * `workTogether(caller, other)` in lib/company-create: real work between
+   * the two, never a register row the caller wrote alone. Read for a
+   * company another firm recorded; left out, it is read as no.
+   */
+  worksTogether?: boolean
+  /**
+   * Where the other company sits with the caller on the caller's own
+   * register (`standingWith` in app/api/companies/positions). Decides, for
+   * a company the caller recorded, whether it may be the client or the
+   * supplier on this agreement, never its Kind.
+   */
+  held?: HeldWith | null
   /** The live agreement between the pair, where there is one. */
   existing: ExistingAgreement | null
 }): RecordVerdict {
   const { caller, other } = input
   if (!other) {
-    return { ok: false, field: 'otherCompanyId', says: 'Pick the firm the agreement is with. Add them from Companies first if they are not there; they do not need to be on Etyme.' }
+    return { ok: false, field: 'otherCompanyId', unknown: true, says: AGREEMENT_UNKNOWN_FIRM_SAYS }
   }
   if (other.id === caller.id) {
     return { ok: false, field: 'otherCompanyId', says: 'An agreement is between two firms. Pick the other party to it.' }
   }
+  // Another firm's own record of a company, not on Etyme: that firm's note,
+  // not the caller's. Named only where real work already lies between the
+  // two, and otherwise answered as an id nobody has (review, 2026-11-13).
+  if (other.claimedAt == null && other.listedById != null && other.listedById !== caller.id && !input.worksTogether) {
+    return { ok: false, field: 'otherCompanyId', unknown: true, says: AGREEMENT_UNKNOWN_FIRM_SAYS }
+  }
   if (other.claimedAt != null && !input.relationshipExists) {
+    // A firm the caller neither works with nor keeps on its list: its name
+    // is not the caller's to learn from an id.
+    if (input.onMyList === false) {
+      return { ok: false, field: 'otherCompanyId', unknown: true, says: AGREEMENT_UNKNOWN_FIRM_SAYS }
+    }
     return {
       ok: false,
       field: 'otherCompanyId',
       says:
         `${other.name} is on Etyme and the two of you do not trade here yet, so an agreement in their name ` +
-        `would be one nobody at ${other.name} knows about. Start from a job they sent you, an order, or ` +
-        `ask them to add you, then record it.`,
+        `would be one nobody at ${other.name} knows about. Ask them to link with you from Companies, ` +
+        `then record it.`,
+    }
+  }
+  // Selling to a firm on Etyme makes the caller one of its approved
+  // suppliers (`approvedSuppliersOf` in lib/sites reads every agreement
+  // naming it the client). So the buying side has to show on theirs.
+  if (other.claimedAt != null && input.callerSells && !input.buysFromCaller) {
+    return {
+      ok: false,
+      field: 'otherCompanyId',
+      says:
+        `Nothing on Etyme shows ${other.name} buying from you yet, so you cannot record yourself as their supplier. ` +
+        `Ask them to link with you as their supplier from Companies, then record it.`,
+    }
+  }
+  // A company on the caller's Companies list is a client only by its
+  // Customer position and a supplier only by its Supplier position (founder,
+  // 2026-11-12), read from the register and never from the Kind, the same
+  // rule a contract line and an order read. So recording an agreement is
+  // never a second way to give a position: that is Extend, with its entry
+  // in the company's history.
+  const need: Position[] = input.callerSells ? ['CUSTOMER'] : ['SUPPLIER', 'PRIME']
+  if (lacksPosition(input.held ?? null, other.kind, need)) {
+    const step = input.callerSells ? 'Customer' : 'Supplier'
+    const word = input.callerSells ? 'client' : 'supplier'
+    const held = input.held?.positions ?? []
+    return {
+      ok: false,
+      field: 'otherCompanyId',
+      says: held.length === 0
+        ? `${other.name} is on your Companies list and is not classified yet. Extend it to ${step} first.`
+        : `${other.name} is on your Companies list but is not your ${word} yet. Extend it to ${step} first.`,
     }
   }
 

@@ -12,6 +12,7 @@ import { railFor, stepLabel, packSentence, currencyFor, asksPayroll, noPayrollLi
 import { packFor, MEMBER_ROLE, type CompanyKind } from '@/lib/company-defaults'
 import { memberWelcome } from '@/lib/password-words'
 import { AnotherAccount } from '../another-account'
+import { COMPANY_NAME_MISSING, KIND_MISSING, NAME_MISSING } from './missing'
 
 /**
  * Getting in, and setting up. Five steps, then it stops.
@@ -54,6 +55,15 @@ function Rail({ at, done, kind }: { at: 'SIGN_IN' | SetupStep; done: (k: 'SIGN_I
   )
 }
 
+/**
+ * Said under "Your company" before the company exists: an invitation is
+ * the one way in a new company always has, and Settings says the rest once
+ * the doors are set (lib/join-words). It used to say anyone from the web
+ * address joins as Member, which no door does for a consumer address,
+ * Etyme's own domain or a domain nobody verified (founder, 2026-11-12).
+ */
+const BEFORE_THE_COMPANY_JOIN_LINE = 'Colleagues come in by your invitation, on the Your team step. Settings then says any other way people can join.'
+
 const primary = 'px-5 py-2.5 bg-etyme-action text-white rounded text-sm font-medium hover:opacity-90 disabled:opacity-40'
 const secondary = 'px-5 py-2.5 border border-etyme-rule bg-etyme-surface rounded text-sm text-etyme-ink hover:border-etyme-muted disabled:opacity-40'
 const field = 'w-full mt-1 px-3 py-2 border border-etyme-rule rounded bg-etyme-raised text-sm text-etyme-ink focus:outline-none focus:border-etyme-action'
@@ -63,6 +73,8 @@ export default function StartPage() {
   const [state, setState] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // The type whose "Set up my company" was pressed with no name typed.
+  const [missingFor, setMissingFor] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [joined, setJoined] = useState<any>(null)
   // Step 2's answers, each pre-filled with its guess.
@@ -281,9 +293,16 @@ export default function StartPage() {
                   Your company&rsquo;s name
                   <input value={name} onChange={(e) => setName(e.target.value)} className={field} />
                 </label>
-                <button onClick={() => enter({ type: t.key, name })} disabled={busy || !name.trim()} className={`mt-3 ${secondary}`}>
+                {/* Pressable with the name empty, and it says what is missing (fault list, 2026-11-13). */}
+                <button onClick={() => {
+                  if (!name.trim()) { setMissingFor(t.key); return }
+                  setMissingFor(null)
+                  enter({ type: t.key, name })
+                }} disabled={busy} className={`mt-3 ${secondary}`}>
                   Set up my company
                 </button>
+                {missingFor === t.key && <p role="alert" className="mt-2 text-sm text-etyme-attention">{NAME_MISSING}</p>}
+                {missingFor !== t.key && error && <p className="mt-2 text-sm text-etyme-attention">{error}</p>}
               </div>
             ))}
           </>
@@ -313,7 +332,8 @@ export default function StartPage() {
             <button onClick={() => setWelcome(false)} className={`mt-6 ${primary}`}>Continue</button>
             <p className="text-xs text-etyme-faint mt-3">
               You can change the name and the currency later in Settings.
-              {!solo && ' Colleagues join by invitation, or by signing up with the same Etyme address from your email domain.'}
+              {/* How people join, read off what the doors do (lib/join-words), never typed here. */}
+              {setup.company.joinSays && ` ${setup.company.joinSays}`}
             </p>
           </div>
         )}
@@ -337,8 +357,9 @@ export default function StartPage() {
 
             <label className="block mt-6">
               <Lbl>Company name</Lbl>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={field} />
+              <input value={name} onChange={(e) => { setName(e.target.value); if (missingFor === 'COMPANY') setMissingFor(null) }} className={field} />
               <p className="text-xs text-etyme-muted mt-1">Guessed from your web address. Change it if it is wrong.</p>
+              {missingFor === 'COMPANY' && <p role="alert" className="mt-1 text-sm text-etyme-attention">{COMPANY_NAME_MISSING}</p>}
             </label>
 
             <div className="mt-6">
@@ -378,11 +399,19 @@ export default function StartPage() {
             </p>
 
             {error && <p className="mt-4 text-sm text-etyme-attention">{error}</p>}
-            <button onClick={() => enter({ type, name, country, currency, ...(state.action === 'SUGGEST' ? { joinExisting: false } : {}) })}
-              disabled={busy || !type} className={`mt-6 ${primary}`}>
+            <button onClick={() => {
+              // Pressable before a kind is chosen, and it says what is missing.
+              if (!type) { setError(KIND_MISSING); return }
+              // A cleared name is said beside the box, never sent to be guessed.
+              if (!name.trim()) { setError(null); setMissingFor('COMPANY'); return }
+              setMissingFor(null)
+              enter({ type, name, country, currency, ...(state.action === 'SUGGEST' ? { joinExisting: false } : {}) })
+            }}
+              disabled={busy} className={`mt-6 ${primary}`}>
               {busy ? 'Setting up…' : 'Continue'}
             </button>
-            {!solo && <p className="text-xs text-etyme-faint mt-3">Anyone else from your web address who signs in will join you as Member.</p>}
+            {/* Before the company exists nothing decides how others join it, so the line promises nothing a door may refuse. */}
+            {!solo && <p className="text-xs text-etyme-faint mt-3">{BEFORE_THE_COMPANY_JOIN_LINE}</p>}
           </div>
         )}
 

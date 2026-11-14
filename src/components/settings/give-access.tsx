@@ -6,6 +6,7 @@ import { formatDay } from '@/lib/format-date'
 import { FormMessage } from '@/components/ui/form'
 import { Panel, Lbl } from './panel-bits'
 import { giveAccessBody, fieldsDrawn, type GiveAccessValues } from '@/lib/permission-grants/form'
+import { focusFromQuery } from '@/app/dashboard/access/focus'
 
 /**
  * "Give access", on Users & permissions (founder, 2026-11-08: "Owner
@@ -24,10 +25,14 @@ interface Option { key: string; label: string; personOnly: boolean; scopes: stri
 interface Grant { id: string; says: string; reason: string; grantedBy: string; grantedAt: string; revokedBy: string | null; revokedAt: string | null }
 interface Data {
   canGive: boolean
+  /** The catalog, the same list and number Settings → Roles counts against. */
   permissions: Option[]
+  catalogCount?: number
+  /** The Owner's own right to let somebody give access to others: not one of the catalog's. */
+  ownerRight?: Option | null
   scopes: { key: string; label: string }[]
   roles: { id: string; name: string }[]
-  people: { contextId: string; name: string; roleName: string | null }[]
+  people: { contextId: string; name: string; roleName: string | null; state?: 'INVITED' | 'WITH_ACCESS' | 'PAUSED' }[]
   units: { id: string; name: string }[]
   grants: Grant[]
 }
@@ -71,7 +76,9 @@ export function GiveAccess() {
   }
   useEffect(() => { void load() }, [])
   useEffect(() => {
-    const unit = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('unit') : null
+    // The page's own reader of the address, so a value that is not a plain
+    // id is ignored here exactly as it is for the scroll and the mark.
+    const { unit } = focusFromQuery(typeof window !== 'undefined' ? window.location.search : '')
     if (unit) setPresetUnit(unit)
   }, [])
   useEffect(() => {
@@ -81,7 +88,8 @@ export function GiveAccess() {
     document.getElementById('give-access')?.scrollIntoView({ block: 'start' })
   }, [presetUnit, data])
 
-  const chosen = data?.permissions.find((p) => p.key === v.permission) ?? null
+  const options = data ? [...data.permissions, ...(data.ownerRight ? [data.ownerRight] : [])] : []
+  const chosen = options.find((p) => p.key === v.permission) ?? null
   const scopes = (data?.scopes ?? []).filter((s) => !chosen || chosen.scopes.includes(s.key))
   const set = (patch: Partial<GiveAccessValues>) => { setV((x) => ({ ...x, ...patch })); setDone(null) }
 
@@ -128,11 +136,18 @@ export function GiveAccess() {
           <div>
             <Lbl>What they may do</Lbl>
             <select value={v.permission} onChange={(e) => {
-              const p = data.permissions.find((x) => x.key === e.target.value)
+              const p = options.find((x) => x.key === e.target.value)
               set({ permission: e.target.value, ...reachWithTeam(p?.scopes ?? [], presetUnit) })
             }} className={input}>
               <option value="">Choose one</option>
-              {data.permissions.map((p) => <option key={p.key} value={p.key}>{p.label[0].toUpperCase() + p.label.slice(1)}</option>)}
+              <optgroup label={`What any role can do (${data.catalogCount ?? data.permissions.length})`}>
+                {data.permissions.map((p) => <option key={p.key} value={p.key}>{p.label[0].toUpperCase() + p.label.slice(1)}</option>)}
+              </optgroup>
+              {data.ownerRight && (
+                <optgroup label="Only an Owner gives this">
+                  <option value={data.ownerRight.key}>{data.ownerRight.label[0].toUpperCase() + data.ownerRight.label.slice(1)}</option>
+                </optgroup>
+              )}
             </select>
           </div>
           <div>
@@ -146,7 +161,7 @@ export function GiveAccess() {
               )}
               <optgroup label="One person">
                 {data.people.map((p) => (
-                  <option key={p.contextId} value={`person:${p.contextId}`}>{p.name}{p.roleName ? ` · ${p.roleName}` : ''}</option>
+                  <option key={p.contextId} value={`person:${p.contextId}`}>{p.name}{p.roleName ? ` · ${p.roleName}` : ''}{p.state === 'INVITED' ? ' · invited' : p.state === 'PAUSED' ? ' · paused' : ''}</option>
                 ))}
               </optgroup>
             </select>

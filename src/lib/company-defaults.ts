@@ -20,7 +20,13 @@ import type { Permission } from '@/lib/permissions'
  * becomes noise.
  */
 
-export type CompanyKind = 'VENDOR' | 'CLIENT' | 'MSP' | 'GSI' | 'CONSULTANT_CORP'
+/**
+ * UNCLASSIFIED is a firm another company wrote down and has not classified
+ * (2026-11-12). It is never a reader: it has no roles, no seats, no menu.
+ * Every reader keyed by kind names it on purpose, so nothing reads it as a
+ * Vendor or a Consultant by a default branch.
+ */
+export type CompanyKind = 'VENDOR' | 'CLIENT' | 'MSP' | 'GSI' | 'CONSULTANT_CORP' | 'UNCLASSIFIED'
 
 export interface RoleSeed {
   name: string
@@ -146,6 +152,33 @@ export const REVOKED_SINCE: readonly { role: string; was: readonly Permission[];
   { role: MEMBER_ROLE, was: ['assignments.read', 'timesheets.read'], now: [] },
 ]
 
+// ── Admin runs the system; the Owner runs the business ─────────────────
+
+/**
+ * The Admin a company formed from 2026-11-12 is given (founder,
+ * 2026-11-11: "treat admin as manager or IT owner and not business owner
+ * in the whole app"). People (inviting, pausing and ending seats, never an
+ * Owner's), roles, team structure, the directory import, sites, setup and
+ * integrations: all of them `team.manage` and `settings.manage`. The
+ * register of who holds what (`governance.read`), and a person's data
+ * request, which is a people task (`privacy.manage`).
+ *
+ * Not money and not contracts: no payroll, no paying or sending bills, no
+ * bank check, no signing, no award, no extension, no rate, no margin. The
+ * Owner gives those through a business role (Finance, AP & Payroll,
+ * Contract Manager), so an Admin is never a back door to them. The company
+ * type, the domain claim and giving access by team or company are the
+ * Owner's by the routes that do them.
+ */
+export const ADMIN_ROLE = 'Admin'
+export const ADMIN_PERMISSIONS: readonly Permission[] = ['team.manage', 'settings.manage', 'governance.read', 'privacy.manage']
+
+const NARROW_ADMIN: RoleSeed = {
+  name: ADMIN_ROLE,
+  blurb: 'People, roles, settings and integrations. No money, no contracts.',
+  permissions: [...ADMIN_PERMISSIONS],
+}
+
 // ── A staffing supplier ───────────────────────────────────────────────
 
 const SUPPLIER_ROLES: RoleSeed[] = [
@@ -267,6 +300,10 @@ const CLIENT_ROLES: RoleSeed[] = [
     permissions: everything(),
     isOwner: true,
   },
+  // Every kind of company has an Admin (coordinator's call, 2026-11-12):
+  // a client had none, so "the previous Owner becomes Admin" was
+  // impossible there. It is the narrowed one: people and settings.
+  NARROW_ADMIN,
   {
     name: 'Program Manager',
     blurb: 'Runs the contingent workforce program. Sets the rules.',
@@ -334,6 +371,7 @@ const MSP_ROLES: RoleSeed[] = [
     permissions: everything(),
     isOwner: true,
   },
+  NARROW_ADMIN,
   {
     name: 'Program Manager',
     blurb: 'Runs the client’s program and its supplier panel.',
@@ -474,8 +512,65 @@ export const GRANTED_SINCE: {
   },
 ]
 
-export function rolesFor(kind: CompanyKind): RoleSeed[] {
+
+/**
+ * The money and contract acts an Admin no longer holds. An Admin role
+ * holding none of them reads as narrowed, and no default grant widens it
+ * again (`ensureDefaultRoles` in lib/company-roles).
+ */
+export const ADMIN_LOSES: readonly Permission[] = [
+  'invoices.issue', 'payments.record', 'payroll.run', 'payroll.approve', 'orders.raise',
+  'requirements.write', 'assignments.write', 'assignments.terminate', 'rates.write',
+  'timesheets.approve', 'margin.read', 'pnl.read', 'consultants.cost',
+]
+
+/** Whether an Admin role is the narrowed one: it holds no money or contract act. */
+export function isNarrowedAdmin(permissions: readonly string[]): boolean {
+  return !permissions.includes('*') && !ADMIN_LOSES.some((p) => permissions.includes(p))
+}
+
+/**
+ * The Admin a company formed under the proof rule starts with (coordinator's
+ * call, 2026-11-12, reversible in a sentence): the full Admin, everything
+ * but profit and loss, so the person who signs a company up can post a job,
+ * issue a bill and approve a week at once ("the company works at once").
+ * Only the Owner's acts wait, by `needsVerifiedOwnerAt` in lib/owner-proof.
+ * It is narrowed to people and settings in the same transaction that seats
+ * the company's first verified Owner (`narrowFoundingAdmin` in
+ * api/settings/owner-proof/become), so an Admin invited after that holds
+ * the narrowed role. One role row per company cannot be both at once.
+ */
+export const FOUNDING_ADMIN: RoleSeed = {
+  name: ADMIN_ROLE,
+  blurb: 'Runs the company day to day until an Owner is verified. Cannot see profit and loss.',
+  permissions: everything().filter((p) => p !== 'pnl.read'),
+}
+
+/**
+ * The roles a company of this kind starts with.
+ *
+ * `foundingAdmin` is for a company formed under the proof rule (2026-11-12):
+ * its first person is seated as Admin, so every kind gets the full founding
+ * Admin, narrowed when the first Owner is verified. `narrowAdmin` gives the
+ * narrowed Admin instead (what an Owner gets by pressing "Narrow Admin to
+ * people and settings"). Every other caller, the seeded world included,
+ * reads exactly the sets it read before.
+ */
+export function rolesFor(kind: CompanyKind, opts: { narrowAdmin?: boolean; foundingAdmin?: boolean } = {}): RoleSeed[] {
+  const base = baseRolesFor(kind)
+  if (!opts.narrowAdmin && !opts.foundingAdmin) return base
+  const owner = base.filter((r) => r.isOwner)
+  const rest = base.filter((r) => !r.isOwner && r.name !== ADMIN_ROLE)
+  return [...owner, opts.narrowAdmin ? NARROW_ADMIN : FOUNDING_ADMIN, ...rest]
+}
+
+function baseRolesFor(kind: CompanyKind): RoleSeed[] {
   switch (kind) {
+    // Nobody sits at a company that is only a record on another firm's
+    // list, so it starts with no roles at all. A claim refuses it rather
+    // than seat an Owner nobody can be (see mayClaimKind in lib/counterparty).
+    case 'UNCLASSIFIED':
+      return []
     case 'CLIENT':
       return CLIENT_ROLES
     case 'MSP':
@@ -541,6 +636,9 @@ export function packFor(kind: CompanyKind, country: string | null): string {
   // cycle shape — ERP programs bill and roll differently
   // from general IT contract staffing.
   if (kind === 'GSI') return 'US_SAP'
+  // Every other kind, a company not classified yet included, carries the
+  // country's plain pack: it bills and pays nobody until a firm on Etyme
+  // claims it, so the column is filled and never read.
   return 'US_IT'
 }
 
@@ -650,6 +748,12 @@ export function mayRegisterWithEmail(
   emailIsPersonal: boolean
 ): RegistrationVerdict {
   if (!emailIsPersonal) return { ok: true, says: 'Work email — any kind of company.' }
+
+  // Nobody registers a company that is not classified: it is only ever a
+  // record another firm wrote down, and that firm's seat is the check.
+  if (kind === 'UNCLASSIFIED') {
+    return { ok: false, says: 'Say what kind of company you are registering: a supplier, a client, an MSP, an integrator or your own one-person company.' }
+  }
 
   if (kind === 'CONSULTANT_CORP') {
     return {

@@ -1,4 +1,6 @@
+import { joinSentenceFor } from '@/lib/join-words'
 import { recordIdentityEvent } from '@/lib/identity/ledger'
+import { needsVerifiedOwnerAt } from '@/lib/owner-proof'
 import { companyPolicy } from '@/lib/identity/read'
 import { NextRequest, NextResponse } from 'next/server'
 import { bankChange } from '@/lib/money/remit-change'
@@ -62,14 +64,14 @@ export async function PUT(request: NextRequest, { params }: { params: { item: st
   if (!allowed.ok) return refused(allowed.says)
   const body = await request.json().catch(() => ({}))
   const said = await SAVE[item]!(company, door.personId, body)
-  if (!said.ok) return refused(said.says)
+  if (!said.ok) return refused(said.says, 422, said.href)
   if (said.done !== false) await recordItem(company.id, door.personId, item, 'DONE')
   if (said.answers?.length) await recordAnswers(company.id, door.personId, said.answers)
   const data = await readSetup(company.id, { personId: door.personId, email: door.caller.person.primaryEmail })
   return NextResponse.json({ data: { ...data, says: said.says ?? null } })
 }
 
-type Saved = { ok: true; answers?: AnswerToRecord[]; says?: string; done?: boolean } | { ok: false; says: string }
+type Saved = { ok: true; answers?: AnswerToRecord[]; says?: string; done?: boolean } | { ok: false; says: string; href?: string }
 type Co = { id: string; name: string; kind: string }
 
 const SAVE: Partial<Record<ItemKey, (c: Co, by: string, body: any) => Promise<Saved>>> = {
@@ -228,6 +230,10 @@ const SAVE: Partial<Record<ItemKey, (c: Co, by: string, body: any) => Promise<Sa
 
   // ── Bank details ───────────────────────────────────────────────────
   async BANK(c, by, body) {
+    // Bank details wait for a verified Owner at a company formed under the
+    // proof rule (2026-11-12), in the gate's own sentence.
+    const gate = await needsVerifiedOwnerAt(c.id, 'BANK')
+    if (!gate.ok) return { ok: false, says: gate.says, href: gate.href }
     const bankName = str(body.bankName, 120)
     const accountName = str(body.accountName, 200)
     const last4 = lastFour(body.accountNumber ?? body.last4)
@@ -288,7 +294,11 @@ const SAVE: Partial<Record<ItemKey, (c: Co, by: string, body: any) => Promise<Sa
       })
       const co = await prisma.company.findUniqueOrThrow({ where: { id: c.id }, select: { domain: true } })
       if (!co.domain) await prisma.company.update({ where: { id: c.id }, data: { domain: claim.domain, domainVerified: true } })
-      return { ok: true, says: `${claim.domain} is verified. Colleagues on ${claim.domain} now join by signing in.` }
+      // How people join now is the join sentence's, never a promise of its
+      // own: an invitation-only company, or a domain that asks first, does
+      // not let colleagues in by signing in.
+      const joins = await joinSentenceFor(c.id).catch(() => null)
+      return { ok: true, says: `${claim.domain} is verified.${joins ? ` ${joins}` : ''}` }
     }
     const domain = str(body.domain, 120).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
     const elsewhere = await prisma.companyDomain.findUnique({ where: { domain }, select: { companyId: true, company: { select: { name: true } }, verifiedAt: true, joinPolicy: true } })

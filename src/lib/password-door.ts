@@ -29,9 +29,8 @@
  * A company made here has an Etyme address and no verified domain, so it
  * claims nothing: a Microsoft or Google sign-in on the same domain never
  * joins it that way (`decideEntry` reads verified claims only). A
- * colleague joins by invitation, or by signing up with the same address
- * from the owner's own email domain, and is seated as Member with the
- * owner told. Where the email domain is already a verified tenant, the
+ * colleague joins it by invitation only; typing its Etyme address seats
+ * nobody (coordinator's ruling, 2026-11-12). Where the email domain is already a verified tenant, the
  * mailbox proof is the same proof a magic link gives, and the person
  * joins that tenant rather than founding a second one: one tenant is one
  * domain name.
@@ -42,8 +41,10 @@ import type { Door } from '@/lib/identity/policy'
 import { landingFor } from '@/lib/nav-table'
 import { ACCOUNT_MAIL, recordedBody, type AccountMailState } from '@/lib/notify/account-mail'
 import { linkWithStaff } from '@/lib/password-words'
+import { personNameFor } from '@/lib/company-seats'
 import { emit } from '@/lib/events'
 import { emailSender } from '@/lib/senders'
+import { sendEmailNow } from '@/lib/notify/send-now'
 import { appUrl } from '@/lib/supplier-link'
 import { createCompany } from '@/lib/company-create'
 import { recordAnswers } from '@/lib/setup-checklist-state'
@@ -54,8 +55,10 @@ import { knownCountry, knownCurrency, joinedSentence } from '@/lib/setup-steps'
 import { seatAsMember } from '@/lib/seat-member'
 import { MEMBER_ROLE } from '@/lib/company-defaults'
 import { mayClaim } from '@/lib/supplier-list'
+import { mayClaimRecorded } from '@/lib/counterparty'
 import { reservedDomain } from '@/lib/demo-company'
 import { possessive } from '@/lib/requisition-approval'
+import { sealBlob, openBlob, deploymentSecret } from '@/lib/identity/oidc'
 import {
   weakPasswordReason, hashPassword, passwordMatches, newToken, hashToken, expiresAfter, tokenUsable,
   secondsToWait, waitSentence, checkAddress, numberedAddress, cleanEmail, looksLikeEmail,
@@ -166,20 +169,15 @@ function demoRefusal(email: string): Answer | null {
  * staff to pass on (`recordedBody`).
  */
 async function mail(personId: string, to: string, subject: string, lines: string[], link: string | null): Promise<boolean> {
-  const sender = emailSender()
   const body = [...lines, ...(link ? ['', link] : [])].join('\n')
-  let state: AccountMailState = 'NOT_CONFIGURED'
-  let note: string | null = 'No email provider set up, so this was recorded and not sent.'
-  if (sender) {
-    try {
-      await sender.send(to, subject, body)
-      state = 'SENT'
-      note = null
-    } catch (e: any) {
-      state = 'FAILED'
-      note = String(e?.message ?? e).slice(0, 200)
-    }
-  }
+  // One send for every account email (lib/notify/send-now): a refusal keeps
+  // the provider's status and cleaned words on the row, where Superadmin's
+  // list and /ready read them, and Etyme's staff are told within the hour.
+  // Before 2026-11-12 the door kept the thrown message alone, so a refused
+  // confirm or reset email was counted and never explained.
+  const sent = await sendEmailNow({ to, subject, body, personId, companyId: null })
+  const state: AccountMailState = sent.state === 'SENT' ? 'SENT' : sent.state === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'FAILED'
+  const note = sent.note
   // Written down so delivery can be checked, and written read: a sign-up
   // or reset email is not a notice for the bell. The mailbox is where the
   // person reads it.
@@ -190,7 +188,7 @@ async function mail(personId: string, to: string, subject: string, lines: string
       // The link is cut out once the email left; kept for staff only where
       // no email could be sent (conversation's rule, lib/notify/account-mail).
       title: subject, body: recordedBody(lines, link, state),
-      deliveryState: state, deliveryNote: note, deliveredAt: state === 'SENT' ? at : null,
+      deliveryState: sent.state, deliveryNote: note, deliveredAt: state === 'SENT' ? at : null,
       status: 'READ', readAt: at,
     },
   })
@@ -206,6 +204,15 @@ function link(path: string): string {
  * earlier one of the same purpose, marked so the older link says a newer
  * one was sent rather than that it was used.
  */
+/**
+ * Every unused link of one kind for a person, spent now, so an old email's
+ * link no longer works (2026-11-12: Ending a seat still waiting on its
+ * invitation). Nothing is sent and no link is shown.
+ */
+export async function cancelUnusedLinks(personId: string, purpose: 'VERIFY' | 'RESET', now: Date = new Date()): Promise<void> {
+  return supersede(personId, purpose, now)
+}
+
 async function supersede(personId: string, purpose: 'VERIFY' | 'RESET', now: Date = new Date()): Promise<void> {
   const older = await prisma.emailToken.findMany({
     where: { personId, purpose, usedAt: null },
@@ -320,7 +327,15 @@ async function firmThatAdded(personId: string): Promise<string | null> {
 /** Whether the person owns a company here already. A candidate, or somebody a firm added, owns none. */
 async function ownsAFirm(personId: string): Promise<boolean> {
   const owner = await prisma.context.findFirst({
-    where: { personId, revokedAt: null, companyId: { not: null }, role: { name: 'Owner' } },
+    where: {
+      personId, revokedAt: null, companyId: { not: null },
+      OR: [
+        { role: { name: 'Owner' } },
+        // A founder under the proof rule (2026-11-12) holds the Admin seat
+        // until both proofs stand; the firm is still theirs.
+        { role: { name: 'Admin' }, company: { ownerProofRequiredAt: { not: null }, ownerVerifiedAt: null } },
+      ],
+    },
     select: { id: true },
   })
   return owner !== null
@@ -399,37 +414,37 @@ async function addressesHeld(exceptPersonId: string | null): Promise<{ companies
   return { companies, pending }
 }
 
-/** The email domains of the people who own a company. */
-async function ownerDomains(companyId: string): Promise<Set<string>> {
-  const owners = await prisma.context.findMany({
-    where: { companyId, revokedAt: null, role: { name: { in: ['Owner', 'Admin'] } } },
-    select: { person: { select: { primaryEmail: true } } },
-  })
-  return new Set(owners.map((o) => domainOfEmail(o.person.primaryEmail)).filter((d): d is string => !!d))
-}
-
 /**
- * The one company a work email belongs at, read off the email domains of
- * its owners. Never a personal domain (a gmail owner of a one-person firm
- * makes no other gmail user a colleague), never a seeded company, and only
- * where exactly one company answers.
+ * The one company a work email joins by signing up: the company that has
+ * verified the email's domain and lets people join through it, read by the
+ * same rule as the Microsoft and Google doors (`decideEntry`). Never a
+ * personal domain, never Etyme's own, never a seeded company, and never a
+ * company read off its owners' addresses: a company with no verified domain
+ * is joined by invitation only, as every screen says (coordinator's ruling,
+ * 2026-11-12, on Tapin: an @etyme.com sign-up had been seated there).
  */
 export async function colleagueCompany(rawEmail: unknown): Promise<{ id: string; slug: string; name: string } | null> {
   const email = cleanEmail(rawEmail)
   if (!looksLikeEmail(email) || demoEmail(email)) return null
   const domain = domainOfEmail(email)
-  if (!domain || isConsumerDomain(domain)) return null
-  const seats = await prisma.context.findMany({
-    where: {
-      revokedAt: null, role: { name: { in: ['Owner', 'Admin'] } },
-      person: { primaryEmail: { endsWith: `@${domain}`, mode: 'insensitive' } },
-      company: { isDemo: false },
-    },
-    select: { company: { select: { id: true, slug: true, name: true } } },
-  })
-  const found = new Map(seats.filter((s) => s.company).map((s) => [s.company!.id, s.company!] as const))
-  return found.size === 1 ? [...found.values()][0] : null
+  if (!domain || isConsumerDomain(domain) || isPlatformDomain(domain)) return null
+  const entry = decideEntry(email, await claims())
+  if (entry.action !== 'JOIN' && entry.action !== 'REQUEST') return null
+  const c = await prisma.company.findUnique({ where: { id: entry.companyId }, select: { id: true, slug: true, name: true, isDemo: true } })
+  return c && !c.isDemo ? { id: c.id, slug: c.slug, name: c.name } : null
 }
+
+/**
+ * What the sign-up says when the Etyme address typed is a company's
+ * already. The same sentence whoever types it, so it never says whether
+ * the person's own domain matches anybody at that company.
+ */
+export function addressTakenSays(address: string): string {
+  return `${address}.etyme.com is already taken. To join a company already on Etyme, ask its Owner or Admin for an invitation; to start your own, choose another address.`
+}
+
+/** What a confirmed sign-up says where it once would have joined a company with no verified domain. */
+export const ASK_FOR_AN_INVITATION = 'Your email is confirmed. To join a company already on Etyme, ask its Owner or Admin for an invitation.'
 
 /**
  * What the sign-up form shows after the email field: whether this email
@@ -445,7 +460,7 @@ export async function signUpProbe(rawEmail: unknown): Promise<{ joins: null | { 
 async function openInvite(token: string) {
   const invite = await prisma.supplierInvite.findUnique({
     where: { token },
-    select: { token: true, email: true, state: true, company: { select: { id: true, name: true, claimedAt: true } } },
+    select: { token: true, email: true, state: true, company: { select: { id: true, name: true, kind: true, claimedAt: true } } },
   })
   if (!invite || invite.state !== 'PENDING' || invite.company.claimedAt) return null
   return invite
@@ -528,26 +543,19 @@ export async function signUpCompany(input: CompanySignUp): Promise<Answer> {
   const held = await addressesHeld(existing?.id ?? null)
   const raw = String(input.address ?? '').trim().toLowerCase()
 
-  // The address is a company's already. The owner's colleague, on the
-  // owner's own email domain, joins it; anybody else is told it is taken.
-  const holder = held.companies.get(raw)
-  let joinCompanyId: string | undefined
-  if (holder) {
-    if (personal || !(await ownerDomains(holder)).has(domain!)) {
-      return refuse(`${raw}.etyme.com is already somebody else's. Choose another, or ask that company to invite you.`, 'address')
-    }
-    joinCompanyId = holder
-  } else {
-    const taken = new Set([...held.companies.keys(), ...held.pending])
-    const verdict = checkAddress(raw, taken, name)
-    if (!verdict.ok) return refuse(verdict.says, 'address')
-  }
+  // The address is a company's already. Nobody joins a company by typing
+  // its Etyme address: a company with a verified domain is joined by that
+  // domain (above), and every other company by invitation only. One
+  // sentence for everybody, so it says nothing about who the person is.
+  if (held.companies.has(raw)) return refuse(addressTakenSays(raw), 'address')
+  const taken = new Set([...held.companies.keys(), ...held.pending])
+  const verdict = checkAddress(raw, taken, name)
+  if (!verdict.ok) return refuse(verdict.says, 'address')
 
   return begin(email, personName, {
     kind: 'COMPANY',
     passwordHash: await hashPassword(password),
     personName, name, type: type.key, country, currency, address: raw,
-    ...(joinCompanyId ? { joinCompanyId } : {}),
   }, password)
 }
 
@@ -583,6 +591,11 @@ export async function signUpClaim(input: { token: unknown; email: unknown; passw
   if (!personName) return refuse('Type your name.', 'personName')
   const invite = await openInvite(String(input.token ?? ''))
   if (!invite) return refuse('This invitation is not open any more. Ask whoever sent it for a new one.', 'token', 410)
+  // A company nobody has said the kind of seats nobody through its claim
+  // link, so nobody is made to set a password and confirm an email for a
+  // seat the claim route would then refuse (the same sentence it sends).
+  const classified = mayClaimRecorded({ name: invite.company.name, kind: invite.company.kind })
+  if (!classified.ok) return refuse(classified.says, 'token', 409)
   if (!mayClaim(email, invite.email)) {
     return refuse(`This invitation was sent to ${invite.email}. Use that address, or another address at the same company.`, 'email')
   }
@@ -677,11 +690,13 @@ export async function verifyEmail(token: string, now: Date = new Date()): Promis
       passwordHash: person.passwordHash ?? pending.passwordHash,
       // The person's own name, from the form. A candidate link sent before
       // the form carried personName has the name in `name`.
-      ...(pending.personName ? { name: pending.personName }
+      // Never the company's own name for a person founding it: the name
+      // part of the address stands in (lib/company-seats).
+      ...(pending.personName ? { name: personNameFor(pending.personName, person.primaryEmail, pending.kind === 'COMPANY' && !pending.joinCompanyId ? pending.name : null) }
         : pending.kind === 'CANDIDATE' && pending.name ? { name: pending.name } : {}),
     },
   })
-  const named = { ...person, name: pending.personName || person.name }
+  const named = { ...person, name: pending.personName ? personNameFor(pending.personName, person.primaryEmail, pending.kind === 'COMPANY' && !pending.joinCompanyId ? pending.name : null) : person.name }
 
   // From a supplier invitation: the claim seats them; nothing is founded here.
   if (pending.kind === 'CLAIM' && pending.claimToken) {
@@ -718,10 +733,13 @@ export async function verifyEmail(token: string, now: Date = new Date()): Promis
     }
   }
 
-  // A colleague naming their company's address from the owner's domain.
+  // A colleague of a company that verified their email's domain. Read
+  // again on the day the link is pressed: a link sent before the door
+  // closed, or before a domain was unverified, joins nobody by an address.
   if (pending.joinCompanyId) {
-    const c = await prisma.company.findUnique({ where: { id: pending.joinCompanyId }, select: { id: true, name: true } })
-    if (c) return joinAsMember(named, c, `Signed up with ${pending.address}.etyme.com from the owner's email domain`)
+    const c = await colleagueCompany(person.primaryEmail)
+    if (c && c.id === pending.joinCompanyId) return joinAsMember(named, c, `Verified email on a domain ${c.name} owns`)
+    return { ok: true, personId: person.id, email: person.primaryEmail, landing: '/start', says: ASK_FOR_AN_INVITATION }
   }
 
   // The email domain is already a verified tenant: one tenant is one domain.
@@ -784,6 +802,8 @@ async function makeCompany(person: { id: string; name: string; primaryEmail: str
     posture: type.posture,
     byPersonId: person.id,
     seatAsOwner: true,
+    // The first person is an Admin; Owner is earned by proof (2026-11-12).
+    ownerProofRequired: true,
     claimDomain: false,
     startsSetup: true,
   })
@@ -916,7 +936,19 @@ export async function requestReset(rawEmail: unknown): Promise<Answer> {
     // Signed up and never confirmed: the confirming link is what they need.
     await resendVerification(email)
   }
-  return { ok: true, says: `If there is an account for ${email}, we sent a link. It works for ${RESET_HOURS} hour.` }
+  return { ok: true, says: resetAskedSays(email) }
+}
+
+/**
+ * What "Forgot your password" answers, whatever happened. The same for an
+ * address with an account and one without, so it says nothing about which;
+ * and it never claims the email went, because the provider may refuse it
+ * after this answer is written (the founder's 2026-11-12 day: Resend refused
+ * every send). A refused send is kept on the notice and staff are alerted
+ * by the one send; the person is told where to turn if nothing comes.
+ */
+export function resetAskedSays(email: string): string {
+  return `If there is an account for ${email}, a link is on its way. It works for ${RESET_HOURS} hour. If nothing arrives in a few minutes, check your spam folder, then write to support@etyme.com.`
 }
 
 export async function resetPassword(token: unknown, password: unknown, now: Date = new Date()): Promise<Answer & { email?: string; invitation?: boolean }> {
@@ -967,4 +999,211 @@ export async function resetLinkState(token: unknown, now: Date = new Date()): Pr
   if (!usable.ok) return { ok: false, says: usable.says }
   if (demoEmail(row!.person.primaryEmail)) return { ok: false, says: DEMO_REFUSAL }
   return { ok: true }
+}
+
+// ── Set a password while signed in (fault 5, 2026-11-12) ──────────────
+
+/**
+ * A signed-in person sets a password of their own, or changes it, from
+ * the account menu, with no email. Built because the only other way to a
+ * password was Forgot your password, which needs mail that was failing,
+ * so a person seated by the staff tool and signed in with Google had no
+ * credential of Etyme's own to fall back on.
+ *
+ *  - A first password needs a sign-in in the last fifteen minutes, read
+ *    from when the session was signed in (lib/auth `authAt`), so an idle
+ *    stolen session cannot plant one. It does not end other sessions: it
+ *    adds no way in that the session did not already hold.
+ *  - Changing a password needs the current one, slowed after wrong tries
+ *    like the sign-in door, and ends every other session the person holds
+ *    by raising their session version; this session is carried over by a
+ *    sealed ticket the jwt callback checks (`versionAfterOwnChange`).
+ *  - Never at a directory-only company's address (the same policy check
+ *    the door uses, the refusal's row written first), never for a demo
+ *    address, never a weak password.
+ *  - The email is marked confirmed only where the session came through
+ *    Google or Microsoft, which vouched for it at sign-in (lib/auth
+ *    `oauthRefusal`).
+ *  - The row is written before the answer, the person is told in the app
+ *    and by email where email leaves, and the password is never logged.
+ *
+ * A password never opens a seat at a directory-only company even when a
+ * person holds one there on another address: the seat check reads the
+ * door the session came through on every request (`seatRefusal`).
+ */
+
+/** How recent a sign-in a first password needs. */
+export const FIRST_PASSWORD_MINUTES = 15
+
+export const SIGN_IN_AGAIN_TO_SET = 'Sign in again to set a password.'
+export const NOT_YOUR_CURRENT = 'That is not your current password.'
+export const PASSWORD_SET_SAYS = 'Your password is set. You can sign in with your email and this password.'
+export const PASSWORD_CHANGED_SAYS = 'Your password is changed. Every other place you were signed in is signed out.'
+
+/** What the account menu and the page read about the person's own password. */
+export interface OwnPasswordState {
+  hasPassword: boolean
+  /** False where the address's company signs in through its directory only, or the address is the demo world's. */
+  allowed: boolean
+  says: string | null
+}
+
+/**
+ * Whether this person may set a password, and whether they have one. Reads
+ * the policy without writing a refusal row: nothing was asked for yet.
+ */
+export async function ownPasswordState(rawEmail: unknown): Promise<OwnPasswordState> {
+  const email = cleanEmail(rawEmail)
+  if (!looksLikeEmail(email)) return { hasPassword: false, allowed: false, says: SIGN_IN_AGAIN_TO_SET }
+  if (demoEmail(email)) return { hasPassword: false, allowed: false, says: DEMO_REFUSAL }
+  const { policyFacts } = await import('@/lib/identity/read')
+  const { decideDoor } = await import('@/lib/identity/policy')
+  const facts = await policyFacts(email, null)
+  const v = decideDoor({ door: 'PASSWORD', email, domainCompany: facts.domainCompany, target: null, issuer: null, publicAddress: facts.publicAddress })
+  const person = await prisma.person.findUnique({ where: { primaryEmail: email }, select: { passwordHash: true } })
+  return { hasPassword: Boolean(person?.passwordHash), allowed: v.allowed, says: v.allowed ? null : v.says }
+}
+
+export interface OwnPasswordAsk {
+  /** The session's own address, read from the session on the server, never from the body. */
+  email: unknown
+  /** The door the session came through. */
+  door: Door | null | undefined
+  /** When the session was signed in, in milliseconds. */
+  authAt: unknown
+  /** The session's version, so the ticket that carries this session over names it. */
+  sessionVersion: unknown
+  current?: unknown
+  password: unknown
+}
+
+export type OwnPasswordAnswer =
+  | { ok: true; says: string; changed: boolean; refresh: string | null }
+  | { ok: false; status: number; field?: string; says: string }
+
+/** The doors that vouched for the address at sign-in. */
+const PROVIDER_VOUCHED: ReadonlySet<string> = new Set(['GOOGLE_SOCIAL', 'MICROSOFT_SOCIAL'])
+
+export async function setOwnPassword(ask: OwnPasswordAsk, now: Date = new Date()): Promise<OwnPasswordAnswer> {
+  const email = cleanEmail(ask.email)
+  if (!looksLikeEmail(email)) return { ok: false, status: 401, says: SIGN_IN_AGAIN_TO_SET }
+  const demo = demoRefusal(email)
+  if (demo && !demo.ok) return demo
+  // A directory-only company's address never holds a password. The
+  // refusal's row is written before this returns (lib/identity).
+  const shut = await policyRefusal(email, 'PASSWORD')
+  if (shut && !shut.ok) return shut
+
+  const person = await prisma.person.findUnique({
+    where: { primaryEmail: email },
+    select: { id: true, name: true, passwordHash: true, emailVerifiedAt: true, sessionVersion: true },
+  })
+  if (!person) return { ok: false, status: 401, says: SIGN_IN_AGAIN_TO_SET }
+
+  const pw = String(ask.password ?? '')
+  const weak = weakPasswordReason(pw, { email })
+  if (weak) return { ok: false, status: 422, field: 'password', says: weak }
+
+  const changing = person.passwordHash !== null
+  if (changing) {
+    // Wrong current passwords are counted against this person's address,
+    // the same counter the sign-in door reads.
+    const wait = secondsToWait(await failuresFor(email, null, now), now)
+    if (wait > 0) return { ok: false, status: 429, field: 'current', says: waitSentence(wait) }
+    if (!(await passwordMatches(person.passwordHash, String(ask.current ?? '')))) {
+      await prisma.signInFailure.create({ data: { email, ip: null, at: now, personId: person.id } })
+      const after = secondsToWait(await failuresFor(email, null, now), now)
+      return { ok: false, status: 422, field: 'current', says: after > 0 ? `${NOT_YOUR_CURRENT} ${waitSentence(after)}` : NOT_YOUR_CURRENT }
+    }
+  } else {
+    const at = Number(ask.authAt)
+    if (!Number.isFinite(at) || now.getTime() - at > FIRST_PASSWORD_MINUTES * 60_000 || at > now.getTime() + 60_000) {
+      return { ok: false, status: 403, says: SIGN_IN_AGAIN_TO_SET }
+    }
+  }
+
+  const { policyFacts } = await import('@/lib/identity/read')
+  const { effectiveMode } = await import('@/lib/identity/policy')
+  const { recordIdentityEvent } = await import('@/lib/identity/ledger')
+  const policy = effectiveMode((await policyFacts(email, null)).domainCompany)
+  const vouched = PROVIDER_VOUCHED.has(String(ask.door ?? ''))
+  const hash = await hashPassword(pw)
+
+  const written = await prisma.$transaction(async (tx) => {
+    const p = await tx.person.update({
+      where: { id: person.id },
+      data: {
+        passwordHash: hash,
+        ...(vouched && !person.emailVerifiedAt ? { emailVerifiedAt: now } : {}),
+        // A change ends every other session; a first password ends none.
+        ...(changing ? { sessionVersion: { increment: 1 }, sessionsEndedAt: now, sessionsEndedById: person.id } : {}),
+      },
+      select: { sessionVersion: true },
+    })
+    await recordIdentityEvent({
+      event: 'PASSWORD_SET',
+      companyId: null,
+      actorPersonId: person.id,
+      subject: { personId: person.id },
+      policy,
+      surface: 'WEB',
+      says: changing
+        ? `${person.name} changed their own password while signed in; every other session they held is ended.`
+        : `${person.name} set a password of their own while signed in${vouched ? ', on an address their sign-in provider confirmed' : ''}.`,
+    }, tx)
+    return p
+  })
+  await prisma.signInFailure.deleteMany({ where: { email } })
+
+  // Told in the app, and by email where email leaves (lib/identity/password-notice).
+  const { tellPasswordSet } = await import('@/lib/identity/password-notice')
+  await tellPasswordSet(person.id, changing, now)
+
+  const fromSv = Number(ask.sessionVersion ?? 0)
+  return {
+    ok: true,
+    changed: changing,
+    says: changing ? PASSWORD_CHANGED_SAYS : PASSWORD_SET_SAYS,
+    refresh: changing ? refreshTicket({ email, authAt: Number(ask.authAt), fromSv: Number.isFinite(fromSv) ? fromSv : 0, toSv: written.sessionVersion }, now) : null,
+  }
+}
+
+// ── Carrying this session over a change (the jwt update trigger) ──────
+
+const REFRESH_LABEL = 'own-password-refresh'
+/** How long the browser has to carry this session over a change it just made. */
+export const REFRESH_SECONDS = 120
+
+/**
+ * A sealed ticket naming this session (its address, when it was signed
+ * in and the version it held) and the version the change raised it to.
+ * Handed back to the browser that changed the password, which hands it to
+ * NextAuth's update at once; it opens nothing else and dies in two minutes.
+ */
+export function refreshTicket(t: { email: string; authAt: number; fromSv: number; toSv: number }, now: Date = new Date()): string | null {
+  const own = deploymentSecret()
+  return own ? sealBlob({ e: t.email, a: t.authAt, f: t.fromSv, t: t.toSv }, REFRESH_LABEL, REFRESH_SECONDS, own, now.getTime()) : null
+}
+
+/**
+ * The version a session may carry after its own person changed their
+ * password from it, or null. The ticket must name this session exactly,
+ * and the version is read again here on the server and must still be the
+ * one the change wrote, so a sign-out everywhere after the change is never
+ * undone. Never takes a version from the browser.
+ */
+export async function versionAfterOwnChange(
+  token: { email?: unknown; authAt?: unknown; sv?: unknown },
+  ticket: unknown,
+  now: Date = new Date(),
+): Promise<number | null> {
+  const own = deploymentSecret()
+  if (!own || typeof ticket !== 'string') return null
+  const v = openBlob<{ e: string; a: number; f: number; t: number }>(ticket, REFRESH_LABEL, own, now.getTime())
+  if (!v) return null
+  const email = cleanEmail(token.email)
+  if (v.e !== email || v.a !== Number(token.authAt) || v.f !== Number(token.sv ?? 0)) return null
+  const { sessionVersionOf } = await import('@/lib/identity/read')
+  const current = await sessionVersionOf(email)
+  return current === v.t ? current : null
 }

@@ -168,6 +168,8 @@ export type AccessAction =
   // MARKETING_REQUEST.
   | 'PUBLIC_PAGE_ADDRESS_LOOKUP' // a visitor's address on a public page found somebody's record; the visitor was told nothing
   | 'SUPERADMIN_SETTINGS_OPEN' // a Superadmin opened or changed the platform's Ask Etyme limits; no company data is read
+  | 'SUPERADMIN_EMAIL_FAILURES_READ' // a Superadmin read the newest email sends that did not go, across companies: when, the kind, the company, the provider's answer and a masked recipient
+  | 'OWNER_PROOF_RECORD' // a Superadmin recorded an identity-verification provider's result for a named person at a named company, verbatim; Etyme renders no verdict
   // ── Who signs in, and how: the identity events ────────────────────
   //
   // `lib/identity/ledger` (etyme-architect, 2026-11-11): the founder's
@@ -190,8 +192,16 @@ export type AccessAction =
   | 'INVITE_SENT'               // an Owner or Admin invited a person to a seat
   | 'INVITE_ACCEPTED'           // an invited person signed in to the seat for the first time
   | 'MEMBERSHIP_REVOKED'        // a person's seat at a company was ended
+  | 'INVITATION_WITHDRAW'       // somebody asked to withdraw a person's invitation; written only when refused
   | 'AUTH_POLICY_CHANGED'       // a company's Owner changed how its people sign in
   | 'SESSIONS_ENDED'            // every live session a person held was ended
+  | 'PASSWORD_SET'              // a signed-in person set or changed their own password from the account menu; never the password
+  | 'INVITATION_SEND_AGAIN'     // somebody asked to send a person's invitation again; written only when refused
+  | 'ACCESS_SUSPEND'            // somebody asked to pause a person's seat; written only when refused
+  | 'ACCESS_REINSTATE'          // somebody asked to put a paused seat back; written only when refused
+  | 'ACCESS_REVOKE'             // somebody asked to end a person's seat; written only when refused
+  | 'PERSON_RENAME'             // somebody asked to rename the person on a seat; written only when refused
+  | 'DESK_CHANGE'               // somebody asked to give or change a person's role; written only when refused
   | 'DIRECTORY_READ'            // the company's Google Workspace directory was read, read only, to propose team structure
 
 /**

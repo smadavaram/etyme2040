@@ -106,18 +106,31 @@ export interface PartyRow {
 export const WHO_DOES_WHAT = {
   slug: 'who-does-what',
   title: 'Who does what',
-  lede: 'Every company in a deal, from the client to its suppliers, on one table.',
+  lede: 'Every company in a deal, client and suppliers, on one table.',
   columns: ['Who', 'Buys from', 'Sells to', 'Sees'] as const,
   rows: [
     { who: 'Client', buysFrom: 'Every supplier', sellsTo: 'Nobody', sees: 'Every contractor on its sites, and the supplier it pays' },
-    { who: 'MSP', buysFrom: '—', sellsTo: '—', sees: 'Runs the client’s program from a seat the client gives it. Never supplies a worker.' },
-    { who: 'Integrator', buysFrom: 'Sub-vendors, or its own employees', sellsTo: 'The client', sees: 'Its own people and its own rates' },
-    { who: 'Prime supplier', buysFrom: 'Sub-vendors, or its own employees', sellsTo: 'The client', sees: 'Its own people and its own rates' },
+    { who: 'MSP', buysFrom: '—', sellsTo: '—', sees: 'Runs the client’s program from a seat it is given. Never supplies a worker.' },
+    { who: 'Integrator', buysFrom: 'Sub-vendors or its employees', sellsTo: 'The client', sees: 'Its own people and rates' },
+    { who: 'Prime supplier', buysFrom: 'Sub-vendors or its employees', sellsTo: 'The client', sees: 'Its own people and rates' },
     { who: 'Sub-vendor', buysFrom: 'Its own employees', sellsTo: 'The prime', sees: 'The work site. The client’s name only where the prime may share it.' },
     { who: 'Bench supplier', buysFrom: 'Workers waiting for a project', sellsTo: 'The firm above', sees: 'Who agreed to be put forward' },
-    { who: 'Worker', buysFrom: '—', sellsTo: 'Their time', sees: 'Every firm between them and the client, by name. Their own pay.' },
+    { who: 'Worker', buysFrom: '—', sellsTo: 'Their time', sees: 'Every firm above them, by name, and their own pay.' },
   ] as PartyRow[],
-  closing: 'Rates stay closed at every level. A worker who owns their own company reads both the supplier and the worker row.',
+  closing: 'Rates stay closed at every level.',
+  // Inside each company, the two seats that run it (the founder,
+  // 2026-11-11: "An admin is always below owner"). The Owner is the
+  // business owner; the Admin is people and settings, never an Owner's
+  // act; and since 2026-11-12 a new company's first person is an Admin
+  // until the domain and the person are proven (lib/owner-proof).
+  inside: {
+    heading: 'Inside a company',
+    lines: [
+      'An Owner runs the business.',
+      'An Admin manages people and settings, and never acts on an Owner.',
+      'A new company’s first person is an Admin until ownership is proven.',
+    ],
+  },
 }
 
 // ── Time and money, and integrations ──────────────────────────────────
@@ -134,16 +147,18 @@ export interface ReferenceDoc {
 export const TIME_AND_MONEY: ReferenceDoc = {
   slug: 'time-and-money',
   title: 'Time and money',
-  lede: 'One approved week is the receipt. The client pays from it, and every supplier bills from it.',
+  lede: 'One approved week is the receipt. Every supplier and every payment works from it.',
   lines: [
     'Only the person who worked the week files it. Nobody else may.',
     'The client approves it first. Then each firm below accepts the same week, in turn.',
     'A supplier sends its invoice only for weeks the client approved, and only for the hours accepted.',
     // The menu's money since 2026-11-08 ("Money is Accounting"): the menu
     // names the two ledgers; inside the pages a firm still issues a bill
-    // and receives an invoice receipt. A client reads Payables only.
-    'On the menu, a firm’s bills are under Accounting, in Receivables. A client has only Payables.',
-    'A supplier is paid on its matched invoice, in Payables. Employees are paid in Payroll.',
+    // and receives an invoice receipt. A client reads Payables and Reports.
+    'On the menu, a firm’s bills are under Accounting, in Receivables. A client has Payables and Reports.',
+    // Etyme never moves money (the founder, 2026-11-12): an approved run
+    // leaves as a file for the payer's own system, which pays it.
+    'A supplier is approved on its matched invoice, in Payables; employees in Payroll. Your own system pays them.',
   ],
   table: {
     columns: ['A failed check on an invoice receipt', 'Can a person waive it?'],
@@ -164,6 +179,10 @@ export const INTEGRATIONS: ReferenceDoc = {
     'Journal entries go to your books once. An entry already sent never goes again.',
     'An entry whose account is not mapped is refused, not posted to a holding line.',
     'Webhooks for the events you choose. A failed delivery is shown as failed.',
+    // How people sign in, in the founder's public words (2026-11-11). The
+    // small team's line names no provider: no public page names a company.
+    'For a client: your team signs in through your company’s directory. No separate Etyme password.',
+    'For a small team: invited by email, sign in with the account you already have.',
     'API keys never hold more than the person who issued them.',
     'Every list exports to CSV.',
     'No named connector to any particular accounting, HR, payroll or expense product is built.',
@@ -204,6 +223,7 @@ export function copyOfDoc(path: string): { hero: string[]; body: string[] } | nu
         WHO_DOES_WHAT.columns.join('. ') + '.',
         ...WHO_DOES_WHAT.rows.map((r) => `${r.who}. ${r.buysFrom}. ${r.sellsTo}. ${r.sees}`),
         WHO_DOES_WHAT.closing,
+        WHO_DOES_WHAT.inside.heading, ...WHO_DOES_WHAT.inside.lines,
       ],
     }
   }

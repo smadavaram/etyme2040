@@ -368,6 +368,13 @@ const UNPROMPTED: Record<string, { rung: Rung; basis: Basis; says: string }> = {
 // ── The things that are governance, not autonomy ─────────
 
 const ENFORCEMENT: Record<string, { outcome: Outcome; basis: Basis; says: string }> = {
+  // A payment the rules refused (lib/money/payment-refused), written by
+  // every door that pays, before the refusal is said.
+  PAYMENT_REFUSED: {
+    outcome: 'BLOCK',
+    basis: 'RULE',
+    says: 'A person tried to pay an invoice receipt or release a payment run and was refused in a sentence: the three-way check did not pass, the supplier\u2019s bank details were not checked, or the company was still waiting for a verified Owner. Nothing was paid, and the refusal is kept like any other.',
+  },
   EMAIL_INTAKE_DROPPED: {
     outcome: 'BLOCK',
     basis: 'RULE',
@@ -489,14 +496,14 @@ const RULE_ATTRIBUTED = [
   'DUNNING_SENT', 'EXPENSE_APPROVED', 'EXPENSE_REJECTED',
   'EXPENSE_SUBMITTED', 'HOLIDAYS_ADDED', 'HOLIDAY_REMOVED',
   'IMPORT_COMMITTED', 'INTERVIEW_ACCEPTED', 'INTERVIEW_DECLINED',
-  'INVITATION_ACCEPTED', 'INVITATION_DECLINED', 'INVITATION_WITHDRAWN',
+  'INVITATION_ACCEPTED', 'INVITATION_COPIED', 'INVITATION_DECLINED', 'INVITATION_SENT_AGAIN', 'INVITATION_WITHDRAWN',
   'INVOICE_GENERATED', 'INVOICE_HELD', 'INVOICE_HOLD_LIFTED', 'INVOICE_MATCH_OVERRIDDEN', 'INVOICE_MATCH_OVERRIDE_WITHDRAWN',
   'INVOICE_SUBMITTED', 'LEADS_READ', 'LEAD_KEPT_APART_BY_PERSON',
   'LEAD_MERGED_BY_PERSON', 'LEGAL_HOLD_LIFTED', 'LEGAL_HOLD_PLACED',
   'OPENING_WRITTEN_UP', 'ORDER_LOCKED', 'ORDER_SETTLED',
   'ORDER_UNLOCKED', 'OUTBOUND_PACK_SENT', 'OVERTIME_METHOD_CHOSEN', 'CUT_OVERTIME_CHOSEN', 'OWN_DOCUMENT_RECORDED',
   'PACKET_REQUESTED', 'PAYMENT_RECORDED', 'PAYROLL_OFF_CYCLE',
-  'PAYROLL_RUN', 'PERSON_INVITED', 'PLACEMENT_CONVERTED',
+  'PAYROLL_RUN', 'PERSON_INVITED', 'PERSON_RENAMED', 'PLACEMENT_CONVERTED',
   'PLACEMENT_REPLACED', 'PURCHASE_ORDER_CHANGED', 'PURCHASE_ORDER_RAISED',
   'RATE_AMENDMENT_APPROVED', 'RATE_AMENDMENT_REJECTED', 'REMIT_TO_ADDED',
   'REMIT_TO_CHANGED', 'REQUIREMENT_STATUS_CHANGED', 'REQUISITION_APPROVED',
@@ -519,7 +526,21 @@ const RULE_ATTRIBUTED = [
   // permission to a role or a person, or took one away, on Users &
   // permissions (2026-11-08). A person's own act, recorded like a role edit.
   'PERMISSION_GRANTED', 'PERMISSION_REVOKED',
+  // Who owns the company (founder, 2026-11-11): an Owner asked to pass
+  // ownership or to remove or move an Owner; a second person said yes or
+  // no, or the asker withdrew; ownership passed with both changes in one
+  // step; an Owner removed or moved on another Owner's yes; the Owner
+  // narrowed the Admin role to people and settings; somebody holding both
+  // proofs became the Owner; a Superadmin recorded a provider's identity
+  // check. Every one a person's own act; none has a rung.
+  'OWNERSHIP_ASKED', 'OWNERSHIP_DECLINED', 'OWNERSHIP_WITHDRAWN', 'OWNERSHIP_PASSED',
+  'OWNER_REMOVED', 'OWNER_MOVED', 'ADMIN_NARROWED', 'OWNER_VERIFIED', 'OWNER_PROOF_RECORDED',
   'TIMESHEET_REJECTED', 'WEBHOOK_ADDED', 'WORK_ORDER_RECORDED',
+  // A person said what a company on their own list is to them (founder,
+  // 2026-11-12): extended it to Supplier or Customer, took one of those
+  // off, or said what kind of company a firm they recorded is. Their own
+  // act; the row says the position or the kind, and each can be undone.
+  'COMPANY_EXTENDED', 'COMPANY_POSITION_REMOVED', 'COMPANY_KIND_SET',
 ]
 for (const a of RULE_ATTRIBUTED) ATTRIBUTED[a] = { basis: 'RULE' }
 

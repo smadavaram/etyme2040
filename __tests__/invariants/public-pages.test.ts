@@ -39,6 +39,7 @@ import { FOOTER, FOOTER as SITE_FOOTER, HEADER, everyFrameLink, frameCopy } from
 import { STEPS } from '@/lib/public-site/steps'
 import { demoRequest } from '@/lib/public-site/demo-link'
 import { TOPICS } from '@/lib/public-site/docs/topics'
+import { copyOfHome } from '@/lib/public-site/home-copy'
 
 const ROOT = process.cwd()
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
@@ -51,6 +52,8 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
  * same crude reader the home page's own test uses.
  */
 function copyOf(route: string): Copy | null {
+  // The home page's words are data since the founder's brief of 2026-11-13.
+  if (route === '/') return copyOfHome()
   const m = MODULES.find((x) => x.route === route)
   if (m) return copyOfModule(m)
   const c = COMPANY_PAGES.find((x) => x.route === route)
@@ -258,7 +261,7 @@ describe('Every product page and party door is the home page’s shape, opened a
     for (const m of MODULES) expect(copyOfModule(m).hero[0], m.route).toBe(CATEGORY)
     for (const v of everyDoorView()) expect(copyOfPartyPage(v, v.tab?.key).hero[0], v.href).toBe(CATEGORY)
     // No reference page draws it: the documentation, security, About,
-    // Contact, the demo, the census, the legal pages and sign-in.
+    // Contact, the demo, the legal pages and sign-in.
     const reference = [
       ...PUBLIC_PAGES.filter((p) => !['HOME', 'MODULE', 'PARTY'].includes(p.kind)).map((p) => p.routeFile),
       'src/lib/public-site/docs-page.tsx', 'src/lib/public-site/company-page.tsx', 'src/app/(auth)/door-frame.tsx',
@@ -516,19 +519,44 @@ describe('Security, About and Contact say only what can be checked', () => {
   it('the security position says what is done, what is not done yet, what is next in order with no date nobody has committed to, and where to report a problem', () => {
     // As drawn, 2026-10-15: Done, Not done yet, Next in this order, Found a problem.
     expect(SECURITY.blocks.map((b) => b.title)).toEqual(['Done', 'Not done yet', 'Next, in this order', 'Found a problem?'])
-    expect(SECURITY.blocks.find((b) => b.id === 'done')!.lines).toHaveLength(6)
-    expect(SECURITY.blocks.find((b) => b.id === 'not')!.lines).toHaveLength(5)
+    // Three sign-in lines joined Done and one Not done yet on 2026-11-12.
+    expect(SECURITY.blocks.find((b) => b.id === 'done')!.lines).toHaveLength(8)
+    expect(SECURITY.blocks.find((b) => b.id === 'not')!.lines).toHaveLength(6)
     const next = SECURITY.blocks.find((b) => b.id === 'next')!
     expect(next.ordered).toEqual(['Penetration test', 'SOC 2 Type I', 'SOC 2 Type II, then ISO 27001'])
     const when = [...next.ordered!, next.note!].join(' ')
     expect(when).not.toMatch(/\b20\d\d\b|\b(January|February|March|April|May|June|July|August|September|October|November|December)\b|\bQ[1-4]\b/)
-    expect(next.note).toBe('No dates yet, because none is contracted. A date goes here when one is.')
+    expect(next.note).toBe('No dates yet, because none is contracted.')
     const report = SECURITY.blocks.find((b) => b.id === 'report')!.paragraphs!.join(' ')
     expect(report).toContain('support@etyme.com')
     expect(report).toContain('Test only on the demo.')
     // The long version is an internal document no reader can open, so no
     // link promises it.
     expect(all(copyOfCompanyPage(SECURITY))).not.toMatch(/long version/i)
+  })
+
+  it('the security position says what is done about sign-in as things a reader can check: a company may require its own directory, a person turned off there is out on the next click, and a personal-address seat cannot bill, pay or sign', () => {
+    const done = SECURITY.blocks.find((b) => b.id === 'done')!.lines!.map((l) => l.t)
+    expect(done).toContain('A company can require sign-in through its own directory alone.')
+    expect(done).toContain('Turned off in your directory, a person is out on their next click.')
+    expect(done).toContain('At a company with a directory, a personal-address seat cannot bill, pay or sign.')
+    // Each stands on the code: the directory-only mode, the session ended
+    // when the directory turns a seat off, and the acts a public-address
+    // seat at a company with a directory never holds.
+    const policy = read('src/lib/identity/policy.ts')
+    expect(policy).toContain("'SSO_ONLY'")
+    expect(policy).toContain('Your sessions were ended. Sign in again.')
+    for (const act of ['invoices.issue', 'payments.record', 'timesheets.approve']) expect(policy).toContain(`'${act}'`)
+  })
+
+  it('the security position keeps what is not done yet honest about sign-in: SAML is not built, and two-step sign-in is not enforced by Etyme', () => {
+    const not = SECURITY.blocks.find((b) => b.id === 'not')!.lines!.map((l) => l.t)
+    expect(not).toContain('SAML sign-in is not built.')
+    expect(not).toContain('Etyme does not enforce two-step sign-in. Your directory or account does.')
+    expect(not).toContain('No SOC 2 report, no ISO 27001 certificate, no penetration test.')
+    const said = all(copyOfCompanyPage(SECURITY))
+    expect(said).not.toMatch(/\bSAML\b(?! sign-in is not built)/)
+    expect(said).not.toMatch(/\b(certified|accredited|government[- ]approved|FedRAMP)\b/i)
   })
 
   it('contact names Durham, North Carolina and says a person answers, with no promised reply time', () => {
@@ -574,10 +602,11 @@ describe('One header and footer on every new page', () => {
       'Clients', 'MSPs', 'Integrators', 'Suppliers', 'Workers', 'Demo', 'Documentation', 'About', 'Security', 'Privacy', 'Terms', 'DPA', 'Contact',
     ])
     for (const h of ['/demo', '/docs', '/about', '/contact']) expect(FOOTER.flatMap((g) => g.links.map((l) => l.href)), h).toContain(h)
-    // The home page draws the same header, rather than a copy of it, with
-    // no variant for the home page (2026-10-14).
+    // The home page draws the same header, rather than a copy of it
+    // (2026-10-14), with one setting since the founder's brief of
+    // 2026-11-13: its one button, Start free.
     const home = read('src/app/page.tsx')
-    expect(home).toContain('<SiteHeader />')
+    expect(home).toContain('<SiteHeader button={HOME_HEADER_BUTTON} links={HOME_NAV} />')
     expect(home).not.toContain('const NAV_MENUS')
     const frame = read('src/lib/public-site/frame.tsx')
     expect(frame).not.toContain('onHome')
@@ -600,15 +629,23 @@ describe('One header and footer on every new page', () => {
     expect(read('src/app/page.tsx')).not.toContain('const DESKS')
   })
 
-  it('the right of every header is Sign in, and no filled button and no menu', () => {
+  it('the right of every header is Sign in, with no menu, and a filled button only where a page passes one: the home page alone, with Start free', () => {
     // The audit was the filled button from 2026-10-09 and the example
     // program before it. From 2026-10-14 the header carried Sign in and a
-    // menu icon; since 2026-10-19 it carries Sign in alone.
+    // menu icon; since 2026-10-19 it carries Sign in alone, and since the
+    // founder's brief of 2026-11-13 the home page adds Start free.
     const frame = read('src/lib/public-site/frame.tsx')
     const right = frame.slice(frame.indexOf('ml-auto flex'), frame.indexOf('</header>'))
     expect(right).toContain('href={HEADER.signIn.href}')
-    expect(right).not.toContain('bg-etyme-action')
+    // The filled button is drawn only from the `button` a page passes.
+    expect(right.slice(0, right.indexOf('{button && ('))).not.toContain('bg-etyme-action')
     expect(right).not.toMatch(/<summary|aria-label=\{HEADER\.menu\}/)
+    const passing = [...walk(join(ROOT, 'src/app')), ...readdirSync(join(ROOT, 'src/lib/public-site')).filter((f) => f.endsWith('.tsx')).map((f) => `src/lib/public-site/${f}`)]
+      .filter((f) => /<SiteHeader button=/.test(read(f)))
+    expect(passing).toEqual(['src/app/page.tsx'])
+    // And the four in-page links, the same page alone, since his reference page the same day.
+    expect(passing.filter((f) => /<SiteHeader[^>]*\blinks=/.test(read(f)))).toEqual(['src/app/page.tsx'])
+    expect(read('src/app/page.tsx')).toContain('<SiteHeader button={HOME_HEADER_BUTTON} links={HOME_NAV} />')
   })
 
   it('no public page puts Etyme in its own title, because the layout adds it to every tab', () => {
@@ -622,7 +659,6 @@ describe('One header and footer on every new page', () => {
       expect(md.title, s).not.toMatch(/Etyme/)
       expect((md as { description?: string }).description, `${s} has no description`).toBeTruthy()
     }
-    expect(read('src/app/census/page.tsx')).not.toMatch(/title: '[^']*Etyme'/)
   })
 
   it('every route a public page is registered at is mounted by a file that exists', () => {
@@ -653,7 +689,7 @@ describe('One header and footer on every new page', () => {
 
   it('no link in the header, the sheet or the footer goes to the census', () => {
     // It was the spend audit's one door; the audit left every page on
-    // 2026-10-14 and the census is linked from nowhere until it closes.
+    // 2026-10-14 and the census page closed on November 13, 2026.
     expect(everyFrameLink().filter((h) => h.startsWith('/census'))).toEqual([])
     expect(FOOTER.flatMap((g) => g.links).filter((l) => /audit/i.test(l.label))).toEqual([])
     expect(read('src/lib/public-site/frame.tsx')).not.toMatch(/SPEND_AUDIT|PRIMARY\./)

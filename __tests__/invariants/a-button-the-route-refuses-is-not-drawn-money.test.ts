@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expenseDecideRefusal, EXPENSE_DECIDES } from '@/lib/money/expense-decides'
+import { extendGate } from '@/app/api/contracts/[id]/extend/gate'
 import { WhereItStands, type StandsView } from '@/app/dashboard/expenses/where-it-stands'
 import { askSupplierBody } from '@/app/dashboard/invoices/ask-body'
 
@@ -61,6 +62,42 @@ describe('Accept on an expense is drawn only for a seat the route lets decide it
   })
 })
 
+describe('a seat invited on a public address reads that its address is why, never "ask the role you hold"', () => {
+  it('a public-address seat refused an expense decision is told its address is the reason, and its Owner can move it', () => {
+    const says = expenseDecideRefusal(
+      { permissions: ['requirements.read'], seat: null, companyName: 'Northbend Athletic', acting: { publicSeat: true } },
+      'CLIENT',
+    )
+    expect(says).toContain('You were invited to Northbend Athletic on a public address')
+    expect(says).toContain('An Owner of Northbend Athletic can move you to a company-directory address.')
+  })
+
+  it('a seat on a company address refused the same decision still reads who decides it', () => {
+    const says = expenseDecideRefusal(
+      { permissions: ['requirements.read'], seat: null, companyName: 'Northbend Athletic', acting: { publicSeat: false } },
+      'CLIENT',
+    )
+    expect(says).not.toContain('public address')
+  })
+
+  it('the invoice receipt’s Pay and a placement’s lifecycle buttons are refused through the caller-aware sentence', () => {
+    const role = readFileSync(join(process.cwd(), 'src/lib/money/receipt-role.ts'), 'utf8')
+    const gate = readFileSync(join(process.cwd(), 'src/app/api/contracts/[id]/activate/gate.ts'), 'utf8')
+    for (const src of [role, gate]) {
+      expect(src).not.toMatch(/askTheDesk\(/)
+      expect(src).toContain('refusalFor(')
+    }
+  })
+
+  it('Send again on a bill hands the presser\u2019s public-address seat to the inner refusal, so a seat that lost the sender\u2019s role there is told its address is why', async () => {
+    const route = read('src/app/api/invoices/[id]/resend/route.ts')
+    expect(route).toMatch(/resendBillToCustomer\(\{[^}]*publicSeat: caller\.publicSeat \?\? false[^}]*\}\)/)
+    const { refusalFor } = await import('@/lib/api-context')
+    const says = refusalFor({ publicSeat: true, company: { name: 'Tapin', kind: 'VENDOR' } as any }, { doing: 'Sending a bill again', needs: 'invoices.issue' })
+    expect(says).toContain('public address')
+  })
+})
+
 describe('a question to the supplier is typed on the page and kept through a refusal', () => {
   const page = read('src/app/dashboard/invoices/page.tsx')
 
@@ -91,5 +128,48 @@ describe('a question to the supplier is typed on the page and kept through a ref
     const sent = Object.keys(askSupplierBody({ requirementId: 'j', supplierId: 's', number: 'n', question: 'q' }))
     // A title and the participants are the thread's own to choose; the question needs neither.
     expect(readFields.filter((f) => !sent.includes(f) && !['title', 'participantIds'].includes(f))).toEqual([])
+  })
+})
+
+describe('Extend is drawn only where the extend route takes this reader’s press', () => {
+  const contract = {
+    state: 'IN_PROGRESS', companyId: 'brightmoor', clientCompanyId: 'northbend', endClientCompanyId: null,
+    company: { name: 'Brightmoor Staffing' }, clientCompany: { name: 'Northbend Athletic' }, endClientCompany: null,
+  }
+  const seat = (over: Record<string, unknown>) => ({
+    context: { type: 'EMPLOYEE' }, company: { id: 'brightmoor', name: 'Brightmoor Staffing', kind: 'VENDOR' },
+    permissions: ['assignments.write'], ...over,
+  }) as never
+
+  it('a party holding the permission on a running placement may extend it', () => {
+    expect(extendGate(seat({}), contract)).toEqual({ ok: true })
+  })
+
+  it('a party without the permission is told who extends it, in the route’s own sentence', () => {
+    const g = extendGate(seat({ permissions: ['timesheets.read'] }), contract)
+    expect(g.ok).toBe(false)
+    if (!g.ok) expect(g.code).toBe('FORBIDDEN')
+  })
+
+  it('a firm that is not a party is told which firms can extend it', () => {
+    const g = extendGate(seat({ company: { id: 'stranger', name: 'Veritan Talent', kind: 'VENDOR' } }), contract)
+    expect(g.ok).toBe(false)
+    if (!g.ok) expect(g.says).toBe('Veritan Talent is not a party to this contract. Only Brightmoor Staffing, Northbend Athletic can extend it.')
+  })
+
+  it('a finished placement is refused in words, never as its state code', () => {
+    const g = extendGate(seat({}), { ...contract, state: 'COMPLETED' })
+    expect(g.ok).toBe(false)
+    if (!g.ok) expect(g.says).toBe('This placement is completed, so it cannot be extended. Only a running or paused placement is.')
+  })
+
+  it('the drawer asks the extend route before it draws Extend, and shows the route’s sentence where it will not', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/dashboard/contracts/page.tsx'), 'utf8')
+    expect(page).toContain('fetch(`/api/contracts/${contract.id}/extend`)')
+    expect(page).toMatch(/\{extend\?\.may && \(\s*<button\s*onClick=\{\(\) => setShowExtendConfirm\(true\)\}/)
+    expect(page).toContain('{extend && !extend.may && extend.says && (')
+    const route = readFileSync(join(process.cwd(), 'src/app/api/contracts/[id]/extend/route.ts'), 'utf8')
+    expect(route).toContain('export async function GET(')
+    expect(route.match(/extendGate\(caller, contract\)/g)?.length).toBe(2)
   })
 })

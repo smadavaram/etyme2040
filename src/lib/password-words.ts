@@ -9,10 +9,22 @@ import { countryFromDomain } from '@/lib/company-defaults'
 import { COUNTRIES, currencyFor, countryGuessSentence } from '@/lib/setup-steps'
 import { isConsumerDomain } from '@/lib/company-domains'
 
+/**
+ * The fewest characters a password may have. Here, and not in
+ * lib/password, because a browser page shows it beside the field and
+ * lib/password loads argon2, which only a server can.
+ */
+export const MIN_PASSWORD = 12
+
 
 /** Without an email sender nobody can prove a mailbox, so these doors say so before any form. */
 export const SIGNUP_SHUT = 'Sign-up is off on this deployment until an email sender is set up.'
-export const RESET_SHUT = 'Password reset is off on this deployment until an email sender is set up.'
+/**
+ * Forgot your password, where no email can leave. It points to the one
+ * way in that needs no email: sign in with Google or Microsoft and set a
+ * password from the account menu (fault 5, 2026-11-12).
+ */
+export const RESET_SHUT = 'Etyme cannot send email here yet, so a reset link cannot reach you. If you can still sign in with Google or Microsoft, do that, then choose Set a password in the account menu.'
 
 /** A seeded demo person never gets a password (round one of the sign-up walk, item 46). */
 export const DEMO_REFUSAL =

@@ -6,6 +6,16 @@ import EmailProvider from 'next-auth/providers/email'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import type { Door } from '@/lib/identity/policy'
 import { emailLinkDoorOn } from '@/lib/readiness'
+import { OAUTH_HTTP_TIMEOUT_MS } from '@/lib/identity/oidc'
+
+export { OAUTH_HTTP_TIMEOUT_MS }
+
+/**
+ * What every OAuth and OpenID door is given to talk to its provider. The
+ * OpenID client library waits 3.5 seconds per call by default; Google's
+ * discovery, token and key calls each get ten (lib/identity/oidc).
+ */
+export const OAUTH_HTTP = { timeout: OAUTH_HTTP_TIMEOUT_MS } as const
 
 /**
  * NextAuth configuration.
@@ -78,6 +88,7 @@ export function configuredProviders(): Provider[] {
         // wants — Terumo BCT and Nike are different tenants.
         tenantId: process.env.AZURE_AD_TENANT_ID || 'common',
         authorization: { params: { ...ACCOUNT_CHOOSER.params } },
+        httpOptions: OAUTH_HTTP,
       })
     )
   }
@@ -88,6 +99,7 @@ export function configuredProviders(): Provider[] {
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         authorization: { params: { ...ACCOUNT_CHOOSER.params } },
+        httpOptions: OAUTH_HTTP,
       })
     )
   }
@@ -168,6 +180,7 @@ export function linkedInDoor(clientId: string, clientSecret: string): Provider {
     idToken: true,
     checks: ['state'],
     client: { token_endpoint_auth_method: 'client_secret_post' },
+    httpOptions: OAUTH_HTTP,
     clientId,
     clientSecret,
     profile(p: Record<string, any>) {
@@ -257,6 +270,20 @@ function directoryIssuer(user: unknown, profile: unknown): string | null {
   return String((user as any)?.issuer ?? (profile as any)?.iss ?? '') || null
 }
 
+/**
+ * A person's session version, read once and once more if the first read
+ * fails. Throws where both fail, so no session is ever signed in at a
+ * guessed version (fault 4, 2026-11-12).
+ */
+export async function readSessionVersion(email: string): Promise<number> {
+  const { sessionVersionOf } = await import('@/lib/identity/read')
+  try {
+    return await sessionVersionOf(email)
+  } catch {
+    return await sessionVersionOf(email)
+  }
+}
+
 /** NextAuth's provider id, as the Credential row names it. */
 const PROVIDER_ROW: Record<string, 'MICROSOFT' | 'GOOGLE' | 'EMAIL'> = {
   'azure-ad': 'MICROSOFT',
@@ -264,8 +291,83 @@ const PROVIDER_ROW: Record<string, 'MICROSOFT' | 'GOOGLE' | 'EMAIL'> = {
   email: 'EMAIL',
 }
 
+/**
+ * Why a sign-in failed, in a form Etyme's staff can read: the code, the
+ * provider, and the inner message only. Never a token, a code, a cookie
+ * or a whole address: an address is cut to its domain and anything long
+ * enough to be a token is cut out. Pure.
+ */
+export function signInFailureReport(code: string, meta: unknown): { place: string; message: string } {
+  const m = (meta ?? {}) as Record<string, any>
+  const provider = typeof m.providerId === 'string' ? m.providerId : typeof m.provider === 'string' ? m.provider : null
+  const inner =
+    meta instanceof Error ? meta.message
+      : typeof m.error?.message === 'string' ? m.error.message
+        : typeof m.message === 'string' ? m.message
+          : typeof meta === 'string' ? meta
+            : ''
+  const message = String(inner)
+    // The whole address goes, domain too: a domain says which company tried.
+    .replace(/[^\s@<>"'(),;:]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[an address]')
+    .replace(/[A-Za-z0-9_\-.~+/=]{24,}/g, '[cut]')
+    .slice(0, 300)
+  return {
+    place: `Sign-in did not finish (${code}${provider ? `, ${provider}` : ''})`,
+    message: message || 'No reason was given.',
+  }
+}
+
+const HOUR_MS = 3_600_000
+const lastSignInFailure = new Map<string, number>()
+
+/**
+ * Whether this is the first failed sign-in at this place this hour. A
+ * stranger can send garbage to a provider callback all day; each failure
+ * would otherwise be an incident row. Answered from this instance's memory
+ * first, then from the incident log, so a fresh instance does not add a
+ * second row in the same hour (security reader, 2026-11-12).
+ */
+export async function signInFailureOncePerHour(place: string, now: number = Date.now()): Promise<boolean> {
+  const last = lastSignInFailure.get(place)
+  if (last !== undefined && now - last < HOUR_MS) return false
+  lastSignInFailure.set(place, now)
+  if (lastSignInFailure.size > 200) lastSignInFailure.clear()
+  try {
+    const { prisma } = await import('@/lib/db')
+    const already = await prisma.incident.findFirst({
+      where: { where: place, at: { gte: new Date(now - HOUR_MS) } },
+      select: { id: true },
+    })
+    return !already
+  } catch {
+    return true
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: configuredProviders(),
+
+  /**
+   * A sign-in that fails inside NextAuth (a provider that did not answer
+   * in time, a state cookie that did not come back) goes to the incident
+   * log with its real reason, so staff learn why (fault 3, 2026-11-12).
+   * The alert email is sent at most once an hour per place (lib/alerts).
+   */
+  logger: {
+    error(code, metadata) {
+      const r = signInFailureReport(String(code), metadata)
+      // Anybody can make a callback fail, so this writes at most one row
+      // per place per hour (`signInFailureOncePerHour`); the rest are
+      // dropped, because this door writes no log line of its own.
+      void signInFailureOncePerHour(r.place)
+        .then((first) => {
+          if (!first) return
+          return import('@/lib/alerts').then(({ reportError }) => reportError(r.place, r.message))
+        })
+        // reportError writes the console line itself; a failed import has nowhere else to go.
+        .catch(() => {})
+    },
+  },
 
   session: {
     strategy: 'jwt',
@@ -299,14 +401,52 @@ export const authOptions: NextAuthOptions = {
           door, email: sessionEmail(user.email)!, surface: 'WEB',
           issuer: door === 'DIRECTORY' ? directoryIssuer(user, profile) : null,
         })
-        if (!v.allowed) return '/login?error=DirectoryOnly'
+        if (!v.allowed) {
+          // An address Google, Microsoft or LinkedIn just vouched for, on a
+          // directory-only company's domain: the sign-in page is handed a
+          // sealed proof of it and draws that company's own directory
+          // (lib/identity/door-proof). Nothing is said for any other door.
+          const proven = v.policy === 'SSO_ONLY' && (door === 'GOOGLE_SOCIAL' || door === 'MICROSOFT_SOCIAL' || door === 'LINKEDIN')
+          const { sealDoorProof } = await import('@/lib/identity/door-proof')
+          const proof = proven ? sealDoorProof(sessionEmail(user.email)!) : null
+          if (proof) {
+            // In an httpOnly cookie for the doors route alone, never on the
+            // address (review, 2026-11-13). Where the cookie cannot be set,
+            // the page says the plain sentence.
+            try {
+              const { cookies } = await import('next/headers')
+              const { doorProofCookie } = await import('@/lib/identity/door-proof')
+              cookies().set(doorProofCookie(proof))
+            } catch { /* outside a request: the plain sentence stands */ }
+          }
+          return '/login?error=DirectoryOnly'
+        }
+        // LinkedIn is for candidates only (founder, 2026-11-12): anybody who
+        // holds a seat at a company, a one-person firm included, is told
+        // which button to use. The row is written before the refusal.
+        if (door === 'LINKEDIN') {
+          const { linkedInSeatAtSignIn } = await import('@/lib/identity/read')
+          if (await linkedInSeatAtSignIn(sessionEmail(user.email)!)) return '/login?error=LinkedInHasSeat'
+        }
+      }
+      // The session version this session is signed in under, read before
+      // the session exists. Read twice; where both fail the sign-in ends
+      // with one sentence, because a session stamped 0 for a person whose
+      // version is above 0 is refused on its very next request and reads as
+      // being signed out for no reason (fault 4, 2026-11-12).
+      if (user.email) {
+        try {
+          ;(user as any).sv = await readSessionVersion(sessionEmail(user.email)!)
+        } catch {
+          return '/login?error=SessionUnread'
+        }
       }
       // Personal email domains may sign in; they cannot register a company
       // (the company creation endpoint checks that separately).
       return true
     },
 
-    async jwt({ token, user, account, profile }) {
+    async jwt({ token, user, account, profile, trigger, session }) {
       if (user) {
         token.id = user.id
         token.email = sessionEmail(user.email)
@@ -315,13 +455,30 @@ export const authOptions: NextAuthOptions = {
         const door = doorOfSignIn(account?.provider, user as any)
         token.door = door
         token.iss = door === 'DIRECTORY' ? directoryIssuer(user, profile) : null
-        try {
-          const { sessionVersionOf } = await import('@/lib/identity/read')
-          token.sv = token.email ? await sessionVersionOf(String(token.email)) : 0
-        } catch {
-          token.sv = 0
-        }
+        // When this sign-in began, for the one act that asks for a recent
+        // sign-in: a first password (lib/password-door). Kept in the token
+        // and never put on the session the browser reads.
+        token.authAt = Date.now()
+        // Read by the sign-in callback above; read here again only where
+        // that did not run. Never guessed as 0: a read that fails twice ends
+        // the sign-in (fault 4).
+        const known = (user as any).sv
+        token.sv = typeof known === 'number' ? known : token.email ? await readSessionVersion(String(token.email)) : 0
         return token
+      }
+      // The one session that just changed its own password from the
+      // account menu is carried over the version that change raised: the
+      // sealed ticket must name this session, and the version is read again
+      // on the server, never taken from the browser (lib/password-door,
+      // fault 5). Every other session of the person ends below.
+      if (trigger === 'update' && token.email) {
+        try {
+          const { versionAfterOwnChange } = await import('@/lib/password-door')
+          const lifted = await versionAfterOwnChange(token, (session as { refresh?: unknown } | undefined)?.refresh)
+          if (lifted !== null) token.sv = lifted
+        } catch {
+          // No ticket, or one that does not hold: the check below decides.
+        }
       }
       // Every request: a session that was ended ("sign out everywhere", a
       // directory that disabled the person), or signed in by a door the

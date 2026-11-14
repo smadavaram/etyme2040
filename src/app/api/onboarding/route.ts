@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { REGION_UNIT_KIND } from '@/lib/region-scope'
 import { emit } from '@/lib/events'
-import { getSessionEmail } from '@/lib/api-context'
+import { getSessionIdentity } from '@/lib/api-context'
 import { checkDoor } from '@/lib/identity/read'
 import {
   typeByKey, slugFromDomain, guessCompanyName, COMPANY_TYPES,
@@ -13,6 +13,7 @@ import {
 import { MEMBER_ROLE } from '@/lib/company-defaults'
 import { seatAsMember } from '@/lib/seat-member'
 import { createCompany } from '@/lib/company-create'
+import { blankNameSays } from '@/app/(auth)/start/missing'
 import { recordAnswers } from '@/lib/setup-checklist-state'
 import { signUpAnswers } from '@/lib/setup-fill'
 import { packSentence, countryGuessSentence, currencyFor, COUNTRIES, CURRENCIES, joinedSentence } from '@/lib/setup-steps'
@@ -37,6 +38,18 @@ import { setupStateFor, beginClaimedSetup } from '@/lib/setup-state'
  * Loaded whole because the decision needs to consider near matches as well
  * as exact ones, and there are far fewer claimed domains than companies.
  */
+/**
+ * A LinkedIn session is a candidate's, whatever the address (founder,
+ * 2026-11-12: "For LinkedIn, mention for candidate only"): it never founds
+ * a company, joins one by domain or becomes a one-person firm. A person
+ * who already holds a seat was refused at the sign-in callback.
+ */
+type EntryOf = ReturnType<typeof decideEntry>
+function forDoor(decision: EntryOf, door: string | null): EntryOf {
+  if (door !== 'LINKEDIN' || decision.action === 'REFUSE') return decision
+  return { action: 'CONSULTANT', message: 'LinkedIn is for candidates, so you are set up as a candidate.' } as EntryOf
+}
+
 async function allClaims(): Promise<ClaimedDomain[]> {
   const rows = await prisma.companyDomain.findMany({
     select: {
@@ -54,7 +67,8 @@ async function allClaims(): Promise<ClaimedDomain[]> {
 }
 
 export async function GET(request: NextRequest) {
-  const email = await getSessionEmail()
+  const identity = await getSessionIdentity()
+  const email = identity?.email ?? null
   if (!email) {
     return NextResponse.json(
       { error: { code: 'UNAUTHORIZED', message: 'Sign in first' } },
@@ -125,7 +139,7 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  const decision = decideEntry(email, await allClaims())
+  const decision = forDoor(decideEntry(email, await allClaims()), identity?.door ?? null)
 
   return NextResponse.json({
     data: {
@@ -136,7 +150,7 @@ export async function GET(request: NextRequest) {
       // On a personal address only the types that may register on one, so
       // the page can offer the one-person firm beside the consultant seat.
       companyTypes: decision.action === 'CREATE' || decision.action === 'SUGGEST' ? COMPANY_TYPES
-        : decision.action === 'CONSULTANT' ? COMPANY_TYPES.filter((t) => t.personalEmail)
+        : decision.action === 'CONSULTANT' ? (identity?.door === 'LINKEDIN' ? undefined : COMPANY_TYPES.filter((t) => t.personalEmail))
           : undefined,
       suggestedName:
         decision.action === 'CREATE' ? guessCompanyName(decision.domain)
@@ -162,7 +176,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const email = await getSessionEmail()
+  const identity = await getSessionIdentity()
+  const email = identity?.email ?? null
   if (!email) {
     return NextResponse.json(
       { error: { code: 'UNAUTHORIZED', message: 'Sign in first' } },
@@ -172,7 +187,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}))
   const domain = domainOfEmail(email)
-  const decision = decideEntry(email, await allClaims())
+  const decision = forDoor(decideEntry(email, await allClaims()), identity?.door ?? null)
 
   if (decision.action === 'REFUSE') {
     return NextResponse.json(
@@ -205,7 +220,7 @@ export async function POST(request: NextRequest) {
   // firm, not a consultant seat (round one of the sign-up walk, item 45).
   // Only a type that may register on a personal address does this.
   const chosen = typeByKey(String(body.type ?? ''))
-  const ownFirm = decision.action === 'CONSULTANT' && chosen?.personalEmail === true
+  const ownFirm = decision.action === 'CONSULTANT' && chosen?.personalEmail === true && identity?.door !== 'LINKEDIN'
 
   // ── A consultant. No company, and that is not a lesser outcome. ──
   if (decision.action === 'CONSULTANT' && !ownFirm) {
@@ -355,6 +370,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // A name sent blank is refused in the screen's sentence; only a name
+  // not sent at all is guessed from the domain (`start/missing`).
+  const blank = blankNameSays(body, ownFirm)
+  if (blank) {
+    return NextResponse.json({ error: { code: 'VALIDATION', message: blank, field: 'name' } }, { status: 422 })
+  }
+
   // Both CREATE and a SUGGEST answered "we are separate" land here.
   // A one-person firm on a personal address claims no domain: gmail.com is
   // nobody's tenant. Its address is read off its name instead.
@@ -383,6 +405,8 @@ export async function POST(request: NextRequest) {
     posture: type.posture,
     byPersonId: person.id,
     seatAsOwner: true,
+    // The first person is an Admin; Owner is earned by proof (2026-11-12).
+    ownerProofRequired: true,
     claimDomain: newCompanyDomain !== null,
     startsSetup: true,
   })

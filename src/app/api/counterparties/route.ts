@@ -3,8 +3,10 @@ import { isTier, tierWord } from '@/lib/supplier-tier'
 import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { staffOnly } from '@/lib/seat'
+import { recordRefusal } from '@/lib/access-log'
 import { register, mayRemove, riskJudgement, RELATIONSHIPS } from '@/lib/counterparty'
 import { readAccountManager, nameAccountManager } from './account-manager'
+import { workTogether } from '@/lib/company-create'
 
 /**
  * GET  /api/counterparties — the register: who we work with, and as what
@@ -66,9 +68,23 @@ export async function GET(request: NextRequest) {
   })
   const counts = new Map(contactCounts.map((c) => [c.atCompanyId, c._count]))
 
+  // The companies this firm recorded and has not classified: no register
+  // row, so no row above, and still somewhere a contact can work
+  // (Contacts' Works at, founder 2026-11-12). Only this firm's own records.
+  const onRegister = new Set(rows.map((r) => r.otherCompanyId))
+  const known = (await prisma.company.findMany({
+    // Whatever Kind it has been given since: a Kind is not a position.
+    where: { listedById: companyId, claimedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  }))
+    .filter((c) => !onRegister.has(c.id))
+    .map((c) => ({ id: c.id, name: c.name, notClassified: true, contacts: counts.get(c.id) ?? 0 }))
+
   return NextResponse.json({
     data: {
       rows: rows.map((r) => ({ ...r, contacts: counts.get(r.otherCompanyId) ?? 0 })),
+      known,
       relationships: Object.entries(RELATIONSHIPS).map(([key, v]) => ({ key, ...v })),
     },
   })
@@ -110,6 +126,40 @@ export async function POST(request: NextRequest) {
       { error: { code: 'VALIDATION', message: 'A firm cannot be its own counterparty.' } },
       { status: 422 }
     )
+  }
+
+  // Another firm's record of a company nobody has claimed is that firm's,
+  // not ours to give a position to: a register row is what lets a contract
+  // name a firm (founder, 2026-11-12). Refused in a sentence, logged first.
+  //
+  // Any company nobody has claimed and the caller did not record itself,
+  // whoever recorded it (nobody included), unless the two already work
+  // together: the same set Extend refuses (`mayExtend`), so the two doors
+  // agree (review, 2026-11-13).
+  const other = await prisma.company.findUnique({ where: { id: otherCompanyId }, select: { name: true, claimedAt: true, listedById: true } })
+  if (!other || (other.claimedAt == null && other.listedById !== companyId && !(await workTogether(companyId, otherCompanyId)))) {
+    const says = 'That company is not on your Companies list. Add it there first.'
+    await recordRefusal([{ companyId: otherCompanyId }], {
+      actorPersonId: caller.isService ? undefined : caller.person.id,
+      actorCompanyId: companyId,
+      action: 'CONTRACT_VIEW',
+      reason: `Refused a register row for ${other?.name ?? otherCompanyId}, another firm's record: ${says}`,
+    })
+    return NextResponse.json({ error: { code: 'NOT_YOURS', message: says, field: 'otherCompanyId' } }, { status: 403 })
+  }
+  // A firm on Etyme is put on one's register only where the two already
+  // work together, the same rule Extend keeps (`mayExtend`): otherwise one
+  // firm could tie itself to a stranger by writing its own row (review,
+  // 2026-11-13). The sentence names nobody; the ask to link is the door.
+  if (other.claimedAt != null && !(await workTogether(companyId, otherCompanyId))) {
+    const says = 'That company is on Etyme and does not work with you yet. Ask them to link from Add company: nothing is on either list until they say yes.'
+    await recordRefusal([{ companyId: otherCompanyId }], {
+      actorPersonId: caller.isService ? undefined : caller.person.id,
+      actorCompanyId: companyId,
+      action: 'CONTRACT_VIEW',
+      reason: `Refused a register row for ${other.name}, a firm on Etyme that does not work with the caller: ${says}`,
+    })
+    return NextResponse.json({ error: { code: 'ALREADY_ON_ETYME', message: says, field: 'otherCompanyId' } }, { status: 409 })
   }
 
   const row = await prisma.counterparty.upsert({

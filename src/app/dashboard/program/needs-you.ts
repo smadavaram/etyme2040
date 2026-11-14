@@ -33,6 +33,8 @@
  * number; this is arithmetic over that queue.
  */
 
+import { countWordLower } from '@/app/api/conversations/twin/count-words'
+
 export interface DeskCounts {
   /** Everything waiting on this desk: the queue's length, which is the total. */
   queue: number
@@ -122,6 +124,7 @@ const THING: Record<string, [string, string]> = {
   INVOICE_RECEIPT_HELD: ['held invoice receipt', 'held invoice receipts'],
   INVOICE_OVERDUE: ['overdue bill', 'overdue bills'],
   RATE_CONFIRMATION: ['rate', 'rates'],
+  OWNER_ASK: ['Owner ask', 'Owner asks'],
 }
 
 /**
@@ -156,11 +159,13 @@ export function namedFor(row: QueueRow): Named {
   return { whose: null, what: 'one more thing', whats: 'more things' }
 }
 
-const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
-
-/** "five" up to ten, then the figure: how a person says a count aloud. */
+/**
+ * "five", "ten", "eleven", "forty-two": the one count speller Ask Etyme's
+ * greeting reads, so the queue's own `says` and the chat open on the same
+ * words ("Ten things need you", never "10 things need you").
+ */
 export function countWord(n: number): string {
-  return n >= 0 && n < WORDS.length ? WORDS[n] : String(n)
+  return countWordLower(n)
 }
 
 /**

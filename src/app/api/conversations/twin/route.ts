@@ -3,7 +3,7 @@ import { getCallerContext } from '@/lib/api-context'
 import { reportError } from '@/lib/alerts'
 import { pinnedFor } from './pinned'
 import { respond, whereAnswer, menuOf, placeOf, today, greetingModelState, boundarySays, type ModelState, cardIdsOf, partyOf, queueFrom, readAsk, withOwnPapers, withoutOwnWeek, questionsFor, pictureOf, readsPicture, monthOf, type Readers, type Picture, type Answer, type Party, type QueueRead, type RichLine } from './ask'
-import { mapSeatOf, mapView, mapNeeds, mapOwed, mapChips, mapAnswer, mapHelp, siteLine, REGION_BOUNDARY, type MapSeat } from './regions'
+import { mapSeatOf, mapView, mapNeeds, mapOwed, mapChips, mapAnswer, mapHelp, siteLine, heldSitesFor, REGION_BOUNDARY, type MapSeat } from './regions'
 import { fromPrismaDecimal } from '@/lib/money'
 import { readThread, appendTurn, markCard, clearThread, listThreads, startThread, type SavedThread, type SavedTurn, type CardState } from '@/lib/ask-etyme-thread'
 import { threadIdOf, THREAD_PARAM, NOT_YOUR_CONVERSATION } from './thread-id'
@@ -25,10 +25,11 @@ import { setupReminderFor } from '@/lib/setup-checklist-state'
 import { hasPermission } from '@/lib/permissions'
 import { firstActFacts } from './first-act-read'
 import { linkAsksFor, joinAsksFor, firmAskItems, withFirmAsks } from './firm-asks'
+import { ownerAsksFor, withOwnerAsks, ownerAskLead, ownerAsksHeadline, becomeOwnerLineFor, NO_OWNER_ASKS, type OwnerAskRead } from './owner-asks'
 import { mailLeaves } from '@/lib/notify/mail-leaves'
 import { ownPageFor } from '@/lib/portfolio-data'
 import { cookieHatOf, greetsAsYou, firmHatWithNothing, nothingOfTheFirm, noticesForHat, youOffered, type HatFacts } from './hat'
-import { sinceSays } from './ask'
+import { sinceSays, queueCards } from './ask'
 import type { CompanyKind } from '@/lib/nav-table'
 
 /**
@@ -320,11 +321,36 @@ function queueFor(request: NextRequest, caller: Caller): () => Promise<QueueRead
         linkAsksFor(caller).catch(() => []),
         joinAsksFor(caller, mailLeaves()).catch(() => []),
       ])
-      return withFirmAsks(mine, firmAskItems(links, joins, caller.company.kind ?? ''))
+      // An Owner ask addressed to this person (./owner-asks): first, and counted.
+      const owners = await ownerAsksOf(caller)
+      return withOwnerAsks(withFirmAsks(mine, firmAskItems(links, joins, caller.company.kind ?? '')), owners.items)
     } catch {
       return null
     }
   })())
+}
+
+/**
+ * The Owner asks at the caller's own company that wait on this person, and
+ * the ones this person made (./owner-asks), read once per request: the
+ * queue, the greeting's lead and the asker's line are one read. A seat in
+ * another company's program, a service and a seat with no company read
+ * none. A read that fails says nothing, and staff are told.
+ */
+const ownerAskReads = new WeakMap<object, Promise<OwnerAskRead>>()
+function ownerAsksOf(caller: Caller): Promise<OwnerAskRead> {
+  let got = ownerAskReads.get(caller)
+  if (!got) {
+    got = (async () => {
+      if (!caller.company || caller.isService || (await seatOf(caller))) return NO_OWNER_ASKS
+      return ownerAsksFor({ personId: caller.person.id, company: { id: caller.company.id, name: caller.company.name } })
+    })().catch(async (err) => {
+      await reportError('Ask Etyme could not read the Owner asks', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
+      return NO_OWNER_ASKS
+    })
+    ownerAskReads.set(caller, got)
+  }
+  return got
 }
 
 function needsFor(request: NextRequest, caller: Caller): () => Promise<number | null> {
@@ -591,6 +617,10 @@ export async function GET(request: NextRequest) {
     const picture = who.then((w) => pictureFor(caller, w.party)).catch(() => null)
     // The setup checklist's one line, read beside the rest.
     const setupLine = setupLineOf(caller)
+    // Who owns the company: an ask waiting on this person, one this person
+    // made, and the Become Owner offer (./owner-asks), read beside the rest.
+    const owners = ownerAsksOf(caller)
+    const become = becomeOwnerLineFor({ personId: caller.person.id, contextId: caller.context.id, company: { id: company.id, name: company.name } })
     const seat = await seatOf(caller)
     const readers = startedReaders(readersFor(caller, company.id, request, { seat }), who)
     // A notice about the person's own work is said in the You hat, and left
@@ -613,6 +643,7 @@ export async function GET(request: NextRequest) {
     const greeted = await today(readers, {
       greeting: true, picture, needs: queue, notices, threads, model, modelHeld, party: party.party, client: party.client, ownWeek: week,
       self: caller.person.name, firstAct, setup: await setupLine,
+      owners: await ownersLines(owners, seat ? Promise.resolve(null) : become),
     })
     const answer = await withWelcome(caller, greeted, party.party, await thread)
     // Said, so read: the section empties itself on the next greeting. One write for both.
@@ -629,6 +660,12 @@ export async function GET(request: NextRequest) {
     await reportError('Ask Etyme could not greet', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company.id })
     return NextResponse.json({ error: { code: 'NOT_ANSWERED', message: NOT_ANSWERED } }, { status: 500 })
   }
+}
+
+/** The greeting's Owner lines: the ask addressed to the reader leads; the asker's line and the offer are facts. */
+async function ownersLines(owners: Promise<OwnerAskRead>, become: Promise<RichLine | null>) {
+  const [o, b] = await Promise.all([owners, become])
+  return { ask: ownerAskLead(o.items), waiting: o.waiting, become: b }
 }
 
 /**
@@ -770,11 +807,14 @@ async function mapGreeting(caller: Caller, map: MapSeat, take: number | undefine
     const thread = threadFor(caller, take)
     const data = await mapView(caller, { trail: 'Ask Etyme greeting' })
     if (!data) return notReadByRegion(caller)
-    const state = map.reach === 'REGION' ? null : await boundaryOf(caller.company!.id)
+    const [state, sites] = await Promise.all([
+      map.reach === 'REGION' ? null : boundaryOf(caller.company!.id),
+      heldSitesFor(caller, data, 'Ask Etyme greeting'),
+    ])
     const model: ModelState = state ? state.model : 'OFF'
     const boundary = state ? boundarySays(state.model, state.held) : REGION_BOUNDARY
     return NextResponse.json({
-      data: { answer: mapNeeds(data, map.reach, true, boundary, { line: map.line }), model, party: 'CLIENT', client: null, chips: mapChips(map.reach), thread: await thread },
+      data: { answer: mapNeeds(data, map.reach, true, boundary, { line: map.line, sites }), model, party: 'CLIENT', client: null, chips: mapChips(map.reach), thread: await thread },
     })
   } catch (err) {
     await reportError('Ask Etyme could not greet a seat by region', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
@@ -801,10 +841,18 @@ async function owedCount(caller: Caller, request: NextRequest) {
     return NextResponse.json({ error: { code: 'NO_COMPANY', message: NO_COMPANY } }, { status: 403 })
   }
   // A seat with no role of its own owes the firm nothing in its hat: no number.
-  if (!worker && (await inFirmHatWithNothing(caller, request))) return NextResponse.json({ data: { total: 0 } })
+  // An Owner ask addressed to it is still its own to answer, and counted.
+  if (!worker && (await inFirmHatWithNothing(caller, request))) {
+    return NextResponse.json({ data: { total: (await ownerAsksOf(caller)).items.length } })
+  }
   try {
     // Her facts in count-only mode: only what decides how many things need her.
-    const total = await owedTotal({ worker, facts: () => workerFacts(caller, request, undefined, { forCount: true }), needs: needsFor(request, caller) })
+    const owed = await owedTotal({ worker, facts: () => workerFacts(caller, request, undefined, { forCount: true }), needs: needsFor(request, caller) })
+    // A worker's greeting counts the Owner asks addressed to her beside her
+    // own cards, so the mark says what the greeting says. A firm seat's
+    // queue already carries them (`withOwnerAsks`), counted once.
+    const asks = worker && owed !== null ? (await ownerAsksOf(caller)).items.length : 0
+    const total = owed === null ? null : owed + asks
     return NextResponse.json({ data: { total } })
   } catch (err) {
     await reportError('Ask Etyme could not count what a seat owes', err, { path: '/api/conversations/twin', personId: caller.person.id, companyId: caller.company?.id })
@@ -826,11 +874,23 @@ async function workerGreeting(caller: Caller, request: NextRequest) {
     const hat = await hatFactsOf(caller, request)
     const own = youOffered(hat)
     const [allNotices, allThreads, facts] = await Promise.all([unreadNotices(caller), unreadThreads(caller), workerFacts(caller, request)])
-    const notices = own ? { ...allNotices, shown: noticesForHat(hat, 'you', allNotices.shown) } : allNotices
+    const owners = await ownerAsksOf(caller)
+    // An Owner ask addressed to this person is theirs to answer whatever
+    // their role (the Owner walk, 2026-11-12): it leads, as its card, and
+    // its notice is not said again under it.
+    const asked = new Set(owners.items.map((d) => d.entityId))
+    const hatNotices = own ? noticesForHat(hat, 'you', allNotices.shown) : allNotices.shown
+    const carded = hatNotices.filter((n) => n.entityId && asked.has(n.entityId))
+    const notices = { ...allNotices, shown: hatNotices.filter((n) => !(n.entityId && asked.has(n.entityId))) }
     const threads = own ? { shown: [], more: 0, noticeIds: [] } : allThreads
-    const answer = workerToday(facts, { greeting: true, notices, threads })
+    const answer = workerToday(facts, {
+      greeting: true, notices, threads,
+      ...(owners.items.length ? { owners: { lead: ownerAskLead(owners.items), cards: queueCards({ total: owners.items.length, items: owners.items }) } } : {}),
+    })
     await Promise.all([
       markNoticesSeen(caller, notices.shown.map((n) => n.id)),
+      // An Owner ask's notice, said as its card above, is read with the rest.
+      markNoticesSeen(caller, carded.map((n) => n.id)),
       // A colleague's paper held back is marked read with the rest, never said.
       markNoticesSeen(caller, [...allNotices.withheld]),
       markNoticesSeen(caller, threads.noticeIds),
@@ -857,12 +917,19 @@ async function nothingOfTheFirmGreeting(caller: Caller, request: NextRequest) {
     return NextResponse.json({ data: { thread: await saved } })
   }
   try {
-    const [hat, all, threads] = await Promise.all([hatFactsOf(caller, request), unreadNotices(caller), unreadThreads(caller)])
-    const shown = noticesForHat(hat, 'firm', all.shown)
+    const [hat, all, threads, owners] = await Promise.all([hatFactsOf(caller, request), unreadNotices(caller), unreadThreads(caller), ownerAsksOf(caller)])
+    // An Owner ask addressed to this seat is its own, whatever its desk:
+    // it leads, as a card, and its notice is not said again under it.
+    const asked = new Set(owners.items.map((d) => d.entityId))
+    const shown = noticesForHat(hat, 'firm', all.shown).filter((n) => !(n.entityId && asked.has(n.entityId)))
     const since = sinceSays(shown, all.older, { worker: false, threads: threads.shown, moreThreads: threads.more })
+    const lead = ownerAskLead(owners.items)
+    const cards = queueCards({ total: owners.items.length, items: owners.items })
     const answer: Answer = {
       kind: 'NEEDS', greeting: true, items: [],
-      says: nothingOfTheFirm(caller.company!.name, since.length > 0),
+      ...(lead ? { recommend: lead } : {}),
+      says: lead ? `${ownerAsksHeadline(owners.items.length)} Checked just now.` : nothingOfTheFirm(caller.company!.name, since.length > 0),
+      ...(cards.length ? { queue: cards } : {}),
       ...(since.length ? { more: since } : {}),
     }
     await markNoticesSeen(caller, [...shown.map((n) => n.id), ...all.withheld, ...threads.noticeIds])

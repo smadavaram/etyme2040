@@ -22,7 +22,8 @@ import { rate as rateSays } from '@/lib/money-display'
 import { payersBook } from '@/lib/money/payers-acceptance-read'
 import { firmsAcceptingOnlyFor } from '@/lib/money/own-firm-acceptance'
 import { disputedBillDecision } from './disputed-bill'
-import { receiptToPayDecision, heldReceiptDecision, bankHeldReceiptDecision, type BankHold } from './receipt-to-pay'
+import { receiptToPayDecision, heldReceiptDecision, bankHeldReceiptDecision, ownerWaitsReceiptDecision, type BankHold } from './receipt-to-pay'
+import { payWaitsAt } from '@/lib/money/pay-waits'
 import { mayPayFirm } from '@/lib/setup-gates'
 import { bankHoldAt } from '@/lib/money/bank-check-read'
 import { matchInvoices, payGate } from '@/lib/invoice-match'
@@ -49,6 +50,9 @@ import { readerScope } from '@/app/api/program/reader-scope'
 import { papersWaitingOn } from '@/lib/document-stages/arrived-papers'
 import { regionContracts } from '@/lib/region-scope'
 import { claimSays, currencyOfExpense, LINE_CURRENCY_SELECT } from '@/lib/expense-currency'
+import { asksAddressedTo } from '@/lib/owner-asks'
+import { ownerAskRow } from './owner-ask'
+import type { AskerAfter } from '@/lib/owner-rules'
 
 /**
  * GET /api/decisions
@@ -73,6 +77,7 @@ import { claimSays, currencyOfExpense, LINE_CURRENCY_SELECT } from '@/lib/expens
  *   TWIN_QUESTION      — the twin asked a person, and this seat may answer it
  *   START_HELD         — a client's start the paperwork will refuse on the day
  *   NO_AGREEMENT       — a client's supplier with people on site and no agreement on file
+ *   OWNER_ASK          — an ask about the company's Owners, waiting on this person's yes
  *
  * Each decision has: type, title, subtitle, urgency (HIGH|MEDIUM|LOW),
  * entityType, entityId, dueDate (if applicable), and actionUrl.
@@ -1137,6 +1142,12 @@ export async function GET(request: NextRequest) {
       return [{ inv, outstandingCents, vendorName: parties.vendor?.name ?? 'Your supplier', parties }]
     })
     const checked = await matchInvoices(payable.map((p) => p.inv.id))
+    // The Owner gate the payment route reads first (`payWaitsAt`): at a
+    // company still waiting for a verified Owner no receipt is Pay, and
+    // each says the gate's own sentence with its link instead. Read once,
+    // only where something would be paid; a read that fails holds nothing
+    // back, because the payment route still refuses in its own sentence.
+    const ownerWaits = payable.length > 0 ? await payWaitsAt(companyId).catch(() => null) : null
     // The bank gate the payment write reads (`mayPayFirm`), once per
     // supplier rather than once per receipt, and where it holds, money's
     // own sentence to this reader (`bankHoldAt`): who checks, or "Check
@@ -1163,6 +1174,15 @@ export async function GET(request: NextRequest) {
       const twinApprovalId = askedOn.get(inv.id) ?? null
       if (twinApprovalId) foldedQuestions.add(twinApprovalId)
       if (payGate(inv, match).ok) {
+        if (ownerWaits) {
+          decisions.push({
+            type: 'INVOICE_RECEIPT_HELD',
+            named: { whose: vendorName, what: 'held invoice receipt', whats: 'held invoice receipts' },
+            ...ownerWaitsReceiptDecision(receipt, ownerWaits, now),
+            twinApprovalId,
+          })
+          continue
+        }
         const payer = parties.client ?? caller.company
         const hold = payer && parties.vendor
           ? await bankHoldFor(
@@ -1302,6 +1322,33 @@ export async function GET(request: NextRequest) {
       amount: null,
       createdAt: new Date(`${askedOn.get(row.entityId) ?? now.toISOString().slice(0, 10)}T00:00:00Z`).toISOString(),
     })
+  }
+
+  // ── 10. An ask about the company's Owners, waiting on this person ──
+  //
+  // A pass of ownership, or an Owner's removal or move, waits seven days
+  // on one person's yes (lib/owner-rules). The person it waits on read it
+  // in Ask Etyme and on Owners, and not on Today, so the mark and Today
+  // disagreed by one while it waited. One row per ask addressed to the
+  // caller, read by the one reader the Owners route reads
+  // (`asksAddressedTo`), counted in the total; Ask Etyme adds no row the
+  // queue already carries (`withOwnerAsks`), so nothing is counted twice.
+  // A read that fails adds nothing rather than a guess.
+  const ownerAsks = await asksAddressedTo(caller.person.id, companyId).catch(() => [])
+  if (ownerAsks.length > 0) {
+    const facts = await prisma.ownershipRequest.findMany({
+      where: { id: { in: ownerAsks.map((a) => a.id) }, companyId },
+      select: { id: true, askedById: true, askerAfter: true, subjectContextId: true, toRole: { select: { name: true } } },
+    }).catch(() => [])
+    const byId = new Map(facts.map((f) => [f.id, f]))
+    for (const a of ownerAsks) {
+      const f = byId.get(a.id)
+      if (!f) continue
+      decisions.push(ownerAskRow(a, {
+        askedById: f.askedById, askerAfter: (f.askerAfter ?? null) as AskerAfter | null,
+        subjectContextId: f.subjectContextId, toRoleName: f.toRole?.name ?? null,
+      }, caller.person.id, now))
+    }
   }
 
   // ── Sort by urgency, then by created date ─────────

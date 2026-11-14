@@ -8,8 +8,9 @@ import { attemptDelivery, routeFor } from '@/lib/notification-delivery'
 import { configuredSenders } from '@/lib/senders'
 import { recordAccess, recordRefusal } from '@/lib/access-log'
 import { NOT_THE_SAMPLE_SEAT } from '@/lib/sample-seat'
-import { askTheDesk } from '@/lib/permissions'
+import { refusalFor, type CallerContext } from '@/lib/api-context'
 import { reportError } from '@/lib/alerts'
+import { failureFromNote, mailFailureSays } from '@/lib/notify/mail-failure'
 import {
   billLetter, billNotice, billLinkToken, billLinkUrl, billLinkExpiresAt, billLinkOpen,
   readBillLinkToken, billPageView, billPageInEtyme, billSentSays, deliverySays,
@@ -312,7 +313,7 @@ async function deliver(w: Read, a: { byPersonId: string | null; resend: boolean;
     if (written.length) {
       for (const n of written) {
         await deliverWritten(n.id)
-        to.push({ address: n.person.primaryEmail, via: 'ETYME', state: 'SENT', note: 'Shown in the app, and on their channel', name: n.person.name, role: n.role })
+        to.push({ address: n.person.primaryEmail, via: 'ETYME', state: 'SENT', note: await channelSaid(n.id), name: n.person.name, role: n.role })
       }
     } else {
       const seats = await payerSeats(payer.id)
@@ -320,12 +321,18 @@ async function deliver(w: Read, a: { byPersonId: string | null; resend: boolean;
       for (const s of seats) {
         // In the app and on the seat's own channel: Teams where the firm
         // set it up, email behind it (lib/notify routes it).
-        await notify({
-          personId: s.personId, companyId: payer.id, type: 'INVOICE', channel: 'EMAIL',
+        // Written, then its email or Teams message sent and waited on, so
+        // what is recorded is what happened on the channel, never a claim
+        // made before it was tried.
+        const notice = {
+          personId: s.personId, companyId: payer.id, type: 'INVOICE' as const, channel: 'EMAIL' as const,
           title: said.title, body: said.body, entityId: bill.id,
           data: { href: billPageInEtyme(bill.id), invoiceNumber: bill.number },
-        })
-        to.push({ address: s.person.primaryEmail, via: 'ETYME', state: 'SENT', note: 'Shown in the app, and on their channel', name: s.person.name, role: s.role?.name ?? null })
+        }
+        const row = await prisma.notification.create({ data: notificationRowFor(notice), select: { id: true } }).catch(() => null)
+        if (row) await deliverWritten(row.id)
+        else await notify(notice)
+        to.push({ address: s.person.primaryEmail, via: 'ETYME', state: 'SENT', note: row ? await channelSaid(row.id) : SHOWN_CHANNEL_UNREAD, name: s.person.name, role: s.role?.name ?? null })
       }
       if (seats.length === 0) why = `nobody at ${payer.name} can record a payment yet.`
     }
@@ -483,6 +490,34 @@ export function handedOn(read: BillRead | null | undefined, invoiceId: string): 
   return read && read.bill.id === invoiceId && read.bill.status === 'SUBMITTED' ? read : null
 }
 
+const SHOWN_CHANNEL_UNREAD = 'Shown in the app; what happened on their channel could not be read'
+
+/**
+ * What a payer's seat was told, read off the notice after its channel
+ * answered (fault 6 of the founder's Tapin walk, 2026-11-12): "Shown in
+ * the app, and sent on their channel" only where the channel took it;
+ * otherwise what stopped it, in Etyme's words, never the provider's.
+ */
+export function channelSays(state: string | null | undefined, note: string | null | undefined): string {
+  switch (state) {
+    case 'SENT':
+      return 'Shown in the app, and sent on their channel'
+    case 'FAILED':
+      return `Shown in the app; on their channel it did not go. ${mailFailureSays(failureFromNote(note))}`
+    case 'DEMO_SKIPPED':
+      return 'Shown in the app; a demo address, so nothing went on their channel'
+    case 'NOT_CONFIGURED':
+      return 'Shown in the app; nothing is set up to send on their channel'
+    default:
+      return 'Shown in the app; their channel has not answered yet'
+  }
+}
+
+async function channelSaid(notificationId: string): Promise<string> {
+  const row = await prisma.notification.findUnique({ where: { id: notificationId }, select: { deliveryState: true, deliveryNote: true } }).catch(() => null)
+  return row ? channelSays(row.deliveryState, row.deliveryNote) : SHOWN_CHANNEL_UNREAD
+}
+
 /**
  * Send a bill again: a separate act, by somebody at the firm that raised
  * it who sends bills, logged as `invoice.resent` with their name. Reads
@@ -493,6 +528,12 @@ export async function resendBillToCustomer(a: {
   invoiceId: string
   byPersonId: string
   companyId: string
+  /**
+   * Whether the person pressing is on a limited public-address seat
+   * (founder, 2026-11-11), from the route's caller. A refusal then says
+   * the address is why, through the one refusal (`refusalFor`).
+   */
+  publicSeat?: boolean
   now?: Date
 }): Promise<({ ok: true } & BillSent) | Refused> {
   const now = a.now ?? new Date()
@@ -509,8 +550,11 @@ export async function resendBillToCustomer(a: {
     select: { id: true },
   })
   if (!seat) {
-    const firm = await prisma.company.findUnique({ where: { id: a.companyId }, select: { kind: true, name: true } })
-    return { ok: false, status: 403, code: 'FORBIDDEN', says: askTheDesk({ doing: 'Sending a bill again', needs: 'invoices.issue', kind: firm?.kind, companyName: firm?.name }) }
+    const firm: CallerContext['company'] = await prisma.company.findUnique({
+      where: { id: a.companyId },
+      select: { id: true, name: true, slug: true, kind: true, outsideAccess: true, accountWalls: true, isDemo: true },
+    })
+    return { ok: false, status: 403, code: 'FORBIDDEN', says: refusalFor({ publicSeat: a.publicSeat ?? false, company: firm }, { doing: 'Sending a bill again', needs: 'invoices.issue' }) }
   }
   const n = w.bill.number
   if (w.bill.status === 'DRAFT' || w.bill.status === 'ISSUED') {

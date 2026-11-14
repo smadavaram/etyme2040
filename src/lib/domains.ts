@@ -416,6 +416,11 @@ export const DOMAINS: Domain[] = [
       // hasPermission, the plain words and the dialog's fields. Read by the
       // one caller check; the scoped reads are each domain's.
       'lib/permission-grants',
+      // Who owns a company (founder, 2026-11-11): the Owner rules, Pass
+      // ownership, and the two proofs that earn the Owner seat at a company
+      // formed from 2026-11-12. The gate's refusals at money's, contracts'
+      // and regulatory's routes are theirs to call.
+      'lib/owner-rules', 'lib/owner-proof', 'lib/owner-asks', 'lib/owner-gate', 'components/owner-gate-line',
       // The one door to a seat's saved Ask Etyme conversation (founder,
       // 2026-10-18): the caller's own thread at the caller's own company,
       // and nobody else's. The route and the screen over it are
@@ -674,9 +679,12 @@ export const DOMAINS: Domain[] = [
       'lib/cycle-shift',
       'lib/company-defaults', 'lib/company-roles', 'lib/company-domains', 'lib/domains-owned',
       'lib/registrable-domain', 'lib/account-lifecycle',
+      // One reader of a company's seats, and how people join a company,
+      // said from what the code does (2026-11-12).
+      'lib/company-seats', 'lib/join-words',
       'lib/service-accounts', 'lib/import-mapper', 'lib/importable',
       'lib/loop', 'lib/agent-run', 'lib/demo-seed', 'lib/demo-chain', 'lib/demo-volume', 'lib/demo-seed-client',
-      'lib/demo-seed-consultant', 'lib/demo-session',
+      'lib/demo-seed-consultant', 'lib/demo-session', 'lib/reserved-address',
       // Which desks the demo door can open at a seeded firm, and the
       // sentence it says when the one asked for is not held.
       'lib/demo-desks',

@@ -7,6 +7,9 @@ import { notAtACompany } from '@/app/api/people/not-at-a-company'
 import { readAgreementTerms, mayRecordAgreement } from '@/lib/money/agreement-record'
 import { AGREEMENT_TERMS_SELECT, termsFor } from '@/lib/money/order-terms'
 import { currentTerms, ensureBaseline, recordVersion } from '@/app/api/program/agreements/trail'
+import { standingWith } from '@/app/api/companies/positions'
+import { workTogether } from '@/lib/company-create'
+import { recordRefusal } from '@/lib/access-log'
 
 const RHYTHM_WORDS: Record<string, string> = {
   WEEKLY: 'weekly', BIWEEKLY: 'every other week', SEMIMONTHLY: 'twice a month', MONTHLY: 'monthly',
@@ -99,44 +102,49 @@ export async function POST(request: NextRequest) {
   const [mine, other] = await Promise.all([
     prisma.company.findUnique({ where: { id: me }, select: { id: true, name: true, currency: true } }),
     otherId
-      ? prisma.company.findUnique({ where: { id: otherId }, select: { id: true, name: true, claimedAt: true } })
+      ? prisma.company.findUnique({
+          where: { id: otherId },
+          select: { id: true, name: true, claimedAt: true, listedById: true, kind: true },
+        })
       : Promise.resolve(null),
   ])
   if (!mine) {
     return NextResponse.json({ error: { code: 'NO_COMPANY', message: notAtACompany('An agreement') } }, { status: 403 })
   }
 
-  // Whether the two already trade, either way round: an agreement, the
-  // register, an order, a contract, or a job one sent the other.
-  const relationshipExists = other
-    ? Boolean(
-        (await prisma.masterAgreement.findFirst({
-          where: { OR: [{ vendorId: me, clientId: other.id }, { vendorId: other.id, clientId: me }] },
-          select: { id: true },
-        })) ??
-          (await prisma.counterparty.findFirst({
-            where: { OR: [{ companyId: me, otherCompanyId: other.id }, { companyId: other.id, otherCompanyId: me }] },
-            select: { id: true },
-          })) ??
-          (await prisma.workOrder.findFirst({
-            where: { OR: [{ issuedById: me, issuedToId: other.id }, { issuedById: other.id, issuedToId: me }] },
-            select: { id: true },
-          })) ??
-          (await prisma.sellContract.findFirst({
-            where: { OR: [{ companyId: me, clientCompanyId: other.id }, { companyId: other.id, clientCompanyId: me }] },
-            select: { id: true },
-          })) ??
-          (await prisma.requirementInvitation.findFirst({
-            where: {
-              OR: [
-                { toCompanyId: me, requirement: { companyId: other.id } },
-                { toCompanyId: other.id, requirement: { companyId: me } },
-              ],
-            },
-            select: { id: true },
-          }))
-      )
+  // Whether the two already trade, read from both firms by the one shared
+  // reader: an agreement, an order, a contract, a job one sent the other,
+  // or the other firm's own register naming the caller. A register row the
+  // caller wrote itself never counts, so a firm on Etyme is never tied to
+  // the caller from the caller's side alone (review, 2026-11-13).
+  const relationshipExists = other ? await workTogether(me, other.id) : false
+  // Whether the caller keeps the firm on its own list: decides only whether
+  // a refusal may say its name.
+  const onMyList = other
+    ? Boolean(await prisma.counterparty.findFirst({ where: { companyId: me, otherCompanyId: other.id }, select: { id: true } }))
     : false
+  // Where the caller sells to a firm on Etyme, the agreement puts the caller
+  // on that firm's approved suppliers (`approvedSuppliersOf` in lib/sites),
+  // so the buying side has to show on theirs: an agreement naming them the
+  // client, their own register naming the caller as a supplier or a prime
+  // (the two words their approved list reads, `approvedSuppliersOf`), an
+  // order they issued to the caller, or a job they sent the caller. A sell line is not read: it can
+  // be written from the seller's side.
+  const buysFromCaller =
+    other && other.claimedAt != null && body.callerSells && relationshipExists
+      ? Boolean(
+          (await prisma.masterAgreement.findFirst({ where: { vendorId: me, clientId: other.id }, select: { id: true } })) ??
+            (await prisma.counterparty.findFirst({
+              where: { companyId: other.id, otherCompanyId: me, relationship: { in: ['SUPPLIER', 'PRIME'] } },
+              select: { id: true },
+            })) ??
+            (await prisma.workOrder.findFirst({ where: { issuedById: other.id, issuedToId: me }, select: { id: true } })) ??
+            (await prisma.requirementInvitation.findFirst({
+              where: { toCompanyId: me, requirement: { companyId: other.id } },
+              select: { id: true },
+            }))
+        )
+      : false
 
   const vendorId = body.callerSells ? me : otherId
   const clientId = body.callerSells ? otherId : me
@@ -152,17 +160,40 @@ export async function POST(request: NextRequest) {
       })
     : null
 
+  // Another firm's own record of a company is named only where real work
+  // lies between the two (`workTogether`, never a row the caller wrote
+  // alone), and a record of the caller's own only by the position it holds
+  // on the caller's register (`standingWith`), never by its Kind.
+  const worksTogether = relationshipExists
+  const held = other ? await standingWith(me, other) : null
+
   const verdict = mayRecordAgreement({
     caller: { id: mine.id, name: mine.name },
     other,
     callerSells: body.callerSells,
     relationshipExists,
+    onMyList,
+    buysFromCaller,
+    worksTogether,
+    held,
     existing: live
       ? { ...live, signatures: live._count.signatures, versions: live._count.versions }
       : null,
   })
   if (!verdict.ok) {
-    const status = verdict.says.includes('already on file') ? 409 : verdict.field === 'otherCompanyId' && other ? 403 : 422
+    // Written before the refusal is sent (CLAUDE.md, 2026-10-08). An id
+    // nothing has is a read of nobody, so there is no subject to log.
+    if (other) {
+      await recordRefusal([{ companyId: other.id }], {
+        actorPersonId: caller.isService ? undefined : caller.person.id,
+        actorCompanyId: me,
+        action: 'CONTRACT_VIEW',
+        reason: `Refused recording an agreement with a company: ${verdict.says}`,
+      })
+    }
+    // An id another firm keeps a record under is answered exactly as an id
+    // nothing has: the same words, the same code, the same status.
+    const status = verdict.unknown ? 422 : verdict.says.includes('already on file') ? 409 : verdict.field === 'otherCompanyId' && other ? 403 : 422
     return NextResponse.json({ error: { code: status === 409 ? 'DUPLICATE' : 'NOT_YOURS', message: verdict.says, field: verdict.field } }, { status })
   }
 

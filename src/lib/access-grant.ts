@@ -27,27 +27,109 @@
  * the cost of not doing it lands on somebody else years later.
  */
 
-import { hasPermission } from '@/lib/permissions'
+import { hasPermission, inWords, PERMISSIONS } from '@/lib/permissions'
 import { formatDay } from '@/lib/format-date'
+import { effectiveMode, isLimitedPublicSeat, narrowForPublicSeat, type CompanyPolicy, type EffectiveMode } from '@/lib/identity/policy'
+import { momentFor } from '@/lib/when'
+import { clause } from '@/lib/owner-rules'
+import { mailLeaves } from '@/lib/notify/mail-leaves'
+import { GRANT_LABELS } from '@/lib/permission-grants/words'
 
 export type GrantSensitivity = 'CRITICAL' | 'HIGH' | 'STANDARD' | 'READ_ONLY'
 
 /**
- * Permissions that decide who else gets in, or that move money. These are
- * the ones worth reaffirming often.
+ * Permissions that decide who else gets in. A role holding any is Critical.
+ * Exported so the legend on Users & permissions is read from the same list
+ * the level is computed from, and cannot drift (founder, 2026-11-12: "two
+ * unexplained systems on one row"). Names no permission catalog holds are
+ * kept for a role written before the catalog narrowed; they match nothing
+ * and are never said.
  */
-const CRITICAL = ['*', 'settings.manage', 'roles.manage', 'company.manage']
-const HIGH = [
+export const CRITICAL_PERMISSIONS: readonly string[] = ['*', 'settings.manage', 'roles.manage', 'company.manage']
+/** Permissions that move money, set rates, or end or extend a placement. A role holding any, and none of the above, is High. */
+export const HIGH_PERMISSIONS: readonly string[] = [
   'invoices.approve', 'invoices.issue', 'payments.record',
   'rates.write', 'assignments.write', 'assignments.terminate',
   'governance.write', 'compliance.write',
 ]
+const CRITICAL = CRITICAL_PERMISSIONS
+const HIGH = HIGH_PERMISSIONS
 
 export function sensitivityOf(permissions: string[]): GrantSensitivity {
   if (permissions.some(p => CRITICAL.includes(p))) return 'CRITICAL'
   if (permissions.some(p => HIGH.includes(p))) return 'HIGH'
   if (permissions.every(p => p.endsWith('.read'))) return 'READ_ONLY'
   return 'STANDARD'
+}
+
+// ── The level, said in words ───────────────────────────────────────────
+//
+// The founder, on Users & permissions at Tapin: each row showed a role
+// ("AP & Payroll") and beside it "high" or "critical" in lower case, with
+// nothing saying what either meant or how they relate. They are one
+// system: the level is read off what the role can do. So the level is
+// said in words, the chip says why in a sentence, and one legend says what
+// each level means, every line built from the two lists above and the
+// permission words Give access prints (`GRANT_LABELS`).
+
+/** The level as a person reads it. Never the enum. */
+export const LEVEL_LABEL: Record<GrantSensitivity, string> = {
+  CRITICAL: 'Critical', HIGH: 'High', STANDARD: 'Standard', READ_ONLY: 'Read only',
+}
+/** The chip on a seat that holds the Member role: it holds nothing yet. */
+export const NO_ROLE_LABEL = 'No role yet'
+
+/** What one permission lets somebody do, in Give access's words; '*' is everything. Null for a name the catalog does not hold. */
+function permissionSays(p: string): string | null {
+  if (p === '*') return 'do everything here'
+  return (GRANT_LABELS as Record<string, string>)[p] ?? null
+}
+
+/** "a, b or c". */
+function orList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  return `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}`
+}
+
+const said = (list: readonly string[]) => list.map(permissionSays).filter((w): w is string => Boolean(w))
+
+/**
+ * The legend above "Everyone with access", one short line per level,
+ * Critical first. Read from `CRITICAL_PERMISSIONS` and `HIGH_PERMISSIONS`
+ * through Give access's words, so a permission moved between the lists
+ * moves its words here in the same edit. Pure.
+ */
+export function levelLegend(): { key: GrantSensitivity | 'NO_ROLE'; label: string; says: string }[] {
+  return [
+    { key: 'CRITICAL', label: LEVEL_LABEL.CRITICAL, says: `A role that can ${orList(said(CRITICAL_PERMISSIONS))}, so it can change who has access.` },
+    { key: 'HIGH', label: LEVEL_LABEL.HIGH, says: `A role that can ${orList(said(HIGH_PERMISSIONS))}.` },
+    { key: 'STANDARD', label: LEVEL_LABEL.STANDARD, says: 'A role for everyday work that can do none of that.' },
+    { key: 'READ_ONLY', label: LEVEL_LABEL.READ_ONLY, says: 'A role that can look and change nothing.' },
+    { key: 'NO_ROLE', label: NO_ROLE_LABEL, says: 'Signed in with no role: they see their own pages and what is sent to them, until somebody gives them one.' },
+  ]
+}
+
+/**
+ * A seat's level and the sentence that says why, from its role's
+ * permissions: "Critical because this role can change company settings, so
+ * it can change who has access." The Member role, which holds nothing,
+ * reads "No role yet", never Standard or Read only. Pure.
+ */
+export function levelOf(roleName: string | null, permissions: readonly string[]): { key: GrantSensitivity | 'NO_ROLE'; label: string; why: string } {
+  if (!roleName || roleName === 'Member') {
+    return { key: 'NO_ROLE', label: NO_ROLE_LABEL, why: `${NO_ROLE_LABEL}: they see their own pages and what is sent to them, until somebody gives them a role.` }
+  }
+  const key = sensitivityOf([...permissions])
+  if (key === 'CRITICAL') {
+    const by = said(permissions.filter((p) => CRITICAL.includes(p)))
+    return { key, label: LEVEL_LABEL.CRITICAL, why: `Critical because this role can ${by[0] ?? 'change company settings'}, so it can change who has access.` }
+  }
+  if (key === 'HIGH') {
+    const by = said(permissions.filter((p) => HIGH.includes(p)))
+    return { key, label: LEVEL_LABEL.HIGH, why: `High because this role can ${orList(by.length ? by : ['move money or set rates'])}.` }
+  }
+  if (key === 'READ_ONLY') return { key, label: LEVEL_LABEL.READ_ONLY, why: 'Read only because this role can look and change nothing.' }
+  return { key, label: LEVEL_LABEL.STANDARD, why: 'Standard because this role does everyday work and cannot change who has access, move money or set rates.' }
 }
 
 /**
@@ -227,11 +309,20 @@ export interface AccessReviewItem {
 }
 
 /** Held this long with no use at all, and it was never needed. */
-const DORMANT_DAYS = 60
+export const DORMANT_DAYS = 60
 /** Used once, but not since. */
-const IDLE_DAYS = 120
+export const IDLE_DAYS = 120
 /** Close enough to expiry to warn somebody. */
-const EXPIRING_DAYS = 14
+export const EXPIRING_DAYS = 14
+
+/** A finding as a person reads it, never the enum ("dormant" was a system word). */
+export const FINDING_WORDS: Record<AccessFinding, string> = {
+  EXPIRED: 'ended',
+  DORMANT: 'never used',
+  IDLE: 'not used in a long while',
+  EXPIRING: 'ending soon',
+  HEALTHY: 'in use',
+}
 
 const days = (a: Date, b: Date) => Math.floor((a.getTime() - b.getTime()) / 86_400_000)
 
@@ -330,9 +421,131 @@ export function needsDecisionCount(
   review: { contextId: string }[],
   withAccess: { contextId: string; roleName: string }[],
 ): number {
+  return decisionSeats(review, withAccess).size
+}
+
+/**
+ * The seats "Needs a decision" counts, so the figure and the rows its
+ * filter shows are one set and cannot disagree. Pure.
+ */
+export function decisionSeats(
+  review: { contextId: string }[],
+  withAccess: { contextId: string; roleName: string }[],
+): Set<string> {
   const seats = new Set(review.map((r) => r.contextId))
   for (const s of withAccess) if (s.roleName === MEMBER_DESK) seats.add(s.contextId)
-  return seats.size
+  return seats
+}
+
+// ── The figures at the top of Users & permissions ──────────────────────
+//
+// The founder, 2026-11-12: every figure says what it counts and whose move
+// it is, in one line under the number, and a figure is a door to exactly
+// the rows it counted. One pure function says them, reading the same day
+// constants the review uses, so the words cannot say 60 where the rule
+// reads 90.
+
+/** Which rows a figure counts, as the query word in the page's address (`?show=invited`). */
+export type FigureKey = 'with-access' | 'invited' | 'waiting-for-role' | 'paused' | 'decision'
+export const FIGURE_KEYS: readonly FigureKey[] = ['with-access', 'invited', 'waiting-for-role', 'paused', 'decision']
+
+/** The parts of "Needs a decision", each seat once. */
+export interface DecisionParts { noRole: number; ended: number; neverUsed: number; notUsedLately: number; endingSoon: number }
+
+/**
+ * How the decision seats split: each review finding once (a seat has one
+ * finding), and a Member seat counted as "no role yet" only where the
+ * review has not already counted it, so the parts add up to the figure.
+ * Pure.
+ */
+export function decisionParts(
+  review: { contextId: string; finding: AccessFinding }[],
+  withAccess: { contextId: string; roleName: string }[],
+): DecisionParts {
+  const p: DecisionParts = { noRole: 0, ended: 0, neverUsed: 0, notUsedLately: 0, endingSoon: 0 }
+  const inReview = new Set<string>()
+  for (const r of review) {
+    if (inReview.has(r.contextId)) continue
+    inReview.add(r.contextId)
+    if (r.finding === 'EXPIRED') p.ended++
+    else if (r.finding === 'DORMANT') p.neverUsed++
+    else if (r.finding === 'IDLE') p.notUsedLately++
+    else if (r.finding === 'EXPIRING') p.endingSoon++
+  }
+  const members = new Set<string>()
+  for (const s of withAccess) if (s.roleName === MEMBER_DESK && !inReview.has(s.contextId)) members.add(s.contextId)
+  p.noRole = members.size
+  return p
+}
+
+/** "a, b and c". */
+function andList(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+export interface FigureWords {
+  key: FigureKey
+  label: string
+  value: number
+  /** The line under the number: what it counts, then whose move it is. */
+  says: string
+  /** Above the list while the figure filters it: "3 invited". */
+  showing: string
+}
+
+/**
+ * One figure's words, or null for a figure of zero, which is not drawn,
+ * except "With access", the baseline. Pure.
+ */
+export function figureWords(key: FigureKey, n: number, parts?: DecisionParts): FigureWords | null {
+  if (n <= 0 && key !== 'with-access') return null
+  const one = n === 1
+  switch (key) {
+    case 'with-access':
+      return {
+        key, label: 'With access', value: n,
+        says: n === 0 ? 'Nobody can sign in and work yet. Invite somebody above.' : `${n} can sign in and work. Nothing to do.`,
+        showing: `${n} with access`,
+      }
+    case 'invited':
+      return { key, label: 'Invited', value: n, says: `${n} invited, never signed in. Send the invitation again or withdraw it.`, showing: `${n} invited` }
+    case 'waiting-for-role':
+      return { key, label: 'Waiting for a role', value: n, says: `${n} signed in with no role. Give ${one ? 'them' : 'each'} a role.`, showing: `${n} waiting for a role` }
+    case 'paused':
+      return { key, label: 'Paused', value: n, says: `${n} paused, cannot sign in. Reinstate or end ${one ? 'the seat' : 'each seat'}.`, showing: `${n} paused` }
+    case 'decision': {
+      const p = parts ?? { noRole: 0, ended: 0, neverUsed: 0, notUsedLately: 0, endingSoon: 0 }
+      const named: string[] = []
+      if (p.noRole) named.push(`${p.noRole} with no role yet`)
+      if (p.neverUsed) named.push(`${p.neverUsed} never used in ${DORMANT_DAYS} days`)
+      if (p.notUsedLately) named.push(`${p.notUsedLately} not used in ${IDLE_DAYS} days`)
+      if (p.endingSoon) named.push(`${p.endingSoon} ending within ${EXPIRING_DAYS} days`)
+      if (p.ended) named.push(`${p.ended} ended`)
+      const what = named.length ? `: ${andList(named)}` : ''
+      return {
+        key, label: 'Needs a decision', value: n,
+        says: `${n} to decide${what}. Give a role, renew it or end it.`,
+        showing: `${n} that ${one ? 'needs' : 'need'} a decision`,
+      }
+    }
+  }
+}
+
+/** The figures to draw, in order, zeros left out except With access. Pure. */
+export function figuresFor(c: { withAccess: number; invited: number; waitingForRole: number; paused: number }, decisions: number, parts: DecisionParts): FigureWords[] {
+  return [
+    figureWords('with-access', c.withAccess),
+    figureWords('invited', c.invited),
+    figureWords('waiting-for-role', c.waitingForRole),
+    figureWords('paused', c.paused),
+    figureWords('decision', decisions, parts),
+  ].filter((f): f is FigureWords => f !== null)
+}
+
+/** The query word read back, or null for none or a word no figure has. */
+export function figureFromQuery(raw: string | null | undefined): FigureKey | null {
+  return raw && (FIGURE_KEYS as readonly string[]).includes(raw) ? raw as FigureKey : null
 }
 
 /**
@@ -476,7 +689,12 @@ export function deskChangedNotice(n: {
  */
 export const INVITE_LINK_HOURS = 72
 
-export type InviteDoor = 'PASSWORD' | 'WORK_ACCOUNT' | 'NONE'
+/**
+ * DIRECTORY: the company signs in through its own directory only, so the
+ * email names the directory and carries no set-password link at all: a
+ * password is a door that company has shut (founder, 2026-11-11).
+ */
+export type InviteDoor = 'PASSWORD' | 'WORK_ACCOUNT' | 'DIRECTORY' | 'NONE'
 
 export interface InviteLetter {
   door: InviteDoor
@@ -514,6 +732,16 @@ export function inviteLetter(l: InviteLetter): { lines: string[]; link: string |
       link: l.setPasswordUrl,
     }
   }
+  if (l.door === 'DIRECTORY') {
+    return {
+      lines: [
+        l.loginUrl
+          ? `Sign in at ${l.loginUrl} through ${l.companyName}’s company directory, with this email address. ${youAre}`
+          : `Sign in through ${l.companyName}’s company directory, with this email address. ${youAre}`,
+      ],
+      link: null,
+    }
+  }
   if (l.loginUrl) {
     return {
       lines: [
@@ -546,17 +774,37 @@ export function inviteLetter(l: InviteLetter): { lines: string[]; link: string |
 // to the email, and offers a sign-in address only to somebody who can
 // use it: a person who already has a password, or a work-account door.
 
-/** How the invitation email went: SENT, FAILED, or NOT_CONFIGURED (no provider here). */
-export type InviteMailState = 'SENT' | 'FAILED' | 'NOT_CONFIGURED'
+/**
+ * How the invitation email went: SENT, FAILED, NOT_CONFIGURED (no provider
+ * here), or DEMO_SKIPPED (a reserved demo address, never sent to).
+ */
+export type InviteMailState = 'SENT' | 'FAILED' | 'NOT_CONFIGURED' | 'DEMO_SKIPPED'
 
+/** What the inviter presses on a waiting row to email the same invitation once more. */
+export const SEND_AGAIN_LABEL = 'Send the invitation again'
+/** What the inviter presses to put a ready message, with no link that takes the seat, on the clipboard. */
+export const COPY_LABEL = 'Copy invitation'
+
+/**
+ * What the inviter is told, the same for every address (security review,
+ * 2026-11-12): whether the person already holds a password, signs in with
+ * a work account, or is new to Etyme decides only what the email itself
+ * says, never this sentence. A sentence that said "the email has a link to
+ * set their password" for one address and not another told the inviter
+ * which addresses already have an Etyme account. `personName` is what the
+ * inviter typed, else the address's own first part; never the name the
+ * record holds for somebody already on Etyme.
+ */
 export function inviteSays(i: {
   personName: string
   email: string
   roleName: string | null
-  door: InviteDoor
   mail: InviteMailState
-  /** The sign-in address, where this deployment knows it. */
-  login: string | null
+  /**
+   * Why the email did not leave, in Etyme's words (`mailFailureSays` in
+   * lib/notify/mail-failure), never the provider's. Read on FAILED.
+   */
+  reason?: string | null
 }): string {
   const head = i.roleName ? `${i.personName} has been invited as ${i.roleName}` : `${i.personName} has been invited`
   const seat = i.roleName
@@ -564,21 +812,179 @@ export function inviteSays(i: {
     : ' Give them a role when they arrive.'
 
   if (i.mail === 'SENT') {
-    return `${head} and emailed.${seat}${i.door === 'PASSWORD' ? ' The email has a link to set their password.' : ''}`
+    return `${head} and emailed.${seat} The email tells them how to sign in.`
   }
   if (i.mail === 'FAILED') {
-    return `${head}, and the email to ${i.email} did not go.${seat} Invite them again to send a new link.`
+    const why = i.reason ? ` ${i.reason}` : ''
+    return `${head}, and the email to ${i.email} did not go.${why}${seat} Press ${SEND_AGAIN_LABEL} on their row, or ${COPY_LABEL}.`
   }
-  // No email can leave this deployment.
-  if (i.door === 'PASSWORD') {
-    return `${head}.${seat} No email can be sent from here yet; the one-time link is kept with Etyme staff.`
+  if (i.mail === 'DEMO_SKIPPED') {
+    return `${head}.${seat} This is a demo address, so no email went to it. Press ${COPY_LABEL} on their row and send it to them yourself.`
   }
-  if (i.login) {
-    // They already hold a password, or sign in with their work account:
-    // the address is a door they can open.
-    return `${head}.${seat} No email can be sent from here yet, so send them the sign-in address yourself: ${i.login}.`
+  // No email can leave this deployment. One sentence for every address.
+  return `${head}.${seat} No email can be sent from here yet. Press ${COPY_LABEL} on their row and send it to them yourself; ` +
+    'where they have no password yet, Etyme staff hold a one-time link for them.'
+}
+
+/** The name an invitation is said under: what the inviter typed, else the address's first part. Never the record's. */
+export function invitedAs(typed: unknown, email: string): string {
+  const t = String(typed ?? '').trim()
+  return t || email.split('@')[0]
+}
+
+// ── Whether the invitation email left, on the reply and on every waiting row ──
+//
+// The founder, 2026-11-12: three invitations to Tapin each said "did not
+// go" and nothing else, and the reason was never on the row he came back
+// to. Each waiting row now reads its newest invitation email and says one
+// line about it, the reason in Etyme's words and what to do next.
+
+/** The newest invitation email for a seat, as the register reads it off the record. */
+export interface InviteMail {
+  state: InviteMailState | 'PENDING'
+  /** When it left; null where it did not. An ISO string on the wire. */
+  at: Date | string | null
+  /** Why it did not leave, in Etyme's words; null where it left. */
+  why: string | null
+}
+
+/**
+ * "Email sent Thu, Nov 12, 3:40 PM PST." or "Email not sent: <why> Copy
+ * the invitation, or send it again." The moment is printed in the reader's
+ * own zone (lib/when). Null where no invitation email is on the record.
+ */
+export function mailLine(m: InviteMail | null | undefined, zone: string | null): string | null {
+  if (!m) return null
+  if (m.state === 'SENT' && m.at) return `Email sent ${momentFor(new Date(m.at), zone)}.`
+  if (m.state === 'PENDING') return 'Email waiting to go.'
+  if (m.state === 'SENT') return 'Email sent.'
+  const why = m.why ?? (m.state === 'NOT_CONFIGURED' ? 'No email can be sent from here yet.' : 'It did not leave.')
+  const next = m.state === 'DEMO_SKIPPED' ? ''
+    : m.state === 'NOT_CONFIGURED' ? ' Copy the invitation and send it to them yourself.'
+      : ' Copy the invitation, or send it again.'
+  return `Email not sent: ${why}${next}`
+}
+
+// ── Copy invitation ────────────────────────────────────────────────────
+//
+// An invitation's one carrier was the email, so when the email failed the
+// founder wrote to his partners by hand. The copied message carries what
+// the seat needs and nothing that takes it: the seat is claimed only by a
+// sign-in at the invited address (Google and Microsoft vouch for the
+// address; a password reset proves the mailbox), so a plain sign-in link is
+// no secret. The one-time set-password link IS the seat, and it is never
+// put here, on a clipboard, a screen or a log.
+
+export interface CopyInvitation {
+  inviterName: string
+  companyName: string
+  roleName: string | null
+  email: string
+  /** The app's one address (lib/app-url `appUrl`), with no path. */
+  appUrl: string
+  /** The company's sign-in mode, read by the one policy function. */
+  mode: EffectiveMode
+  /** Whether an email can leave this deployment, so "Forgot your password?" can work. */
+  mailLeaves: boolean
+}
+
+/** The sign-in page with the address carried, so the box is filled. Never a token, never a seat id. */
+export function signInLinkFor(appUrl: string, email: string): string {
+  return `${appUrl.replace(/\/+$/, '')}/login?email=${encodeURIComponent(email.trim().toLowerCase())}`
+}
+
+/** The ready message "Copy invitation" puts on the clipboard. Pure. */
+export function copyInvitation(c: CopyInvitation): string {
+  const as = c.roleName ? ` as ${c.roleName}` : ''
+  const head = `${c.inviterName} invited you to ${c.companyName} on Etyme${as}.`
+  const link = signInLinkFor(c.appUrl, c.email)
+  if (c.mode === 'SSO_ONLY') {
+    return `${head} Open ${link} and sign in through ${c.companyName}’s company directory as ${c.email}.`
   }
-  return `${head}.${seat} No email can be sent from here yet, and this deployment does not know its own address. Send them the sign-in address yourself.`
+  const body = `${head} Open ${link} and continue with Google or Microsoft as ${c.email}, whichever your company uses.`
+  // "Forgot your password?" emails a link to a person a firm invited who
+  // has no password yet (lib/password-door `requestReset`: a live seat
+  // makes them an account), so it is offered only where mail can leave.
+  return c.mailLeaves
+    ? `${body} No Google or Microsoft account on that address? Choose Forgot your password? on that page and use the link we email you.`
+    : body
+}
+
+// ── Inviting several at once ───────────────────────────────────────────
+
+/** The most addresses one press of Invite takes. */
+export const MAX_ADDRESSES_AT_ONCE = 20
+/** The most invitation emails a company sends in an hour, first and again alike, counted from its automation log (`invitationsThisHour`). */
+export const INVITES_PER_HOUR = 60
+/** The most invitation emails one seat is sent in an hour, the first included. */
+export const SENDS_PER_SEAT_PER_HOUR = 3
+
+/**
+ * The addresses in a pasted list: one per line, or separated by commas or
+ * semicolons, lowercased, each once, in the order typed. What is not a
+ * whole address is returned apart, so it is said and never silently
+ * dropped. Pure.
+ */
+export function parseAddresses(raw: string | readonly string[]): { addresses: string[]; notAddresses: string[] } {
+  const parts = (Array.isArray(raw) ? raw : String(raw ?? '').split(/[\n,;]+/))
+    .map((p) => String(p).trim().replace(/^.*<([^>]+)>\s*$/, '$1').trim().toLowerCase())
+    .filter(Boolean)
+  const addresses: string[] = []
+  const notAddresses: string[] = []
+  for (const p of parts) {
+    if (!looksLikeAddress(p)) { if (!notAddresses.includes(p)) notAddresses.push(p); continue }
+    if (!addresses.includes(p)) addresses.push(p)
+  }
+  return { addresses, notAddresses }
+}
+
+/** The refusal for a list longer than one press takes. */
+export function tooManyAtOnceSays(n: number): string {
+  return `That is ${n} addresses. Invite at most ${MAX_ADDRESSES_AT_ONCE} at a time, then the rest.`
+}
+
+/** The refusal once a company has sent its hour's invitations, with when to try again in the reader's zone. */
+export function hourlyCapSays(again: Date, zone: string | null): string {
+  return `${INVITES_PER_HOUR} invitations have gone out from here in the last hour. Try again after ${momentFor(again, zone)}.`
+}
+
+/** The refusal once one seat has been emailed its hour's invitations. */
+export function seatCapSays(email: string, again: Date, zone: string | null): string {
+  return `${email} was emailed ${SENDS_PER_SEAT_PER_HOUR} times in the last hour. ${COPY_LABEL} and send it yourself, or send it again after ${momentFor(again, zone)}.`
+}
+
+/**
+ * The two hourly refusals, said in the reader's own zone. The route sends
+ * the moment as an instant (`again`, ISO) beside its sentence, because the
+ * server does not know the reader's zone and would print UTC while every
+ * other moment on the page is local: one moment, said one way. Null where
+ * the refusal is not one of these.
+ */
+export interface CapRefusal {
+  code?: unknown
+  again?: unknown
+  cap?: unknown
+  email?: unknown
+}
+export function capRefusalSays(err: CapRefusal | null | undefined, zone: string | null): string | null {
+  if (!err || err.code !== 'TOO_MANY_THIS_HOUR' || typeof err.again !== 'string') return null
+  const again = new Date(err.again)
+  if (Number.isNaN(again.getTime())) return null
+  if (err.cap === 'SEAT' && typeof err.email === 'string') return seatCapSays(err.email, again, zone)
+  if (err.cap === 'HOURLY') return hourlyCapSays(again, zone)
+  return null
+}
+
+/** What Send the invitation again says once it has run. */
+export function sentAgainSays(email: string, mail: InviteMailState, why: string | null): string {
+  if (mail === 'SENT') return `Sent again to ${email}. It is the same seat; nothing was duplicated.`
+  return `Not sent to ${email}: ${why ?? 'it did not leave.'} It is the same seat; nothing was duplicated. ${COPY_LABEL} and send it to them yourself.`
+}
+
+/** The refusal for an address already waiting on an invitation here. */
+export function alreadyInvitedSays(email: string, leaves: boolean = mailLeaves()): string {
+  // Where no email can leave, "email them once more" promises a letter that cannot go.
+  return `${email} is already invited here. Press ${SEND_AGAIN_LABEL} on their row ${leaves ? 'to email them once more' : 'to try sending again'}, or ${COPY_LABEL}.`
 }
 
 // ── What an outside firm's seat may never hold ─────────────────────────
@@ -643,4 +1049,108 @@ export function mayHoldOutsideSeat(input: {
       `${input.firmName} cannot hold ${input.clientName}’s ${input.role.name} role: ${why}. ` +
       `Choose the role it runs the program in, Program Manager most often.`,
   }
+}
+
+
+// ── The invitation form, in the company's own sign-in terms ────────────
+
+/** What the invitation form says, read from the company's sign-in policy. */
+export interface InviteForm {
+  /** The mode the one policy function reads; never sent to a reader who cannot manage people. */
+  mode: EffectiveMode
+  /** The label over the address box. */
+  emailLabel: string
+  /** One line under the box: who may be invited, and what follows. */
+  hint: string
+  /** Whether a personal address (Gmail and the rest) may be invited at all. */
+  personalWelcome: boolean
+}
+
+/**
+ * What a seat on a personal address cannot do at this company, in words,
+ * or null where the company does not limit one. Read from the one limit
+ * (`isLimitedPublicSeat` and `narrowForPublicSeat` in lib/identity/policy,
+ * which lib/api-context applies on every request), never retyped here.
+ */
+export function personalSeatCannot(policy: CompanyPolicy | null): string | null {
+  if (!isLimitedPublicSeat(policy, true)) return null
+  const keeps = new Set(narrowForPublicSeat(['*'], PERMISSIONS))
+  const withheld = PERMISSIONS.filter((p) => !keeps.has(p))
+  return withheld.length > 0 ? inWords(withheld) : null
+}
+
+/**
+ * The invitation form's label and hint, by the company's sign-in mode
+ * (founder, 2026-11-12: "Work email" told him a partner on Gmail could not
+ * be invited, when his company invites exactly that).
+ *
+ * - Directory only: an address on the company's own domain may still be
+ *   invited (the INVITE door allows it, lib/identity/policy `decideDoor`);
+ *   anybody else is added in the company's directory.
+ * - Invitation only, hybrid, or nothing set: any address, a personal one
+ *   welcome; where the company limits a seat on a personal address (hybrid),
+ *   the hint says what that seat cannot do, and where it does not, the hint
+ *   says the seat holds everything its role holds.
+ * - A one-person firm keeps the form it had.
+ */
+export function inviteFormWords(args: { policy: CompanyPolicy | null; domain: string | null; oneFirm: boolean }): InviteForm {
+  const mode = effectiveMode(args.policy)
+  if (args.oneFirm) {
+    return {
+      mode,
+      emailLabel: 'Work email',
+      hint: 'Where email can be sent from here, they get a link by email; the seat is theirs the moment they sign in.',
+      personalWelcome: mode !== 'SSO_ONLY',
+    }
+  }
+  if (mode === 'SSO_ONLY') {
+    return {
+      mode,
+      emailLabel: args.domain ? `Work email on ${args.domain}` : 'Work email',
+      hint: args.domain
+        ? `People outside ${args.domain} are added in your company’s directory, and appear here the first time they sign in.`
+        : 'People are added in your company’s directory, and appear here the first time they sign in.',
+      personalWelcome: false,
+    }
+  }
+  const cannot = personalSeatCannot(args.policy)
+  return {
+    mode,
+    emailLabel: 'Email address',
+    hint: cannot
+      ? `A company address, or a personal one such as Gmail for a partner. A seat on a personal address cannot ${cannot}.`
+      : `A company address, or a personal one such as Gmail for a partner. ${PERSONAL_SEAT_UNLIMITED}`,
+    personalWelcome: true,
+  }
+}
+
+/**
+ * Said where the company does not limit a seat on a personal address
+ * (invitation only, or nothing set): the record applies the limit at a
+ * hybrid company only (`isLimitedPublicSeat`), so the hint says the seat
+ * holds what its role holds and the Owner is not surprised later.
+ */
+export const PERSONAL_SEAT_UNLIMITED = 'A seat on a personal address can do everything its role can, money and signing included.'
+
+/** What the address box says when Invite is pressed with no whole address in it. */
+export const INVITE_ADDRESS_MISSING = 'Type the full address, like name@example.com.'
+
+/** Whether the box holds a whole address: the same test the invite route makes (lib/account-lifecycle `checkInvite`). */
+export function looksLikeAddress(raw: string): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw.trim())
+}
+
+
+// ── A paused seat, said to the person ─────────────────────────────────
+
+/**
+ * What a person whose seat is paused reads, on the refusal and on the page
+ * the refusal opens (the Owner walk, 2026-11-12: "…until she is back..
+ * Somebody there can lift it."). The reason is somebody's own words, and
+ * often ends in its own period, so it is joined through `clause`, which
+ * trims the reason's last stop: one period, always.
+ */
+export function pausedSays(companyName: string | null, reason: string | null): string {
+  const why = reason ? clause(reason) : ''
+  return `Your access at ${companyName ?? 'this company'} is paused${why ? `: ${why}` : ''}. Somebody there can lift it.`
 }

@@ -161,18 +161,21 @@ describe('Microsoft and Google, the alternative on both doors (founder, 2026-10-
     expect(companyAccounts(new Set(['credentials']))).toEqual([])
     expect(companyAccounts(null)).toEqual([])
     expect(companyAccounts(new Set(['credentials', 'azure-ad', 'google']))).toEqual(['Microsoft', 'Google'])
+    const { accountButtons } = await import('@/lib/login-doors')
+    expect(accountButtons(new Set(['credentials']), null)).toEqual([])
+    expect(accountButtons(new Set(['credentials', 'azure-ad', 'google', 'linkedin']), null)).toEqual(['google', 'microsoft', 'linkedin'])
     const doors = read('src/app/(auth)/account-doors.tsx')
-    expect(doors).toContain('if (companyAccounts(available).length === 0) return null')
-    expect(doors).toContain("offers(available, 'azure-ad') &&")
-    expect(doors).toContain("offers(available, 'google') &&")
+    expect(doors).toContain('if (drawn.length === 0) return null')
     const form = read('src/app/(auth)/signup/form.tsx')
     expect(form).toContain('const available = useKnownDoors()')
-    expect(form).toContain('{!claimToken && <AccountDoors available={available} callbackUrl="/start" />}')
+    expect(form).toContain('{!claimToken && <AccountButtons available={available} callbackUrl="/start" />}')
     // No sentence about missing keys on sign-up.
     expect(form).not.toContain('not set up on this deployment')
   })
 
-  it('the sign-in page and the sign-up page draw the same Microsoft and Google buttons, under the password form', () => {
+  it('the sign-in page and the sign-up page draw the same Google, Microsoft and LinkedIn buttons through one shared press', async () => {
+    // Since the evening of 2026-11-12 both pages draw the account buttons
+    // first and the email under "or use your email".
     const login = read('src/app/(auth)/login/page.tsx')
     const form = read('src/app/(auth)/signup/form.tsx')
     for (const page of [login, form]) {
@@ -180,13 +183,14 @@ describe('Microsoft and Google, the alternative on both doors (founder, 2026-10-
       expect(page).not.toContain("signIn('azure-ad'")
       expect(page).not.toContain("signIn('google'")
     }
-    expect(login.indexOf('onSubmit={signInWithPassword}')).toBeLessThan(login.indexOf('<AccountDoors'))
-    expect(form.indexOf('</form>')).toBeLessThan(form.indexOf('<AccountDoors'))
+    expect(login).toContain('<AccountButtons available={available}')
+    expect(form.indexOf('<AccountButtons')).toBeLessThan(form.indexOf('<form onSubmit={next}'))
+    expect(login.indexOf('<AccountButtons')).toBeLessThan(login.indexOf('<form className="space-y-3" onSubmit={askDoors}'))
     const doors = read('src/app/(auth)/account-doors.tsx')
-    expect(doors).toContain("signIn('azure-ad', { callbackUrl }, CHOOSE_ACCOUNT)")
-    expect(doors).toContain("signIn('google', { callbackUrl }, CHOOSE_ACCOUNT)")
-    expect(doors).toContain('Continue with Microsoft')
-    expect(doors).toContain('Continue with Google')
+    expect(doors).toContain('void signIn(providerOf(door), { callbackUrl }, chooserFor(email))')
+    const { continueWith } = await import('@/lib/login-doors')
+    expect(['google', 'microsoft', 'linkedin'].map((d) => continueWith(d as any))).toEqual(['Continue with Google', 'Continue with Microsoft', 'Continue with LinkedIn'])
+    expect(doors).toContain('continueWith(door)')
   })
 
   it('a Google sign-in is refused where Google has not confirmed the email, because the email is who the session is', async () => {
@@ -211,7 +215,7 @@ describe('Microsoft and Google, the alternative on both doors (founder, 2026-10-
     const { signInRefusal } = await import('@/lib/login-doors')
     expect(signInRefusal('EmailNotVerified')).toContain('has not confirmed that email address')
     expect(signInRefusal('NoEmail')).toContain('did not share an email address')
-    expect(signInRefusal('OAuthCallback')).toBe('That sign-in did not go through. Try again, or sign in with your email and password.')
+    expect(signInRefusal('OAuthCallback')).toBe('That sign-in did not finish. Try again.')
     expect(signInRefusal(null)).toBeNull()
     expect(read('src/lib/auth.ts')).toContain('if (refused) return `/login?error=${refused}`')
   })
@@ -219,7 +223,8 @@ describe('Microsoft and Google, the alternative on both doors (founder, 2026-10-
   it('a session carries one spelling of the email, so Sharath@Etyme.com and sharath@etyme.com are one person', async () => {
     const { sessionEmail, authOptions } = await import('@/lib/auth')
     expect(sessionEmail(' Sharath@Etyme.com ')).toBe('sharath@etyme.com')
-    const token = await authOptions.callbacks!.jwt!({ token: {}, user: { id: 'g-1', email: 'Sharath@Etyme.com' } } as any)
+    // The sign-in callback reads the session version first and hands it on (fault 4).
+    const token = await authOptions.callbacks!.jwt!({ token: {}, user: { id: 'g-1', email: 'Sharath@Etyme.com', sv: 0 } } as any)
     expect(token.email).toBe('sharath@etyme.com')
     expect(read('src/lib/api-context.ts')).toContain('const email = session.user.email.trim().toLowerCase()')
   })
@@ -237,16 +242,20 @@ describe('every sign-in door shows the account chooser (founder, 2026-10-20)', (
     process.env.GOOGLE_CLIENT_SECRET = 'g'
     expect(await chooserOn('google')).toBe('select_account')
     // The button asks for it too, so a sign-in started anywhere shows it.
-    expect(read('src/app/(auth)/account-doors.tsx')).toContain("signIn('google', { callbackUrl }, CHOOSE_ACCOUNT)")
-    const { CHOOSE_ACCOUNT } = await import('@/lib/login-doors')
+    expect(read('src/app/(auth)/account-doors.tsx')).toContain('void signIn(providerOf(door), { callbackUrl }, chooserFor(email))')
+    const { CHOOSE_ACCOUNT, chooserFor } = await import('@/lib/login-doors')
     expect(CHOOSE_ACCOUNT.prompt).toBe('select_account')
+    expect(chooserFor('sharath@etyme.com')).toEqual({ prompt: 'select_account', login_hint: 'sharath@etyme.com' })
+    expect(chooserFor('')).toEqual({ prompt: 'select_account' })
   })
 
   it('the Microsoft door always shows the account chooser, so somebody signed in to a personal Microsoft account can pick their work account', async () => {
     process.env.AZURE_AD_CLIENT_ID = 'm'
     process.env.AZURE_AD_CLIENT_SECRET = 'm'
     expect(await chooserOn('azure-ad')).toBe('select_account')
-    expect(read('src/app/(auth)/account-doors.tsx')).toContain("signIn('azure-ad', { callbackUrl }, CHOOSE_ACCOUNT)")
+    const { providerOf } = await import('@/lib/login-doors')
+    expect(providerOf('microsoft')).toBe('azure-ad')
+    expect(read('src/app/(auth)/account-doors.tsx')).toContain('void signIn(providerOf(door), { callbackUrl }, chooserFor(email))')
   })
 
   it('the first screen after sign-in says who you are signed in as and offers another account', async () => {
@@ -261,11 +270,90 @@ describe('every sign-in door shows the account chooser (founder, 2026-10-20)', (
     expect(read('src/app/(auth)/start/page.tsx')).toMatch(/<AnotherAccount[ \/]/)
   })
 
-  it('the sign-in page also says who is signed in and offers another account, and says so after signing out for one', async () => {
+  it('the sign-in page offers a signed-in browser Continue as and Use another account, and says so after signing out for one', async () => {
+    // Since 2026-11-12 the sign-in page draws one card for a signed-in
+    // browser, never the line beside a form (fault 2).
     const page = read('src/app/(auth)/login/page.tsx')
-    expect(page).toMatch(/<AnotherAccount[ \/]/)
+    expect(page).not.toMatch(/<AnotherAccount[ \/]/)
+    expect(page).toContain('{CONTINUE}')
+    expect(page).toContain('aria-label={`${CONTINUE} as ${signedIn}`}')
+    expect(page).toContain('signOut({ callbackUrl: AFTER_ANOTHER_ACCOUNT })')
     expect(page).toContain("params.get('another') === '1'")
     const { PICK_ANOTHER_ACCOUNT } = await import('@/lib/login-doors')
     expect(PICK_ANOTHER_ACCOUNT).toMatch(/^You are signed out\. Sign in with the account you want\./)
+  })
+})
+
+describe('a sign-in is given time to finish, and a failure says why to staff (fault 3, 2026-11-12)', () => {
+  const KEYS = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'AZURE_AD_CLIENT_ID', 'AZURE_AD_CLIENT_SECRET', 'LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET']
+  let saved: Record<string, string | undefined> = {}
+  beforeEach(() => {
+    saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]))
+    for (const k of KEYS) process.env[k] = 'k'
+  })
+  afterEach(() => {
+    for (const k of KEYS) (saved[k] === undefined ? delete process.env[k] : (process.env[k] = saved[k]))
+  })
+  const timeoutOf = async (id: string) => {
+    const mod = await import('@/lib/auth')
+    const p: any = mod.configuredProviders().find((x: any) => x.id === id)
+    return p?.options?.httpOptions?.timeout ?? p?.httpOptions?.timeout
+  }
+
+  it('a Google sign-in is given ten seconds, not three and a half, to finish talking to Google', async () => {
+    const { OAUTH_HTTP_TIMEOUT_MS } = await import('@/lib/auth')
+    expect(OAUTH_HTTP_TIMEOUT_MS).toBe(10_000)
+    expect(await timeoutOf('google')).toBe(10_000)
+  })
+
+  it('the Microsoft and LinkedIn sign-ins get the same ten seconds', async () => {
+    expect(await timeoutOf('azure-ad')).toBe(10_000)
+    expect(await timeoutOf('linkedin')).toBe(10_000)
+  })
+
+  it('a company directory’s calls wait the same ten seconds', () => {
+    expect(read('src/lib/identity/directory.ts')).toContain('signal: AbortSignal.timeout(OAUTH_HTTP_TIMEOUT_MS)')
+    expect(read('src/lib/identity/directory.ts')).not.toContain('AbortSignal.timeout(5000)')
+  })
+
+  it('the sign-in route and the directory’s two routes are given thirty seconds by the host', () => {
+    for (const f of ['src/app/api/auth/[...nextauth]/route.ts', 'src/app/api/sso/callback/route.ts', 'src/app/api/sso/start/route.ts']) {
+      expect(read(f), f).toContain('export const maxDuration = 30')
+    }
+  })
+
+  it('a failed provider callback is written to the incident log with the provider and the reason, and with no token, code, address or address domain in it', async () => {
+    const { signInFailureReport } = await import('@/lib/auth')
+    const timedOut = signInFailureReport('OAUTH_CALLBACK_ERROR', { error: { message: 'outgoing request timed out after 3500ms' }, providerId: 'google' })
+    expect(timedOut).toEqual({ place: 'Sign-in did not finish (OAUTH_CALLBACK_ERROR, google)', message: 'outgoing request timed out after 3500ms' })
+    const leaky = signInFailureReport('OAUTH_CALLBACK_ERROR', {
+      providerId: 'google',
+      message: 'invalid_grant for sharath@etyme.com code 4/0AeanS0ZxQb8wYk3pQm1TzLr9vUu2cXyHq state eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0',
+    })
+    expect(leaky.message).toContain('invalid_grant')
+    expect(leaky.message).toContain('[an address]')
+    expect(leaky.message).not.toContain('etyme.com')
+    expect(leaky.message).not.toContain('sharath@')
+    expect(leaky.message).not.toContain('4/0AeanS0ZxQb8wYk3pQm1TzLr9vUu2cXyHq')
+    expect(leaky.message).not.toContain('eyJhbGciOiJkaXIi')
+    expect(signInFailureReport('SIGNIN_OAUTH_ERROR', new Error('state cookie was missing')).message).toBe('state cookie was missing')
+  })
+
+  it('NextAuth’s own errors go to the incident log through reportError, never a token beside them', () => {
+    const src = read('src/lib/auth.ts')
+    expect(src).toContain('const r = signInFailureReport(String(code), metadata)')
+    expect(src).toContain('reportError(r.place, r.message)')
+  })
+
+  it('a stranger failing the provider callback again and again writes one incident row per place per hour, never one per try', async () => {
+    const { signInFailureOncePerHour } = await import('@/lib/auth')
+    const place = `Sign-in did not finish (TEST_${Math.random().toString(36).slice(2)})`
+    const t = Date.UTC(2026, 10, 12, 9)
+    // The first answer may read the incident log; with no database it still says first.
+    expect(await signInFailureOncePerHour(place, t)).toBe(true)
+    expect(await signInFailureOncePerHour(place, t + 1_000)).toBe(false)
+    expect(await signInFailureOncePerHour(place, t + 59 * 60_000)).toBe(false)
+    const src = read('src/lib/auth.ts')
+    expect(src.indexOf('signInFailureOncePerHour(r.place)')).toBeLessThan(src.indexOf('reportError(r.place, r.message)'))
   })
 })

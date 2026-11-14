@@ -21,6 +21,7 @@ import {
   rolesFor, packFor, countryFromDomain, primaryLocationName, payRhythmForPack, type CompanyKind,
 } from '@/lib/company-defaults'
 import { holidaysFor } from '@/lib/holidays'
+import { mayClaimRecorded } from '@/lib/counterparty'
 import { isPlatformDomain, isConsumerDomain, domainOfEmail } from '@/lib/company-domains'
 import { defaultPostureFor } from '@/lib/walls'
 import { writeFromRules } from '@/lib/site-voice'
@@ -51,6 +52,15 @@ export interface CreateCompanyInput {
   byPersonId: string
   /** Seat that person as Owner. False when recording a counterparty. */
   seatAsOwner: boolean
+  /**
+   * The proof rule (founder, 2026-11-11): the person who signs a company
+   * up is seated as Admin, not Owner, and Owner is earned by proof
+   * (lib/owner-proof). True at the three sign-up doors (the password door,
+   * the first sign-in, Add company). Every other caller, the seeded and
+   * generated worlds and the staff tool included, leaves it unset and makes
+   * the company exactly as before.
+   */
+  ownerProofRequired?: boolean
   /**
    * The firm writing a counterparty down, where that is how it began
    * (`Company.listedById`): the register it is on until somebody there
@@ -90,12 +100,17 @@ export interface CreateCompanyInput {
 export interface CreatedCompany {
   company: { id: string; name: string; slug: string; kind: CompanyKind; domain: string | null; siteLiveAt: Date | null; supplierPosture: string | null }
   roles: { id: string; name: string; permissions: string[] }[]
-  ownerRoleId: string
+  /** Null only for a company not classified yet, which has no roles. */
+  ownerRoleId: string | null
+  /** The founder's seat: the Owner's, or the Admin's under the proof rule. */
   ownerContextId: string | null
+  /** The role the founder was seated in. */
+  seatedAs: 'Owner' | 'Admin' | null
   templatePack: string
   country: string
   currency: string
   holidaysSeeded: number
+  /** Empty for a company not classified yet: nobody chose what it does. */
   siteTagline: string
 }
 
@@ -109,10 +124,18 @@ export interface CreatedCompany {
  */
 export async function createCompany(input: CreateCompanyInput, db: Db = prisma): Promise<CreatedCompany> {
   const name = input.name.trim()
+  // A company not classified yet (2026-11-12) is only ever a record another
+  // firm wrote down: nobody is seated at it, it claims no domain, holds no
+  // domain at all, and says nothing on a public page, whatever a caller
+  // passes. A record of a firm not on Etyme never seats anybody.
+  const recordOnly = input.kind === 'UNCLASSIFIED'
+  if (recordOnly && input.seatAsOwner) {
+    throw new Error('A company not classified yet is a record on another firm\'s list; nobody is seated at it.')
+  }
   // The last lock on Etyme's own domain: whatever a caller passes, no
   // company is made holding etyme.com or a name under it, and none claims
   // it (lib/company-domains, isPlatformDomain).
-  const domain = isPlatformDomain(input.domain) ? null : input.domain
+  const domain = recordOnly || isPlatformDomain(input.domain) ? null : input.domain
   const country = knownCountry(input.country) ?? countryFromDomain(domain)
   const currency = knownCurrency(input.currency) ?? currencyFor(country)
   const templatePack = packFor(input.kind, country)
@@ -172,17 +195,18 @@ export async function createCompany(input: CreateCompanyInput, db: Db = prisma):
       listedById: input.seatAsOwner ? null : input.listedById ?? null,
       isDemo: input.isDemo === true,
       networkVerifiedAt: null,
-      siteTagline: voice.tagline,
-      siteIntro: voice.intro,
-      siteHeadings: voice.headings as any,
-      siteWrittenBy: 'RULES',
-      siteWrittenAt: now,
+      // No words for a company nobody classified: a tagline for a business
+      // type nobody chose would read as a claim.
+      ...(recordOnly
+        ? {}
+        : { siteTagline: voice.tagline, siteIntro: voice.intro, siteHeadings: voice.headings as any, siteWrittenBy: 'RULES', siteWrittenAt: now }),
       ...(input.startsSetup ? { setupStartedAt: now, setupSteps: setupSteps as any } : {}),
+      ...(input.ownerProofRequired ? { ownerProofRequiredAt: now } : {}),
     },
     select: { id: true, name: true, slug: true, kind: true, domain: true, siteLiveAt: true, supplierPosture: true },
   })
 
-  if (input.claimDomain && domain) {
+  if (input.claimDomain && domain && !recordOnly) {
     const held = await db.companyDomain.findUnique({ where: { domain }, select: { id: true } })
     if (!held) {
       await db.companyDomain.create({
@@ -202,7 +226,10 @@ export async function createCompany(input: CreateCompanyInput, db: Db = prisma):
   }
 
   const roles: CreatedCompany['roles'] = []
-  for (const r of rolesFor(input.kind)) {
+  const proofRule = input.ownerProofRequired === true
+  // The founder's Admin is the full one until an Owner is verified, then
+  // narrowed in that same transaction (coordinator's call, 2026-11-12).
+  for (const r of rolesFor(input.kind, { foundingAdmin: proofRule })) {
     roles.push(
       await db.role.create({
         data: { companyId: company.id, name: r.name, permissions: [...r.permissions], isDefault: true },
@@ -210,13 +237,16 @@ export async function createCompany(input: CreateCompanyInput, db: Db = prisma):
       })
     )
   }
-  const ownerRoleId = roles.find((r) => r.name === 'Owner')!.id
+  const ownerRoleId = recordOnly ? null : roles.find((r) => r.name === 'Owner')!.id
+  // Under the proof rule the founder holds the Admin seat until both
+  // proofs stand; the Owner seat is earned (lib/owner-proof).
+  const firstRoleId = proofRule ? roles.find((r) => r.name === 'Admin')!.id : ownerRoleId
 
-  const ownerContextId = input.seatAsOwner
+  const ownerContextId = input.seatAsOwner && firstRoleId
     ? (
         await db.context.create({
           data: {
-            personId: input.byPersonId, type: 'EMPLOYEE', companyId: company.id, roleId: ownerRoleId,
+            personId: input.byPersonId, type: 'EMPLOYEE', companyId: company.id, roleId: firstRoleId,
             ...(input.createdAt ? { grantedAt: input.createdAt } : {}),
           },
           select: { id: true },
@@ -247,7 +277,8 @@ export async function createCompany(input: CreateCompanyInput, db: Db = prisma):
   // shift against. Elsewhere the company adds its own: seeding another
   // country's dates would look deliberate and nobody would check them.
   let holidaysSeeded = 0
-  if ((HOLIDAY_COUNTRIES as readonly string[]).includes(country)) {
+  // A company not classified yet has no dates to shift, so no calendar.
+  if (!recordOnly && (HOLIDAY_COUNTRIES as readonly string[]).includes(country)) {
     const thisYear = now.getUTCFullYear()
     const dates = [thisYear, thisYear + 1].flatMap((y) => holidaysFor(country, y) ?? [])
     const made = await db.holiday.createMany({
@@ -259,18 +290,21 @@ export async function createCompany(input: CreateCompanyInput, db: Db = prisma):
 
   // A worker who named this firm before it was on Etyme ("never send me to
   // them") has it on her list by its record from today (2026-10-27).
-  await honorNamedClientsAt(company.id, name, db)
+  // Never for a record only one firm can see: it would take the worker's
+  // named firm off the next company of that name that truly joins.
+  if (!recordOnly) await honorNamedClientsAt(company.id, name, db)
 
   return {
     company: { ...company, kind: company.kind as CompanyKind },
     roles,
     ownerRoleId,
     ownerContextId,
+    seatedAs: ownerContextId ? (proofRule ? 'Admin' : 'Owner') : null,
     templatePack,
     country,
     currency,
     holidaysSeeded,
-    siteTagline: voice.tagline,
+    siteTagline: recordOnly ? '' : voice.tagline,
   }
 }
 
@@ -449,7 +483,9 @@ export async function findFirmByWord(
 ): Promise<FirmByWord> {
   const typed = String(word ?? '').trim()
   if (typed.length < 2) return { ok: false, says: `Type the ${opts.kindWord}\u2019s name or its Etyme address.` }
-  const live = { claimedAt: { not: null }, isDemo: opts.isDemo === true, kind: { in: opts.kinds } } as const
+  // Never a company not classified yet: it is a record on one firm's list,
+  // and the claimed-only filter already keeps every unclaimed record out.
+  const live = { claimedAt: { not: null }, isDemo: opts.isDemo === true, kind: { in: opts.kinds.filter((k) => k !== 'UNCLASSIFIED') } } as const
   const pick = { id: true, name: true, slug: true, kind: true } as const
 
   const address = addressOf(typed)
@@ -528,10 +564,16 @@ export async function claimOrJoin(token: string, seat: SignedInSeat, db: PrismaC
       // Which world the record is in, read so the fold never crosses it. A
       // selection, spelled through READ so no line here reads as a sandbox
       // flag set on a company (sandbox-expiry.test.ts holds that).
-      company: { select: { id: true, name: true, claimedAt: true, isDemo: READ } },
+      company: { select: { id: true, name: true, kind: true, claimedAt: true, isDemo: READ } },
     },
   })
   if (!invite || invite.state === 'REVOKED' || invite.company.claimedAt) return { kind: 'CLAIM' }
+
+  // A record nobody has said the kind of is never folded into a firm and
+  // never claimed (2026-11-13): the claim route refuses it first, and any
+  // other caller is refused here in the same sentence.
+  const classified = mayClaimRecorded({ name: invite.company.name, kind: invite.company.kind })
+  if (!classified.ok) return { kind: 'REFUSED', says: classified.says }
 
   // The sign-in policy (founder, 2026-11-11): a claim link is a door like
   // any other, and a directory-only company's address, or a directory-only
@@ -665,23 +707,32 @@ async function companyForeignKeys(db: Db): Promise<{ table: string; column: stri
 
 /**
  * Whether two firms already work together on Etyme: an agreement, a row on
- * either's register, an order either way, a contract, or a job one sent
- * the other. The same five facts `POST /api/contracts` reads before it lets
- * a firm name another as its client, so linking a register row to a firm
- * on Etyme never opens a door the contract route keeps shut.
+ * the other firm's register naming the asker, an order either way, a
+ * contract, or a job the other firm sent the asker. The same facts `POST
+ * /api/contracts` reads before it lets a firm name another as its client,
+ * so linking a register row to a firm on Etyme never opens a door the
+ * contract route keeps shut.
+ *
+ * `aId` is the firm asking. Two things the asker wrote alone never count
+ * (review, 2026-11-13: a firm on Etyme is never tied to you from your side
+ * alone). A row on its own register is one side's own writing. A job the
+ * asker sent is too: an invitation is written by the sender only, so one
+ * send to a stranger would make the stranger "worked with" for the paste
+ * door, Extend and order naming. A row the other firm wrote naming the
+ * asker, or a job the other firm sent it, is the other firm's act and
+ * does; a trade-link yes writes both rows. Demand's `dealsWith`
+ * (api/suppliers/direct) reads the invitation the same way.
  */
 export async function workTogether(aId: string, bId: string, db: Db = prisma): Promise<boolean> {
   if (aId === bId) return false
   const either = <T extends string>(x: T, y: T) => [{ [x]: aId, [y]: bId }, { [x]: bId, [y]: aId }]
   const hit =
     (await db.masterAgreement.findFirst({ where: { OR: either('vendorId', 'clientId') }, select: { id: true } })) ??
-    (await db.counterparty.findFirst({ where: { OR: either('companyId', 'otherCompanyId') }, select: { id: true } })) ??
+    (await db.counterparty.findFirst({ where: { companyId: bId, otherCompanyId: aId }, select: { id: true } })) ??
     (await db.workOrder.findFirst({ where: { OR: either('issuedById', 'issuedToId') }, select: { id: true } })) ??
     (await db.sellContract.findFirst({ where: { OR: either('companyId', 'clientCompanyId') }, select: { id: true } })) ??
-    (await db.requirementInvitation.findFirst({
-      where: { OR: [{ toCompanyId: aId, requirement: { companyId: bId } }, { toCompanyId: bId, requirement: { companyId: aId } }] },
-      select: { id: true },
-    }))
+    // Only a job the other firm sent the asker: never the asker's own send.
+    (await db.requirementInvitation.findFirst({ where: { toCompanyId: aId, requirement: { companyId: bId } }, select: { id: true } }))
   return hit !== null
 }
 
@@ -697,7 +748,9 @@ export async function workTogether(aId: string, bId: string, db: Db = prisma): P
 async function honorNamedClientsAt(companyId: string, name: string, db: Db): Promise<number> {
   const wanted = name.trim()
   if (!wanted) return 0
-  if ((await db.company.count({ where: { name: { equals: wanted, mode: 'insensitive' } } })) !== 1) return 0
+  // A firm's record nobody has classified yet is not a company on Etyme,
+  // so it never makes two of one name (the rule honorNamedClients keeps).
+  if ((await db.company.count({ where: { name: { equals: wanted, mode: 'insensitive' }, kind: { not: 'UNCLASSIFIED' } } })) !== 1) return 0
   const named = await db.doNotSubmit.findMany({
     where: { companyId: null, companyName: { equals: wanted, mode: 'insensitive' } },
     select: { id: true, personId: true },

@@ -10,6 +10,7 @@ import { fromUnits } from '@/lib/money-display'
 import { fromDecimal, fromPrismaDecimal, toDecimal } from '@/lib/money'
 import { recordInvoicePayment, emitInvoicePaid, type InvoicePaymentResult } from '@/lib/money/invoice-payment'
 import { matchInvoice, payGate, receiptStateRefusal } from '@/lib/invoice-match'
+import { logPaymentRefused, refusalWhy } from '@/lib/money/payment-refused'
 
 /**
  * POST /api/invoices/:id/payments
@@ -174,6 +175,15 @@ export async function POST(
     const byState = receiptStateRefusal(invoice)
     const gate = byState ?? payGate(invoice, await matchInvoice(id))
     if (!gate.ok) {
+      // The three-way check saying no is kept before it is said; a
+      // document not yet submitted or on hold is its state, not a refusal.
+      const why = refusalWhy(gate.code)
+      if (why) {
+        await logPaymentRefused({
+          companyId: billedTo.id, byPersonId: caller.person.id, door: 'INVOICE_PAY', why,
+          says: gate.says, invoiceId: id, number: invoice.number,
+        })
+      }
       return NextResponse.json({ error: { code: gate.code, message: gate.says } }, { status: 409 })
     }
   }
@@ -216,6 +226,7 @@ export async function POST(
 
   if (!recorded.ok) {
     const status = recorded.code === 'NOT_FOUND' ? 404
+      : recorded.code === 'OWNER_NOT_VERIFIED' ? 403
       : recorded.code === 'INVALID_STATE' || recorded.code === 'BANK_NOT_CHECKED' ? 409 : 422
     return NextResponse.json(
       {
@@ -223,14 +234,17 @@ export async function POST(
           code: recorded.code, message: recorded.says,
           ...(recorded.field ? { field: recorded.field } : {}),
           ...(recorded.step ? { step: recorded.step } : {}),
+          ...(recorded.href ? { href: recorded.href } : {}),
         },
       },
       { status }
     )
   }
 
-  // Committed: only now does the world hear the invoice was paid.
-  void emitInvoicePaid(recorded)
+  // Committed: only now does the world hear the invoice was paid, and the
+  // supplier is told, once (lib/money/paid-notice). Awaited, so a retry a
+  // moment later finds the notice already written and tells nobody again.
+  await emitInvoicePaid(recorded).catch((err) => reportError('Telling a payment failed:', err))
 
   const result = recorded.payment
   const totalNum = toDecimal({ minor: recorded.invoice.totalCents, currency: invoice.currency })

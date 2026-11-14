@@ -36,7 +36,8 @@
  * decides.
  */
 
-import type { SupplierStanding } from '@/lib/counterparty'
+import type { SupplierStanding, Position, HeldWith } from '@/lib/counterparty'
+import { lacksPosition } from '@/lib/counterparty'
 import { domainOfEmail, isConsumerDomain } from '@/lib/company-domains'
 
 export interface CompanyStanding {
@@ -48,6 +49,12 @@ export interface CompanyStanding {
   listedById?: string | null
   /** Its Etyme address, where it has one worth printing. */
   slug?: string | null
+  /**
+   * What kind of company it is, where the caller read it. A company of
+   * kind UNCLASSIFIED (recorded, not classified yet) is named on a contract
+   * or an order only once it holds that position with the caller.
+   */
+  kind?: string | null
 }
 
 /** On the register, not on the system. */
@@ -160,6 +167,24 @@ export function mayList(input: {
 // ═════════════════════════════════════════════════════════════════════
 
 /**
+ * What a firm is told when it names, by id, a company it has nothing to
+ * do with: the same sentence as an id that does not exist. Echoing the
+ * stored name would tell the caller that another firm holds a record of
+ * that company, or that a firm by that id is on Etyme, and the caller
+ * never typed either (review, 2026-11-13). The step is the same either
+ * way: add them from Companies, which asks a firm on Etyme to link and
+ * makes the caller its own record of one that is not.
+ */
+export function notYoursToNameSays(as: 'client' | 'supplier'): string {
+  return `We could not find that ${as}. Add them from Companies first; they do not need to be on Etyme.`
+}
+
+/** A company another firm recorded and nobody has claimed: that firm's record, not the caller's. */
+function anotherFirmsRecord(c: CompanyStanding, me: string): boolean {
+  return isShell(c) && c.listedById != null && c.listedById !== me
+}
+
+/**
  * May this firm write this order?
  *
  * A work order has a buyer and a seller. The buyer ordinarily raises it
@@ -191,8 +216,46 @@ export function mayWriteOrder(input: {
    * named in the matrix as owed rather than read as a yes.
    */
   sellerStanding?: SupplierStanding
+  /**
+   * What the buyer is to the caller on the caller's own register
+   * (`positionsOf`), where the caller is the seller recording the order
+   * its client handed it. Read only for a buyer of kind UNCLASSIFIED: a
+   * company the caller recorded and has not extended to Customer is
+   * never named as the client on an order (founder, 2026-11-12).
+   */
+  buyerPositions?: readonly Position[]
+  /**
+   * Where the buyer, or the seller, sits with the caller, read by
+   * `standingWith` in app/api/companies/positions. Passed for every record
+   * of the caller's own, whatever its Kind: a record given a Kind and no
+   * position is still not classified (review, 2026-11-13).
+   */
+  buyerHeld?: HeldWith | null
+  sellerHeld?: HeldWith | null
 }): Verdict & { recordedById: string; onBehalf: boolean } {
   const { callerCompanyId: me, buyer, seller } = input
+
+  // A company not classified yet is on the caller's Companies list and
+  // nothing more: named on an order only once it holds the position.
+  const buyerRead = input.buyerHeld ?? (input.buyerPositions ? { positions: input.buyerPositions, notClassified: false, recorded: false } : null)
+  if (me === seller.id && lacksPosition(buyerRead, buyer.kind, ['CUSTOMER'])) {
+    return {
+      ok: false, recordedById: me, onBehalf: false,
+      says: `${buyer.name} is on your Companies list and is not classified yet. Extend it to Customer first.`,
+    }
+  }
+  if (me === buyer.id && input.sellerHeld && lacksPosition(input.sellerHeld, seller.kind, ['SUPPLIER', 'PRIME'])) {
+    return {
+      ok: false, recordedById: me, onBehalf: false,
+      says: `${seller.name} is on your Companies list and is not classified yet. Extend it to Supplier first.`,
+    }
+  }
+  if (me === buyer.id && seller.kind === 'UNCLASSIFIED' && input.sellerStanding !== 'SUPPLIER') {
+    return {
+      ok: false, recordedById: me, onBehalf: false,
+      says: `${seller.name} is on your Companies list and is not classified yet. Extend it to Supplier first.`,
+    }
+  }
 
   if (buyer.id === seller.id) {
     return {
@@ -213,6 +276,9 @@ export function mayWriteOrder(input: {
           `${buyer.name} has blocked ${seller.name}, so no new purchase order can go to them. ` +
           `Lift the block on the suppliers page first if that is what you mean to do.`,
       }
+    }
+    if (input.sellerStanding === 'NONE' && anotherFirmsRecord(seller, me)) {
+      return { ok: false, recordedById: me, onBehalf: false, says: notYoursToNameSays('supplier') }
     }
     if (input.sellerStanding === 'NONE') {
       return {
@@ -289,11 +355,43 @@ export function mayNameCounterparty(input: {
   relationshipExists: boolean
   /** What the other firm is to the caller, in the caller's words. */
   as: 'client' | 'supplier'
+  /**
+   * What the other firm is to the caller on its own register
+   * (`positionsOf` in lib/counterparty). Read only for a company not
+   * classified yet; a caller that does not pass it names none of those.
+   */
+  positions?: readonly Position[]
+  /**
+   * Where the other firm sits with the caller (`standingWith`), passed for
+   * every record of the caller's own whatever its Kind, so a record given
+   * a Kind and no position is still refused (review, 2026-11-13).
+   */
+  held?: HeldWith | null
 }): Verdict {
   const { callerCompanyId: me, other } = input
 
   if (other.id === me) {
     return { ok: false, says: `A firm cannot be its own ${input.as}.` }
+  }
+
+  // A company recorded and not classified yet holds a position only by
+  // its own register row (founder, 2026-11-12): never named as a client or
+  // a supplier on a contract or an order before it is extended to one.
+  // Decided from the register, never from the Kind.
+  const need: Position[] = input.as === 'client' ? ['CUSTOMER'] : ['SUPPLIER', 'PRIME']
+  const read = input.held ?? (input.positions ? { positions: input.positions, notClassified: false, recorded: false } : null)
+  if (lacksPosition(read, other.kind, need)) {
+    const held = read?.positions ?? []
+    const step = input.as === 'client' ? 'Customer' : 'Supplier'
+    if (other.listedById != null && other.listedById !== me && !input.relationshipExists) {
+      return { ok: false, says: notYoursToNameSays(input.as) }
+    }
+    return {
+      ok: false,
+      says: held.length === 0
+        ? `${other.name} is on your Companies list and is not classified yet. Extend it to ${step} first.`
+        : `${other.name} is on your Companies list but is not your ${input.as} yet. Extend it to ${step} first.`,
+    }
   }
 
   if (isShell(other)) {
@@ -309,25 +407,16 @@ export function mayNameCounterparty(input: {
         says: `${other.name} is not on Etyme. This is your own record of them until they join.`,
       }
     }
-    return {
-      ok: false,
-      says:
-        `${other.name} is on another firm's register, not yours, and has nothing on file with you. ` +
-        `Put them on your own register as your ${input.as} — that makes your own record of them.`,
-    }
+    return { ok: false, says: notYoursToNameSays(input.as) }
   }
 
   if (input.relationshipExists) {
     return { ok: true, says: `${other.name} is on Etyme and already works with you.` }
   }
 
-  return {
-    ok: false,
-    says:
-      `${other.name} is on Etyme and has nothing on file with you. A firm cannot name ` +
-      `another as its ${input.as} without them — ask them to add you, or invite them to ` +
-      `the deal, and it is theirs to accept.`,
-  }
+  // A firm on Etyme with nothing between the two: named back by nothing,
+  // the same as an id that is not there. Companies asks them to link.
+  return { ok: false, says: notYoursToNameSays(input.as) }
 }
 
 // ═════════════════════════════════════════════════════════════════════

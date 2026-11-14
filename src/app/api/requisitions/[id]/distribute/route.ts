@@ -4,11 +4,15 @@ import { prisma } from '@/lib/db'
 import { descendants } from '@/lib/org-tree'
 import { mayDistribute } from '@/lib/requisition-approval'
 import { seatFor, actingInSeat } from '@/lib/program-seat'
-import { reachedOnlyThrough } from '@/app/api/suppliers/direct'
+import { reachedOnlyThrough, dealsWith } from '@/app/api/suppliers/direct'
 import { siteSuppliers } from '@/lib/sites'
 import { mayFillAtSite } from '@/lib/site-rules'
 import { sendJobTo, type VendorBand } from '../../send'
 import { maySendJob } from '../../who-sends'
+import { recordRefusal } from '@/lib/access-log'
+import { mayBeSentJob, notYourSupplierSays, SENDS_A_JOB_TO } from '@/lib/supplier-list'
+import { isMine } from '@/lib/counterparty'
+import { positionsFor } from '@/app/api/companies/positions'
 
 /**
  * POST /api/requisitions/:id/distribute
@@ -175,23 +179,99 @@ export async function POST(
   const strangers = vendorIds.filter(v => belowAPrime.has(v))
   if (strangers.length > 0) {
     return NextResponse.json(
-      {
-        error: {
-          code: 'NOT_YOUR_SUPPLIER',
-          message:
-            `${strangers.length === 1 ? 'One of the firms you picked is' : `${strangers.length} of the firms you picked are`} ` +
-            `not a supplier of ${requisition.company.name}, so this job request cannot be sent to ${strangers.length === 1 ? 'it' : 'them'}. ` +
-            'Send it to the suppliers you buy from, or add the firm as a supplier of your own first.',
-        },
-      },
+      { error: { code: 'NOT_YOUR_SUPPLIER', message: notYourSupplierSays(strangers.length, requisition.company.name) } },
       { status: 403 }
     )
   }
-  const vendorCompanies = await prisma.company.findMany({
-    where: { id: { in: vendorIds } },
-    select: { id: true, name: true },
-  })
-  const vendorMap = new Map(vendorCompanies.map(c => [c.id, c]))
+  const [vendorCompanies, registerRows] = await Promise.all([
+    prisma.company.findMany({
+      where: { id: { in: vendorIds } },
+      select: { id: true, name: true, kind: true, claimedAt: true, listedById: true },
+    }),
+    prisma.counterparty.findMany({
+      where: { companyId: requisition.companyId, otherCompanyId: { in: vendorIds } },
+      select: { otherCompanyId: true, relationship: true },
+    }),
+  ])
+  const vendorMap = new Map(vendorCompanies.map(c => [c.id, { id: c.id, name: c.name }]))
+
+  // ── Only a firm the raising company already deals with ─────────────
+  //
+  // Review, 2026-11-13: a job sent here writes an invitation with a rate
+  // band on the other firm's books and tells its people, and an
+  // invitation is one of the facts that make two firms "work together".
+  // So a firm named by id that the raising company does not deal with
+  // (`dealsWith`: its own register as a supplier or prime, an agreement,
+  // the firm's register naming it, an order, a contract, or a job either
+  // way) is refused, and refused exactly as an id that is not there: the
+  // same sentence, naming nobody, so the answer confirms nothing about a
+  // firm the caller does not know. A firm the raising company recorded
+  // itself is its own list's to decide (`mayBeSentJob`, below).
+  const dealt = await dealsWith(
+    requisition.companyId,
+    vendorCompanies.filter((c) => !isMine(c, requisition.companyId)).map((c) => c.id),
+    SENDS_A_JOB_TO,
+  )
+  const notDealt = vendorCompanies.filter((c) => !isMine(c, requisition.companyId) && !dealt.has(c.id))
+  const unknown = vendorIds.filter((v) => !vendorMap.has(v))
+  if (notDealt.length > 0 || unknown.length > 0) {
+    const n = notDealt.length + unknown.length
+    const says = notYourSupplierSays(n, requisition.company.name)
+    if (unknown.length > 0) {
+      await recordRefusal([{ companyId: requisition.companyId }], {
+        actorPersonId: caller.person.id,
+        actorCompanyId: caller.company?.id,
+        action: 'CONTRACT_VIEW',
+        reason: `Refused to send ${requisition.title} to ${unknown.length === 1 ? 'a company id' : `${unknown.length} company ids`} not on Etyme: ${says}`,
+      })
+    }
+    if (notDealt.length > 0) {
+      await recordRefusal(notDealt.map((c) => ({ companyId: c.id })), {
+        actorPersonId: caller.person.id,
+        actorCompanyId: caller.company?.id,
+        action: 'CONTRACT_VIEW',
+        reason: `Refused to send ${requisition.title} to ${notDealt.map((c) => c.name).join(', ')}, ${notDealt.length === 1 ? 'a firm' : 'firms'} ${requisition.company.name} does not deal with: ${says}`,
+      })
+    }
+    return NextResponse.json({ error: { code: 'NOT_YOUR_SUPPLIER', message: says, field: 'vendors' } }, { status: 403 })
+  }
+
+  // Never a company on the Companies list that holds no position (the
+  // neutral Company, 2026-11-12): it is a record, and a job goes to it
+  // only once it is extended to Supplier, which writes the register row
+  // read here. Decided from the register, never from the Kind: a record
+  // given a Kind and no position is still not a supplier (review,
+  // 2026-11-13). Only the raising company's own records and companies of
+  // Kind not classified are read; every other firm reads as before. The
+  // refusal names it and the step, logged first.
+  const heldBy = await positionsFor(
+    requisition.companyId,
+    vendorCompanies.filter((c) => isMine(c, requisition.companyId) || c.kind === 'UNCLASSIFIED'),
+  )
+  for (const c of vendorCompanies) {
+    const may = mayBeSentJob(
+      c,
+      registerRows.filter((r) => r.otherCompanyId === c.id).map((r) => r.relationship),
+      heldBy.get(c.id) ?? null,
+    )
+    if (!may.ok) {
+      // Another firm's record is never named: it is that firm's list.
+      const says =
+        c.listedById === requisition.companyId
+          ? may.says
+          : `One of the firms you picked is not a supplier of ${requisition.company.name}, so this job request cannot be sent to it. Send it to the suppliers you buy from.`
+      await recordRefusal([{ companyId: c.id }], {
+        actorPersonId: caller.person.id,
+        actorCompanyId: caller.company?.id,
+        action: 'CONTRACT_VIEW',
+        reason: `Refused to send ${requisition.title} to ${c.name}: ${says}`,
+      })
+      return NextResponse.json(
+        { error: { code: 'NOT_CLASSIFIED', message: says, field: 'vendors' } },
+        { status: 403 }
+      )
+    }
+  }
 
   // Only the suppliers Procurement cleared. An empty list means it
   // cleared by rule and every approved supplier is eligible; a named
@@ -240,14 +320,6 @@ export async function POST(
         )
       }
     }
-  }
-
-  const missing = vendorIds.filter(vid => !vendorMap.has(vid))
-  if (missing.length > 0) {
-    return NextResponse.json(
-      { error: { code: 'NOT_FOUND', message: `Unknown companies: ${missing.join(', ')}` } },
-      { status: 404 }
-    )
   }
 
   // A fortnight unless somebody says otherwise, and never a date that has

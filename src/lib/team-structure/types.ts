@@ -6,7 +6,13 @@ import type { RollUp } from './tree'
  * writes (lib/team-structure/read).
  */
 
-export interface SeatName { contextId: string; name: string; role: string | null }
+export interface SeatName {
+  contextId: string
+  name: string
+  role: string | null
+  /** The address the person signs in with, where the seat has one; shown under the name on the plain list. */
+  email?: string | null
+}
 export interface ContractorName { sellContractId: string; personId: string; name: string; job: string | null; supplier: string; onSite: boolean }
 
 export interface BoxRead {
@@ -36,6 +42,8 @@ export interface TreeRead {
   unplaced: SeatName[]
   /** Every live seat, for the lead and person pickers. */
   seats: SeatName[]
+  /** The company's people counted, in words: "6 people: 3 with access · 3 invited". */
+  peopleSays: string
   limitMonths: number | null
   lastChange: { id: string; says: string; by: string | null; at: string; yours: boolean } | null
   /** The people named on the screen, for the access log. */

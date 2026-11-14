@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   andAll,
   defaultPostureFor,
@@ -30,12 +32,17 @@ describe('where a company starts', () => {
   })
 
   it('closes a delivery firm to all but named people', () => {
-    // Infosys. Thirty thousand engineers, a contractor desk of nine.
+    // A large integrator: thirty thousand engineers, and nine people who buy contractors.
     expect(defaultPostureFor('GSI')).toBe('NAMED_ONLY')
   })
 
   it('closes an enterprise the same way', () => {
     expect(defaultPostureFor('CLIENT')).toBe('NAMED_ONLY')
+  })
+
+  it('closes a company nobody has said the kind of yet, on purpose rather than by falling through', () => {
+    expect(defaultPostureFor('UNCLASSIFIED')).toBe('NAMED_ONLY')
+    expect(readFileSync(join(__dirname, '../../src/lib/walls.ts'), 'utf8')).toMatch(/case 'UNCLASSIFIED':/)
   })
 
   it('closes anything it does not recognize', () => {

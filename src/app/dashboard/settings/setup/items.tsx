@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { readJson } from '@/lib/read-response'
+import { OwnerGateLine } from '@/components/owner-gate-line'
+import { refusalLine, type OwnerLine } from '@/lib/owner-gate'
 import { Check, Field, FormMessage, Input, Select, SubmitButton, Textarea } from '@/components/ui'
 import { WeekPanel } from '@/components/settings/week-panel'
 import { PayrollPanel } from '@/components/settings/payroll-panel'
 import { InviteTeammate } from '@/components/invite-teammate'
+import { ConnectDomain } from '../domain/connect-domain'
 import { ENTITY_TYPES, W9_LINE, type ItemKey, type ItemWords, type ChecklistRow } from '@/lib/setup-checklist'
 
 /**
@@ -46,7 +49,9 @@ interface Props {
 }
 
 /** The frame every item shares, and the two buttons. */
-function Frame({ item, place, read, onDone, save, children, saveLabel = 'Save and continue', noSave = false }: Props & {
+function Frame({ item, place, read, onDone, save, children, saveLabel = 'Save and continue', noSave = false, doneLine }: Props & {
+  /** The item is finished for good (Prove ownership once verified): this sentence, and no buttons, stamp or skip warning. */
+  doneLine?: string | null
   /** The body to PUT, or null where Save only records the item done. */
   save: (() => unknown) | null
   children: ReactNode
@@ -57,14 +62,21 @@ function Frame({ item, place, read, onDone, save, children, saveLabel = 'Save an
   const w = read.words[item]
   const [busy, setBusy] = useState<'SAVE' | 'SKIP' | null>(null)
   const [said, setSaid] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  // A refusal that names a step (the Owner gate) keeps its link.
+  const [saidLine, setSaidLine] = useState<OwnerLine | null>(null)
 
   async function send(kind: 'SAVE' | 'SKIP') {
-    setBusy(kind); setSaid(null)
+    setBusy(kind); setSaid(null); setSaidLine(null)
     try {
       const path = PATH[item]
       const res = kind === 'SAVE' && save && path
         ? await fetch(`/api/settings/setup/${path}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(save()) })
         : await fetch('/api/settings/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item, outcome: kind === 'SAVE' ? 'DONE' : 'SKIPPED' }) })
+      if (!res.ok) {
+        const body = await res.clone().json().catch(() => null)
+        const line = body?.error?.href ? refusalLine(body.error) : null
+        if (line) { setSaidLine(line); return }
+      }
       const j = await readJson(res)
       if (j.data?.says) setSaid({ tone: 'ok', text: j.data.says })
       onDone(j.data)
@@ -80,16 +92,19 @@ function Frame({ item, place, read, onDone, save, children, saveLabel = 'Save an
       <div>
         <p className="text-[10px] uppercase tracking-[0.09em] text-etyme-muted">{place}</p>
         <h2 className="mt-1.5 font-serif text-[24px] tracking-[-0.02em] text-etyme-ink">{w.label}</h2>
-        <p className="mt-1 text-[13.5px] text-etyme-muted">{w.sub}</p>
+        <p className="mt-1 text-[13.5px] text-etyme-muted">{doneLine == null ? w.sub : doneLine}</p>
       </div>
       {children}
+      {doneLine == null && <>
       <div className="flex flex-wrap items-center gap-2.5 pt-2">
         {!noSave && <SubmitButton type="button" pending={busy === 'SAVE'} pendingLabel="Saving…" disabled={busy !== null} onClick={() => send('SAVE')}>{saveLabel}</SubmitButton>}
         <SubmitButton type="button" tone="secondary" pending={busy === 'SKIP'} pendingLabel="Skipping…" disabled={busy !== null} onClick={() => send('SKIP')}>Skip for now</SubmitButton>
       </div>
       {said && <FormMessage tone={said.tone}>{said.text}</FormMessage>}
+      {saidLine && <div role="alert"><OwnerGateLine line={saidLine} className="text-etyme-ink" /></div>}
       <p className="text-[12.5px] text-etyme-muted">{w.skipStops}</p>
       <p className="text-[12px] text-etyme-faint">{read.stamps[item]}</p>
+      </>}
     </section>
   )
 }
@@ -114,6 +129,7 @@ export function ItemBody(p: Props) {
     case 'COMPANIES': return <CompaniesItem {...p} />
     case 'TEAM': return <TeamItem {...p} />
     case 'DOMAIN': return <DomainItem {...p} />
+    case 'OWNERSHIP': return <OwnershipItem {...p} />
     case 'INTEGRATIONS': return <IntegrationsItem {...p} />
     case 'FORWARDING': return <ForwardingItem {...p} />
   }
@@ -451,6 +467,7 @@ function BankItem(p: Props) {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value })
   return (
     <Frame {...p} save={() => ({ ...f, accountNumber: f.accountNumber || d.last4, routingNumber: f.routingNumber || d.routingLast4 })}>
+      <OwnerGateLine line={d.waits} />
       {d.shows && (
         <p className="text-[13.5px] text-etyme-ink">
           {d.shows}
@@ -493,7 +510,7 @@ function TeamItem(p: Props) {
   const d = p.read.detail.TEAM
   return (
     <Frame {...p} save={null}>
-      <p className="text-[13px] text-etyme-muted">{d.seats} {d.seats === 1 ? 'person is' : 'people are'} seated here.</p>
+      <p className="text-[13px] text-etyme-muted">{d.says ?? `${d.seats} ${d.seats === 1 ? 'person is' : 'people are'} seated here.`}</p>
       <InviteTeammate onInvited={() => p.onReload()} />
     </Frame>
   )
@@ -503,36 +520,76 @@ function TeamItem(p: Props) {
 
 function DomainItem(p: Props) {
   const d = p.read.detail.DOMAIN
-  const [domain, setDomain] = useState<string>(d.suggested)
-  const [said, setSaid] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
-  async function act(body: any) {
-    setSaid(null)
-    try {
-      const j = await readJson(await fetch('/api/settings/setup/domain', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }))
-      setSaid({ tone: 'ok', text: j.data.says ?? 'Saved.' })
-      p.onDone(j.data)
-    } catch (e: any) { setSaid({ tone: 'error', text: e.message }) }
-  }
   const verified = d.claims.some((c: any) => c.verified)
+  // The same screen as Settings → Your domain, one DNS proof behind both.
   return (
     <Frame {...p} save={null} saveLabel={verified ? 'Save and continue' : 'Continue without it'}>
-      {d.claims.map((c: any) => (
-        <div key={c.domain} className="space-y-1 border-b border-etyme-rule py-2">
-          <p className="text-[13.5px] text-etyme-ink">{c.domain} · <span className={c.verified ? 'text-etyme-verified' : 'text-etyme-attention'}>{c.verified ? 'verified' : 'not verified yet'}</span></p>
-          {c.record && (
-            <>
-              <p className="text-[12.5px] text-etyme-muted">Add this TXT record to your DNS, then check.</p>
-              <p className="break-all font-mono text-[12px] text-etyme-ink">{c.record.name}<br />{c.record.value}</p>
-              <SubmitButton type="button" tone="secondary" onClick={() => act({ action: 'CHECK', id: c.id })}>Check now</SubmitButton>
-            </>
+      <ConnectDomain suggested={d.suggested} onChanged={(data) => p.onDone(data)} />
+    </Frame>
+  )
+}
+
+// ── Prove ownership ──────────────────────────────────────────────────
+
+/**
+ * The two proofs that make the company's first Admin its verified Owner
+ * (founder, 2026-11-11): the domain and the person. The item reads the
+ * caller's own proofs from /api/settings/owner-proof and offers "Become
+ * Owner" only where both stand; it is done only once the company has a
+ * verified Owner, so until then it can only be skipped.
+ */
+function OwnershipItem(p: Props) {
+  const [proof, setProof] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  const [said, setSaid] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  async function load() {
+    try {
+      const j = await readJson(await fetch('/api/settings/owner-proof'))
+      setProof(j.data)
+    } catch (e: any) { setSaid({ tone: 'error', text: e.message }) }
+  }
+  useEffect(() => { load() }, [])
+  async function become() {
+    setBusy(true); setSaid(null)
+    try {
+      const j = await readJson(await fetch('/api/settings/owner-proof', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'become-owner' }) }))
+      setSaid({ tone: 'ok', text: j.data?.message ?? 'Done.' })
+      p.onReload()
+      load()
+    } catch (e: any) { setSaid({ tone: 'error', text: e.message }) } finally { setBusy(false) }
+  }
+  const verified = p.read.detail.OWNERSHIP?.verified === true
+  // Verified: who the Owner is, since when and on which result, and no
+  // proofs, stamp, skip warning or buttons (screen walk on df3074094).
+  if (verified) {
+    return (
+      <Frame {...p} save={null} doneLine={proof?.doneSays ?? 'Reading who the Owner is…'}>
+        {said && <FormMessage tone={said.tone}>{said.text}</FormMessage>}
+      </Frame>
+    )
+  }
+  return (
+    <Frame {...p} save={null} noSave>
+      {!proof ? (
+        <p className="text-[13px] text-etyme-muted">Reading your proofs…</p>
+      ) : (
+        <>
+          <p className="text-[13px] text-etyme-ink">{proof.line}</p>
+          {proof.needsDomain && (
+            <div className="space-y-1">
+              <Lbl>Your domain</Lbl>
+              <p className={`text-[13.5px] ${proof.domain.done ? 'text-etyme-verified' : 'text-etyme-ink'}`}>{proof.domain.says}</p>
+            </div>
           )}
-        </div>
-      ))}
-      {!verified && !d.claims.some((c: any) => c.record) && (
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Your domain"><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="tapin.com" /></Field>
-          <SubmitButton type="button" tone="secondary" disabled={!domain.trim()} onClick={() => act({ action: 'CLAIM', domain })}>Get the record</SubmitButton>
-        </div>
+          <div className="space-y-1">
+            <Lbl>Your identity</Lbl>
+            <p className={`text-[13.5px] ${proof.person.done ? 'text-etyme-verified' : 'text-etyme-ink'}`}>{proof.person.says}</p>
+          </div>
+          {proof.offer && (
+            <SubmitButton type="button" pending={busy} pendingLabel="Recording…" onClick={become}>{proof.offer}</SubmitButton>
+          )}
+          {proof.says && <p className="text-[12.5px] text-etyme-muted">{proof.says}</p>}
+        </>
       )}
       {said && <FormMessage tone={said.tone}>{said.text}</FormMessage>}
     </Frame>

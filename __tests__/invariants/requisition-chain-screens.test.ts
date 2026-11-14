@@ -26,6 +26,7 @@ import { rowActions } from '@/app/dashboard/requisitions/row-actions'
 import { readFileSync } from 'fs'
 import { transformSync } from 'esbuild'
 import { join } from 'path'
+import { seatsFrom, peopleOf, countSeats, peopleWords } from '@/lib/company-seats'
 import { evaluateRequisition, type ApprovalRuleFacts, type RequisitionFacts } from '@/lib/requisition-approval'
 import {
   DESKS,
@@ -600,8 +601,12 @@ describe('the shared sample seat on the requisition pickers', () => {
   // that seat out where they read who is at the company.
   it('the shared sample is never offered as a requisition owner, approver or panel member', () => {
     const team = code(read('src/app/api/program/team/route.ts'))
-    expect(team).toContain("import { NOT_THE_SAMPLE_SEAT } from '@/lib/sample-seat'")
-    expect(team).toMatch(/prisma\.context\.findMany\(\{\s*where: \{ companyId, revokedAt: null, NOT: \{ roleId: null \}, \.\.\.NOT_THE_SAMPLE_SEAT \}/)
+    // Since 2026-11-12 the route reads the one reader of seats Users &
+    // permissions reads, and `peopleOf` is what leaves the sample out
+    // (and a consultant on the books), so the two screens count alike.
+    expect(team).toContain("import { readCompanySeats, peopleOf, countSeats, peopleWords } from '@/lib/company-seats'")
+    expect(team).toContain('readCompanySeats(companyId).then(peopleOf)')
+    expect(team).not.toMatch(/prisma\.context\.findMany/)
     // The pickers read that route and no other list of people.
     for (const page of [LIST_PAGE, DETAIL_PAGE]) expect(page).toContain("fetch('/api/program/team')")
     // A desk asked by permission on a supplier's walk is not the sample either.
@@ -609,5 +614,62 @@ describe('the shared sample seat on the requisition pickers', () => {
     // An Owner's `*` counts as the permission (2026-10-20), and the sample
     // is still left out of the same query.
     expect(desks).toMatch(/permissions: \{ hasSome: \[permission, '\*'\] \} \}, \.\.\.NOT_THE_SAMPLE_SEAT/)
+  })
+})
+
+describe('Program team counts who has a seat the way Users & permissions does', () => {
+  it('Program team reads the one reader of seats, so a seat with no role yet is counted and the two screens agree', () => {
+    const team = code(read('src/app/api/program/team/route.ts'))
+    expect(team).toContain('readCompanySeats(companyId).then(peopleOf)')
+    expect(team).not.toContain('NOT: { roleId: null }')
+    expect(team).toContain('peopleSays: peopleWords(countSeats(seats))')
+  })
+
+  it('Program team says how many people have a seat, and marks a seat invited or paused', () => {
+    const page = read('src/app/dashboard/program/team/page.tsx')
+    expect(page).toContain('{team.peopleSays && ')
+    expect(page).toContain("p.state === 'INVITED'")
+    expect(page).toContain("p.state === 'PAUSED'")
+  })
+
+  it('Program team names each person by the one seat reader, so a shared sign-in reads as its address and a role word is never printed as a person', () => {
+    const team = code(read('src/app/api/program/team/route.ts'))
+    expect(team).toContain('const seatName = new Map(seats.map((s) => [s.personId, s.name]))')
+    expect(team).toContain("person: { id: s.personId, name: s.name, primaryEmail: s.email ?? '' }")
+    // Every other place a person is named on the page reads the same name.
+    expect(team).toContain('approver: named(r.approver) }))')
+    expect(team).toContain('name: named(lead.approver).name')
+    expect(team).toContain('approver: named(r.approver),')
+    expect(team).toContain('owner: namedOrNull(c.owner),')
+    // The page prints only what the route named; it never reads a stored name itself.
+    const page = read('src/app/dashboard/program/team/page.tsx')
+    expect(page).not.toContain('prisma')
+    expect(page).toContain('{p.person.name}')
+  })
+
+  it('at Tapin the timesheets@ seat reads as its address, and Program team counts as many people as the seat reader holds', () => {
+    const at = new Date('2026-11-01T00:00:00Z')
+    const row = (id: string, name: string, email: string, role: string | null, signedIn: boolean) => ({
+      id, personId: `p-${id}`, type: 'EMPLOYEE', roleId: role ? `r-${id}` : null, orgUnitId: null, grantedAt: at,
+      invitedAt: at, lastUsedAt: signedIn ? at : null, suspendedAt: null, revokedAt: null,
+      role: role ? { name: role } : null,
+      person: { name, primaryEmail: email, credentials: signedIn ? [{ id: `c-${id}` }] : [] },
+    })
+    const seats = peopleOf(seatsFrom([
+      row('1', 'Sharath', 'sharath@tapin.example', 'Owner', true),
+      row('2', 'Timesheets', 'timesheets@tapin.example', 'AP & Payroll', true),
+      row('3', 'Tapin', 'hradmin@tapin.example', 'HR', false),
+    ], 'Tapin'))
+    const names = seats.map((s) => s.name)
+    expect(names).toContain('timesheets@tapin.example')
+    expect(names).not.toContain('Timesheets')
+    expect(names).not.toContain('Tapin')
+    // The page's rows are the seats, one each, so its sentence is the reader's count.
+    expect(peopleWords(countSeats(seats))).toBe(peopleWords(countSeats(seatsFrom([
+      row('1', 'Sharath', 'sharath@tapin.example', 'Owner', true),
+      row('2', 'Timesheets', 'timesheets@tapin.example', 'AP & Payroll', true),
+      row('3', 'Tapin', 'hradmin@tapin.example', 'HR', false),
+    ], 'Tapin'))))
+    expect(seats).toHaveLength(3)
   })
 })

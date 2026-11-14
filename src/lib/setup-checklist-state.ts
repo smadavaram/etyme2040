@@ -22,6 +22,7 @@ import { readRecord } from '@/lib/setup-steps'
 import { PARTIES_OF } from '@/lib/document-stages/required-sets'
 import { intakeLive } from '@/lib/email-intake/live'
 import { NOT_DONE_UNTIL_ON } from '@/lib/setup-forwarding'
+import { readCompanySeats, teammatesOf } from '@/lib/company-seats'
 
 type Db = typeof prisma
 
@@ -34,6 +35,7 @@ export async function checklistFactsFor(companyId: string, db: Db = prisma): Pro
     select: {
       kind: true, legalName: true, billingSameAsLegal: true, accountsEmail: true, teamsWebhookUrl: true,
       domain: true, domainVerified: true, setupSteps: true, weekSettingsSetAt: true, paySettingsSetAt: true,
+      ownerProofRequiredAt: true, ownerVerifiedAt: true,
     },
   })
   const [addresses, inCharge, papers, bank, counterparties, contracts, seats, domains, forwarded] = await Promise.all([
@@ -43,7 +45,8 @@ export async function checklistFactsFor(companyId: string, db: Db = prisma): Pro
     db.remitTo.count({ where: { companyId, bankName: { not: null }, accountLast4: { not: null } } }),
     db.counterparty.count({ where: { companyId } }),
     db.sellContract.count({ where: { OR: [{ companyId }, { clientCompanyId: companyId }] } }),
-    db.context.count({ where: { companyId, type: 'EMPLOYEE', revokedAt: null } }),
+    // The one reader of a company's seats: people, not consultants or the sample seat.
+    readCompanySeats(companyId, db),
     db.companyDomain.count({ where: { companyId, verifiedAt: { not: null } } }),
     // One accepted forwarded email is proof the mail rule works.
     db.inboundEmail.count({ where: { companyId, verdict: 'ACCEPTED' }, take: 1 }),
@@ -62,10 +65,12 @@ export async function checklistFactsFor(companyId: string, db: Db = prisma): Pro
     papersOwed: PARTIES_OF[c.kind] ?? PARTIES_OF.VENDOR,
     bankEntered: bank > 0,
     counterparties: counterparties + contracts,
-    teammates: Math.max(0, seats - 1),
+    teammates: teammatesOf(seats),
     domainVerified: domains > 0 || (!!c.domain && c.domainVerified),
     teamsSet: !!c.teamsWebhookUrl,
     forwardingSeen: forwarded > 0,
+    ownerProofRequired: c.ownerProofRequiredAt !== null,
+    ownerVerified: c.ownerVerifiedAt !== null,
   }
 }
 
@@ -141,10 +146,15 @@ export async function recordItem(
   outcome: unknown,
   db: Db = prisma,
 ): Promise<{ ok: true; item: ItemKey; outcome: ItemOutcome } | { ok: false; says: string }> {
-  const c = await db.company.findUnique({ where: { id: companyId }, select: { kind: true } })
+  const c = await db.company.findUnique({ where: { id: companyId }, select: { kind: true, ownerProofRequiredAt: true, ownerVerifiedAt: true } })
   if (!c) return { ok: false, says: 'There is no company here to set up.' }
-  const v = checkItemAnswer(c.kind, item, outcome)
+  const v = checkItemAnswer(c.kind, item, outcome, { ownerProofRequired: c.ownerProofRequiredAt !== null })
   if (!v.ok) return v
+  // Prove ownership is done only by the proofs themselves: a verified
+  // Owner (lib/owner-proof). Skipping is always allowed.
+  if (v.item === 'OWNERSHIP' && v.outcome === 'DONE' && c.ownerVerifiedAt === null) {
+    return { ok: false, says: 'Prove ownership is done once both proofs stand and you have become the Owner. Until then it can only be skipped.' }
+  }
   // Automatic forwarding is done only where mail can arrive: the intake is
   // open on this deployment and the company turned it on. Skipping is
   // always allowed and stops nothing.

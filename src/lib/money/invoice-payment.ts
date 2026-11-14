@@ -1,3 +1,4 @@
+import { needsVerifiedOwnerAt } from '@/lib/owner-proof'
 import type { Prisma } from '@prisma/client'
 import { emit, type EmitParams } from '@/lib/events'
 import { fromUnits } from '@/lib/money-display'
@@ -5,6 +6,8 @@ import { fromPrismaDecimal, toDecimal } from '@/lib/money'
 import { partiesOf } from '@/lib/money/invoice-parties'
 import { mayPayFirm } from '@/lib/setup-gates'
 import type { ItemKey } from '@/lib/setup-checklist'
+import { tellPaidOrReport, type PaidFacts } from '@/lib/money/paid-notice'
+import { logPaymentRefusedIn } from '@/lib/money/payment-refused'
 
 /**
  * The one payment write.
@@ -75,8 +78,10 @@ export interface InvoicePaymentInput {
 
 export type InvoicePaymentRefusal = {
   ok: false
-  code: 'NOT_FOUND' | 'NOT_ATTRIBUTED' | 'INVALID_STATE' | 'OVERPAYMENT' | 'VALIDATION' | 'BANK_NOT_CHECKED'
+  code: 'NOT_FOUND' | 'NOT_ATTRIBUTED' | 'INVALID_STATE' | 'OVERPAYMENT' | 'VALIDATION' | 'BANK_NOT_CHECKED' | 'OWNER_NOT_VERIFIED'
   says: string
+  /** Where the step is, for a refusal that names one by address (the proof rule). */
+  href?: string
   field?: 'amount'
   /** The setup step the refusal names, where a skipped step is what refuses. */
   step?: ItemKey
@@ -106,6 +111,12 @@ export type InvoicePaymentRecorded = {
    * `emitInvoicePaid` once the transaction has committed, never inside it.
    */
   event: EmitParams
+  /**
+   * What the supplier is told, by `emitInvoicePaid` after the commit. Null
+   * where the supplier itself recorded money that arrived: nobody is told
+   * of their own entry.
+   */
+  notice: PaidFacts | null
 }
 
 export type InvoicePaymentResult = InvoicePaymentRecorded | InvoicePaymentRefusal
@@ -162,11 +173,34 @@ export async function recordInvoicePayment(
     return { ok: false, code: 'INVALID_STATE', says: `${Doc} is already fully paid` }
   }
 
+  // No money leaves a company formed under the proof rule until it has a
+  // verified Owner (founder, 2026-11-11), in the gate's own sentence naming
+  // the step. The paying company only; a company formed before the rule
+  // answers ok, so nothing changes for it. One door, so the payment route
+  // and the twin's performer read it alike.
+  if (payer) {
+    const owner = await needsVerifiedOwnerAt(billedTo.id, 'PAY', tx as unknown as Parameters<typeof needsVerifiedOwnerAt>[2])
+    if (!owner.ok) {
+      // Kept like any other refusal, on this transaction, before it is said.
+      await logPaymentRefusedIn(tx, {
+        companyId: billedTo.id, byPersonId: appliedById, door: 'INVOICE_PAY', why: 'OWNER_NOT_VERIFIED',
+        says: owner.says, invoiceId, number: invoice.number,
+      })
+      return { ok: false, code: 'OWNER_NOT_VERIFIED', says: owner.says, href: owner.href }
+    }
+  }
+
   // No money leaves for a firm whose bank details nobody checked. Only
   // the paying side: a supplier recording what arrived moves no money.
   if (payer) {
     const bank = await mayPayFirm(billedTo.id, billedBy.id, tx as unknown as Parameters<typeof mayPayFirm>[2])
-    if (!bank.ok) return { ok: false, code: 'BANK_NOT_CHECKED', says: bank.says, step: bank.step }
+    if (!bank.ok) {
+      await logPaymentRefusedIn(tx, {
+        companyId: billedTo.id, byPersonId: appliedById, door: 'INVOICE_PAY', why: 'BANK_NOT_CHECKED',
+        says: bank.says, invoiceId, number: invoice.number,
+      })
+      return { ok: false, code: 'BANK_NOT_CHECKED', says: bank.says, step: bank.step }
+    }
   }
 
   const totalCents = fromPrismaDecimal(invoice.total, currency).minor
@@ -205,6 +239,24 @@ export async function recordInvoicePayment(
   const amount = toDecimal({ minor: amountCents, currency })
   const newPaid = toDecimal({ minor: newPaidCents, currency })
 
+  // Conditional on the figure it was read at, before anything else is
+  // written: two presses at once (the receipt's page and the chat's Pay
+  // card, or one press twice) both read the same paid figure, and only the
+  // first finds the invoice still at it. The second writes nothing, so the
+  // payer's book never holds two payments for one balance and the supplier
+  // is told once. The same guard the typed-in receipt's write keeps.
+  const moved = await tx.invoice.updateMany({
+    where: { id: invoiceId, paid: invoice.paid, status: { notIn: ['PAID', 'CANCELLED'] } },
+    data: { paid: newPaid, status },
+  })
+  if (moved.count !== 1) {
+    return {
+      ok: false,
+      code: 'INVALID_STATE',
+      says: `${Doc} ${invoice.number} was paid or changed while this was read. Nothing was written again.`,
+    }
+  }
+
   const payment = await tx.payment.create({
     data: {
       invoiceId,
@@ -225,8 +277,6 @@ export async function recordInvoicePayment(
       receivedByCompany: { select: { name: true } },
     },
   })
-
-  await tx.invoice.update({ where: { id: invoiceId }, data: { paid: newPaid, status } })
 
   // Paid in full: the expenses that rode on this invoice are paid. When an
   // invoice falls due is its own `dueAt`; no cycle is completed here.
@@ -307,21 +357,42 @@ export async function recordInvoicePayment(
     doc,
     amountCents,
     event,
+    // The bill the supplier raised on Etyme is this invoice, so the notice
+    // names it and opens it.
+    notice: payer
+      ? {
+          paymentId: payment.id,
+          payerName: payment.payerCompany?.name ?? billedTo.name ?? 'Your client',
+          vendorCompanyId: billedBy.id,
+          number: invoice.number,
+          amountCents,
+          currency,
+          paidAt: payment.receivedAt,
+          payerReference: reference ?? null,
+          suppliersBill: { id: invoice.id, number: invoice.number },
+        }
+      : null,
   }
 }
 
 /**
- * Send the `invoice.paid` event of a payment that has committed.
+ * Send the `invoice.paid` event of a payment that has committed, and tell
+ * the supplier it was paid (lib/money/paid-notice), once.
  *
  * Call it after `prisma.$transaction(...)` has returned, never inside the
- * callback: a payment rolled back must leave no event behind. A refusal
- * emits nothing. The twin's performer passes its own actor, so the event
- * says the twin recorded it under the person it acts for.
+ * callback: a payment rolled back must leave no event and no notice
+ * behind. A refusal emits nothing and tells nobody. The twin's performer
+ * passes its own actor, so the event says the twin recorded it under the
+ * person it acts for; the supplier reads the same notice either way.
  */
-export function emitInvoicePaid(
+export async function emitInvoicePaid(
   result: InvoicePaymentResult,
   actor?: Pick<EmitParams, 'actorKind' | 'actorTwinKind'>
 ): Promise<{ id: string } | null> {
-  if (!result.ok) return Promise.resolve(null)
-  return emit({ ...result.event, ...(actor ?? {}) })
+  if (!result.ok) return null
+  const [event] = await Promise.all([
+    emit({ ...result.event, ...(actor ?? {}) }),
+    result.notice ? tellPaidOrReport(result.notice, 'invoice payment') : Promise.resolve(0),
+  ])
+  return event
 }

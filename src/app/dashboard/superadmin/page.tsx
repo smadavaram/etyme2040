@@ -35,11 +35,28 @@ interface LimitView {
   setAt: string | null
 }
 
+interface MailRow {
+  id: string
+  /** Already said for a reader: "Thu, Nov 12, 3:40 PM UTC". */
+  at: string
+  kind: string
+  company: string | null
+  provider: string | null
+  status: number | null
+  /** REFUSED, BUSY, DOWN, NOT_SET_UP or DEMO (lib/notify/mail-failure). */
+  failureKind: string
+  words: string | null
+  /** Masked: "s…@gmail.com". */
+  recipient: string | null
+}
+
 interface Screen {
   limits: LimitView[]
   note: string
   history: { says: string; at: string }[]
   says?: string
+  /** On the GET only: the email that did not go. */
+  mail?: { rows: MailRow[] | null; says: string }
 }
 
 const n = (x: number) => x.toLocaleString('en-US')
@@ -52,6 +69,7 @@ export default function SuperadminPage() {
   const [fieldErr, setFieldErr] = useState<{ field?: string; says: string } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [mail, setMail] = useState<Screen['mail'] | null>(null)
 
   const load = useCallback(async () => {
     setErr(null)
@@ -64,6 +82,7 @@ export default function SuperadminPage() {
     try {
       const body = await readJson(res)
       setData(body.data)
+      setMail(body.data.mail ?? null)
       setTyped(Object.fromEntries((body.data.limits as LimitView[]).map((l) => [l.field, l.typed])))
     } catch (e: any) {
       setErr(e.message)
@@ -153,6 +172,101 @@ export default function SuperadminPage() {
           </ul>
         )}
       </Panel>
+
+      {mail && <MailFailuresPanel mail={mail} />}
+
+      <IdentityCheckPanel />
     </div>
   )
 }
+
+/**
+ * Record an identity check (founder, 2026-11-11: Owner is earned by proof).
+ * No provider is chosen yet, so a Superadmin records the provider's result
+ * here, word for word, for one named person at one named company. Etyme
+ * renders no verdict and keeps no copy of an identity paper. Every field
+ * POST /api/superadmin/owner-proof asks for is a field here.
+ */
+function IdentityCheckPanel() {
+  const [f, setF] = useState({ company: '', email: '', provider: '', reference: '', checkedOn: '', result: '', confirmed: '' })
+  const [said, setSaid] = useState<{ tone: 'ok' | 'error'; text: string; field?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value })
+  async function send(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setSaid(null)
+    const res = await fetch('/api/superadmin/owner-proof', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...f, confirmed: f.confirmed === 'yes' ? true : f.confirmed === 'no' ? false : null }),
+    })
+    const body = await res.json().catch(() => ({}))
+    setBusy(false)
+    if (!res.ok) { setSaid({ tone: 'error', text: body.error?.message ?? 'Not recorded. Try again.', field: body.error?.field }); return }
+    setSaid({ tone: 'ok', text: body.data.message })
+    setF({ company: '', email: '', provider: '', reference: '', checkedOn: '', result: '', confirmed: '' })
+  }
+  return (
+    <Panel title="Record an identity check" subtitle="The provider’s result, word for word, for one person at one company. Etyme renders no verdict and keeps no copy of an identity paper.">
+      <form onSubmit={send} className="max-w-[520px] space-y-3">
+        <Field label="Company’s Etyme address (before .etyme.com)"><Input value={f.company} onChange={set('company')} /></Field>
+        <Field label="The person’s sign-in email"><Input type="email" value={f.email} onChange={set('email')} /></Field>
+        <Field label="Provider"><Input value={f.provider} onChange={set('provider')} /></Field>
+        <Field label="Provider’s reference"><Input value={f.reference} onChange={set('reference')} /></Field>
+        <Field label="Date on the result"><Input type="date" value={f.checkedOn} onChange={set('checkedOn')} /></Field>
+        <Field label="The provider’s result, word for word"><Input value={f.result} onChange={set('result')} /></Field>
+        <Field label="Did the provider confirm the person is who they say?">
+          <select value={f.confirmed} onChange={set('confirmed')} className="w-full rounded-[8px] border border-etyme-rule bg-etyme-raised px-3 py-2 text-[14px] text-etyme-ink">
+            <option value="">Choose</option>
+            <option value="yes">Yes, the provider confirmed it</option>
+            <option value="no">No, the provider did not</option>
+          </select>
+        </Field>
+        {said && <FormMessage tone={said.tone}>{said.text}</FormMessage>}
+        <SubmitButton pending={busy} pendingLabel="Recording…">Record the check</SubmitButton>
+      </form>
+    </Panel>
+  )
+}
+
+/**
+ * "Email that did not go" (2026-11-12): the newest sends the provider
+ * refused or never took, so Etyme's staff can tell a bad key from a sending
+ * domain nobody verified. The provider's own words are shown here and
+ * nowhere a company's person reads. The recipient is masked; no title, body
+ * or person's name is ever sent to this screen. A row per send on a desktop,
+ * a stacked block on a phone, so nothing scrolls sideways.
+ */
+/** What the provider did, in a sentence for Etyme's staff. */
+function providerLine(r: MailRow): string {
+  if (r.provider) return `${r.provider} ${r.status !== null ? `answered ${r.status}` : 'did not answer'}`
+  if (r.failureKind === 'NOT_SET_UP') return 'No email sender is set up on this deployment'
+  if (r.failureKind === 'DEMO') return 'A demo address, so nothing was sent'
+  return 'The provider’s answer was not kept'
+}
+
+function MailFailuresPanel({ mail }: { mail: NonNullable<Screen['mail']> }) {
+  return (
+    <Panel title="Email that did not go" subtitle={mail.says}>
+      {mail.rows && mail.rows.length > 0 && (
+        <ul className="divide-y divide-etyme-rule">
+          {mail.rows.map((r) => (
+            <li key={r.id} className="py-2.5 text-[13px] text-etyme-ink space-y-0.5 min-w-0">
+              <div className="flex flex-wrap gap-x-2">
+                <span className="font-medium">{r.kind}</span>
+                <span className="text-etyme-muted">{r.at}</span>
+              </div>
+              <div className="text-etyme-muted break-words">
+                {[r.company ?? 'No company', r.recipient ? `to ${r.recipient}` : null].filter(Boolean).join(' · ')}
+              </div>
+              <div className="break-words">
+                {providerLine(r)}
+                {r.words ? `: ${r.words}` : '.'}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+

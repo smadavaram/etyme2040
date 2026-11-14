@@ -1,5 +1,7 @@
 'use client'
 
+import { OwnerGateLine } from '@/components/owner-gate-line'
+import type { OwnerLine } from '@/lib/owner-gate'
 import Link from 'next/link'
 import { readJson } from '@/lib/read-response'
 import { usePageSection } from '@/components/page-section'
@@ -15,7 +17,8 @@ import { TEAMS_LINK_HOW_TO } from '@/lib/notify/teams-link'
 import { WeekPanel } from '@/components/settings/week-panel'
 import { PayrollPanel } from '@/components/settings/payroll-panel'
 import { AskEtymePanel } from '@/components/settings/ask-etyme-panel'
-import { ErrorState, FormMessage, Lbl, LoadingState, PageHead, Panel } from '@/components/ui'
+import { Chip, ErrorState, FormMessage, Lbl, LoadingState, PageHead, Panel } from '@/components/ui'
+import { levelOf } from '@/lib/access-grant'
 
 /**
  * How this company is set up.
@@ -56,7 +59,15 @@ interface Role {
   name: string
   permissions: string[]
   isDefault: boolean
+  /** Every seat not ended that holds it, invited and paused included. */
   heldBy: number
+  withAccess: number
+  invited: number
+  paused: number
+  /** "2 with access · 3 invited", or "nobody holds this yet" (lib/company-seats). */
+  heldWords: string
+  /** What it can do against the whole catalog (lib/company-roles). */
+  canDo: { everything: boolean; count: number; of: number; words: string; list: string[] }
 }
 interface Location {
   id: string
@@ -112,6 +123,12 @@ interface Settings {
   canEdit: boolean
   /** The type is the Owner's to change, and nobody else's (lib/company-kind). */
   canChangeType?: boolean
+  /** Beside the type for a reader who may not change it (lib/owner-gate). */
+  typeLine?: OwnerLine | null
+  /** The company's people, counted once: "6 people: 3 with access · 3 invited". */
+  people?: string
+  /** How people join this company, from what the code does (lib/join-words). Null for a one-person firm. */
+  joins?: string | null
 }
 
 // ── Bits ─────────────────────────────────────────────
@@ -126,7 +143,10 @@ function Empty({ children }: { children: React.ReactNode }) {
 /** Where a change of type keeps its sentence across the reload that redraws the menu. */
 const TYPE_CHANGED_KEY = 'etyme.settings.typeChanged'
 
-const TABS = ['Company', 'Walls', 'Address', 'Roles', 'Approvals', 'Locations', 'Holidays', 'Cost centers', 'Cycles', 'Ask Etyme', 'Bench pay'] as const
+// Locations left on 2026-11-13 (the founder's first-day list, fault 20):
+// it was the Sites pill said twice. Roles stays: it is the only screen that
+// lists what each role can do.
+const TABS = ['Company', 'Walls', 'Address', 'Roles', 'Approvals', 'Holidays', 'Cost centers', 'Cycles', 'Ask Etyme', 'Bench pay'] as const
 /** Only a firm that carries people between projects has bench pay to set. */
 const BENCH_KINDS = ['VENDOR', 'GSI']
 type Tab = (typeof TABS)[number]
@@ -234,13 +254,14 @@ export default function SettingsPage() {
           {/* The setup checklist (2026-10-28): every item, done, skipped or to do. */}
           <Link href={'/dashboard/settings/setup' as any} className="text-etyme-action-press">Setup checklist</Link>
           {' '}— your company, addresses, sites, the people in charge, papers, bank details and your domain, one at a time.
+          {/* Owners is a pill of its own under People since 2026-11-13. */}
         </p>
       )}
 
       {!canEdit && (
         <div className="mb-5 rounded-md border border-etyme-rule bg-etyme-canvas p-3">
           <p className="text-[13px] text-etyme-ink">
-            You can read this but not change it. Your company’s owner or an admin changes
+            You can read this but not change it. Your company’s Owner or an Admin changes
             settings — ask whoever gave you your role.
           </p>
         </div>
@@ -275,7 +296,6 @@ export default function SettingsPage() {
       {tab === 'Address' && <AddressTab send={send} busy={busy} />}
       {tab === 'Roles' && <RolesTab data={data} send={send} busy={busy} />}
       {tab === 'Approvals' && <ApprovalsTab send={send} busy={busy} />}
-      {tab === 'Locations' && <LocationsTab data={data} send={send} busy={busy} />}
       {tab === 'Holidays' && <HolidaysTab data={data} send={send} busy={busy} />}
       {tab === 'Cost centers' && <CostCentersTab data={data} send={send} busy={busy} />}
       {tab === 'Cycles' && <CyclesTab data={data} send={send} busy={busy} />}
@@ -352,7 +372,7 @@ function WallsTab({ data, send, busy }: { data: Settings; send: SendFn; busy: bo
                   <div key={r.role} className="flex items-baseline justify-between max-w-sm">
                     <span className="text-[14px] text-etyme-ink">{r.role}</span>
                     <span className="text-[12px] text-etyme-muted tabular-nums">
-                      {r.heldBy} {r.heldBy === 1 ? 'person' : 'people'}
+                      {r.heldBy === 0 ? 'nobody with access yet' : `${r.heldBy} with access`}
                     </span>
                   </div>
                 ))}
@@ -388,13 +408,13 @@ function WallsTab({ data, send, busy }: { data: Settings; send: SendFn; busy: bo
  * came from your identity provider" over a domain reading "—" (sign-up
  * walk, round five, problem 20).
  */
-function howYouCameIn(c: Pick<Company, 'slug' | 'domain' | 'domainVerified'>): string {
-  if (c.domain && c.domainVerified) {
-    return `Your domain, ${c.domain}, was verified when your company signed in with its work account. ` +
-      'It is not editable, and it decides who joins this company automatically.'
-  }
-  return `Your company signed up with an email and a password, so its Etyme address is ${c.slug}.etyme.com and it has no verified domain. ` +
-    'Colleagues join by invitation, or by signing up with that address, and are seated as Member until you give them a role.'
+function howYouCameIn(c: Pick<Company, 'slug' | 'domain' | 'domainVerified'>, joins: string | null | undefined): string {
+  // How people join is one sentence read from what the doors do
+  // (lib/join-words), never a copy typed here.
+  const came = c.domain && c.domainVerified
+    ? `Your domain, ${c.domain}, was verified when your company signed in with its work account. It is not editable.`
+    : `Your company's Etyme address is ${c.slug}.etyme.com, and it has no verified domain.`
+  return joins ? `${came} ${joins}` : came
 }
 
 function CompanyTab({ data, send, busy, openModel }: { data: Settings; send: SendFn; busy: boolean; openModel: () => void }) {
@@ -407,7 +427,7 @@ function CompanyTab({ data, send, busy, openModel }: { data: Settings; send: Sen
     <>
       <Panel
         title="Who you are"
-        subtitle={howYouCameIn(c)}
+        subtitle={howYouCameIn(c, data.joins)}
       >
         <div className="grid sm:grid-cols-2 gap-4">
           <label className="block">
@@ -435,6 +455,9 @@ function CompanyTab({ data, send, busy, openModel }: { data: Settings; send: Sen
               {c.domain ?? '—'}{' '}
               {c.domainVerified && <span className="text-etyme-verified text-[12px]">verified</span>}
             </p>
+            <Link href="/dashboard/settings/domain" className="mt-1 inline-block text-[12.5px] text-etyme-action underline-offset-2 hover:underline">
+              {c.domainVerified ? 'Your domain' : 'Connect your domain'}
+            </Link>
           </div>
           <div>
             <Lbl>Type</Lbl>
@@ -528,8 +551,9 @@ function TypePanel({ data, busy }: { data: Settings; busy: boolean }) {
   if (!data.canChangeType) {
     if (!data.canEdit) return null
     return (
-      <Panel title="What kind of company you are" subtitle="Only the Owner changes the type. Ask the Owner if it is wrong.">
+      <Panel title="What kind of company you are">
         <p className="text-sm text-etyme-ink">{now?.label ?? kindWord(c.kind as any)}</p>
+        <OwnerGateLine line={data.typeLine} className="mt-2" />
       </Panel>
     )
   }
@@ -592,32 +616,46 @@ function TypePanel({ data, busy }: { data: Settings; busy: boolean }) {
 
 function RolesTab({ data, send, busy }: { data: Settings; send: SendFn; busy: boolean }) {
   const [open, setOpen] = useState<string | null>(null)
+  const [why, setWhy] = useState<string | null>(null)
 
   return (
     <Panel
       title="Roles"
-      subtitle="What somebody can do here. These were chosen for what your company is — a client gets Hiring Manager, a supplier gets Recruiter. Changing a role changes what everyone holding it can do, immediately."
+      subtitle={`What somebody can do here. These were chosen for what your company is. Changing a role changes what everyone holding it can do, immediately.${data.people ? ` ${data.people}.` : ''}`}
     >
       <div className="divide-y divide-etyme-rule">
         {data.roles.map((r) => (
           <div key={r.id} className="py-3">
             <div className="flex items-baseline justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <span className="text-[14px] text-etyme-ink font-medium">{r.name}</span>
+                {/* The level Users & permissions draws beside a role, from the
+                    same reader: its label, its why on hover, and on a tap. */}
+                <button type="button" onClick={() => setWhy(why === r.id ? null : r.id)}
+                  aria-expanded={why === r.id} aria-label={levelOf(r.name, r.permissions).why}
+                  className="ml-2 align-middle rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-etyme-action">
+                  <Chip tone={levelOf(r.name, r.permissions).key === 'CRITICAL' ? 'attention' : 'passive'} title={levelOf(r.name, r.permissions).why}>
+                    {levelOf(r.name, r.permissions).label}
+                  </Chip>
+                </button>
                 <span className="ml-2 text-[12px] text-etyme-faint tabular-nums">
-                  {r.heldBy === 0 ? 'nobody holds this' : `${r.heldBy} person${r.heldBy === 1 ? '' : 's'}`}
+                  {r.heldWords}
                 </span>
+                {why === r.id && <p className="mt-1 text-[12px] text-etyme-muted break-words">{levelOf(r.name, r.permissions).why}</p>}
               </div>
               <button
                 onClick={() => setOpen(open === r.id ? null : r.id)}
                 className="text-[12px] text-etyme-action shrink-0"
               >
-                {open === r.id ? 'Hide' : `${r.permissions.length} permissions`}
+                {open === r.id ? 'Hide' : `Permissions: ${r.canDo.words}`}
               </button>
             </div>
-            {open === r.id && (
+            {open === r.id && r.canDo.count === 0 && (
+              <p className="mt-2 text-[12.5px] text-etyme-muted">Sees their own work and their own hours, nothing else. Give a person another role from Users &amp; permissions to let them do more.</p>
+            )}
+            {open === r.id && r.canDo.count > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
-                {r.permissions.slice().sort().map((p) => (
+                {r.canDo.list.slice().sort().map((p) => (
                   <span key={p} className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-etyme-canvas text-etyme-muted">
                     {p}
                   </span>
@@ -628,80 +666,6 @@ function RolesTab({ data, send, busy }: { data: Settings; send: SendFn; busy: bo
         ))}
       </div>
       {data.roles.length === 0 && <Empty>No roles. That should not be possible — tell somebody.</Empty>}
-    </Panel>
-  )
-}
-
-// ── Locations ────────────────────────────────────────
-
-function LocationsTab({ data, send, busy }: { data: Settings; send: SendFn; busy: boolean }) {
-  const [name, setName] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-
-  return (
-    <Panel
-      title="Where people work"
-      subtitle="This matters more than it looks. Tenure is counted at a place and tax follows a place, so a contract with no location cannot answer either question."
-      action={<a href="/dashboard/settings/sites" className="text-[12.5px] text-etyme-action-press hover:underline">Open Sites</a>}
-    >
-      <div className="divide-y divide-etyme-rule mb-4">
-        {data.locations.map((l) => (
-          <div key={l.id} className="py-2.5 flex items-baseline justify-between gap-3">
-            <div>
-              <span className="text-[14px] text-etyme-ink">{l.name}</span>
-              {l.isPrimary && <span className="ml-2 text-[11px] text-etyme-verified">primary</span>}
-              {l.isRemote && <span className="ml-2 text-[11px] text-etyme-muted">remote</span>}
-              <p className="text-[12px] text-etyme-faint">
-                {[l.city, l.state, l.country].filter(Boolean).join(', ')}
-              </p>
-            </div>
-            {data.canEdit && !l.isPrimary && (
-              <div className="flex gap-3 shrink-0">
-                <button
-                  onClick={() => send('/api/settings/locations', 'PATCH', { id: l.id, isPrimary: true })}
-                  disabled={busy}
-                  className="text-[12px] text-etyme-action"
-                >
-                  Make primary
-                </button>
-                <button
-                  onClick={() => send(`/api/settings/locations?id=${l.id}`, 'DELETE')}
-                  disabled={busy}
-                  className="text-[12px] text-etyme-attention"
-                >
-                  Remove
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      {data.locations.length === 0 && <Empty>No locations yet.</Empty>}
-
-      {data.canEdit && (
-        <div className="border-t border-etyme-rule pt-4">
-          <Lbl>Add a work site</Lbl>
-          <div className="grid sm:grid-cols-3 gap-2 mt-2">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Lakewood HQ"
-              className="px-3 py-2 border border-etyme-rule rounded bg-etyme-raised text-sm" />
-            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Lakewood"
-              className="px-3 py-2 border border-etyme-rule rounded bg-etyme-raised text-sm" />
-            <input value={state} onChange={(e) => setState(e.target.value)} placeholder="CO"
-              className="px-3 py-2 border border-etyme-rule rounded bg-etyme-raised text-sm" />
-          </div>
-          <button
-            onClick={async () => {
-              const r = await send('/api/settings/locations', 'POST', { name, city, state })
-              if (r) { setName(''); setCity(''); setState('') }
-            }}
-            disabled={busy || !name.trim()}
-            className="mt-3 px-4 py-2 rounded bg-etyme-action text-white text-[13px] font-medium disabled:opacity-40"
-          >
-            Add
-          </button>
-        </div>
-      )}
     </Panel>
   )
 }

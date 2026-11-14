@@ -6,7 +6,7 @@ import { withoutOwnFirmAcceptance, firmsAcceptingOnlyFor } from '@/lib/money/own
 import {
   rungsToFile, openWeeks, checkWeek, placementLines, tieOf, returnedWeek, owedByWeek, waitingWeek,
   weekSigners, signedAtOf, paidDatesFrom, shortDay, placementSpan, signedWeeksCard, daySpan, plainDate, weekDoor,
-  weekState, payStageOf, waitingCard, signingOrder, ownPage, emptyWork, notAWorker,
+  weekState, payStageOf, waitingCard, signingOrder, ownPage, emptyWork, notAWorker, clientOffEtymeAfterSays,
   type OwedWeek, type WaitingWeek, type WeekSigner,
 } from '@/lib/consultant-portfolio'
 import { POST as createTimesheet } from '@/app/api/timesheets/route'
@@ -28,6 +28,7 @@ import { POST as submitTimesheet } from '@/app/api/timesheets/[id]/submit/route'
 import { personNotice, cityOf, dayOf, holdStands, releaseFrom } from '@/lib/internal-moves'
 import { approvalWordsFor, readWeekApprovals, readWeekApprovalsFor, readerOf } from '@/lib/week-approval'
 import { requirementsFor } from '@/lib/document-requirements'
+import { mailLeaves } from '@/lib/notify/mail-leaves'
 import { credentialKeys } from '@/lib/contract-clearance'
 import { labelFor } from '@/lib/document-type'
 import { papersRunningOut, mightRunOut, type HeldOnFile, type RequiredOfHer } from '@/app/dashboard/my-work/paperwork-rows'
@@ -236,9 +237,11 @@ export async function GET(request: NextRequest) {
   const contracts = await prisma.sellContract.findMany({
     where: { personId },
     include: {
-      company: { select: { id: true, name: true } },        // who pays them
-      clientCompany: { select: { id: true, name: true } },  // who buys this rung
-      endClientCompany: { select: { id: true, name: true } }, // where they work
+      // `claimedAt`: a client not on Etyme is a record nobody there has
+      // claimed (`isShell` in lib/off-system), read by the week's signers.
+      company: { select: { id: true, name: true, claimedAt: true } },        // who pays them
+      clientCompany: { select: { id: true, name: true, claimedAt: true } },  // who buys this rung
+      endClientCompany: { select: { id: true, name: true, claimedAt: true } }, // where they work
       workLocation: { select: { name: true, city: true, country: true } },
       // The job, so two lines at one firm read apart in the picker (`filingLabels`).
       requirement: { select: { title: true } },
@@ -569,7 +572,7 @@ export async function GET(request: NextRequest) {
       const client = top.endClientCompany ?? top.clientCompany ?? top.company
       signersOf.set(l.own.id, withoutOwnFirmAcceptance(weekSigners(
         { rungs: l.rungs.map((r) => ({ companyId: r.companyId, companyName: r.companyName })) },
-        { id: client.id, name: client.name }
+        { id: client.id, name: client.name, claimedAt: client.claimedAt }
       ), acceptsOnlyForHer))
     }
 
@@ -752,12 +755,15 @@ export async function GET(request: NextRequest) {
       return names.length === 1 ? names[0] : 'the firms on them'
     }
     const waitingHours = r2(waiting.reduce((n, w) => n + w.hours, 0))
+    // A client not on Etyme approves in its own system and signs nothing
+    // here, so its weeks wait for its approval, never for it to sign.
+    const clientDoes = forClient.length > 0 && forClient.every((w) => w.clientOffEtyme) ? 'to approve' : 'to sign'
     const where =
       forClient.length > 0 && forEmployer.length > 0
-        ? `${forClient.length} ${forClient.length === 1 ? 'is' : 'are'} waiting for ${who(forClient)} to sign and ` +
+        ? `${forClient.length} ${forClient.length === 1 ? 'is' : 'are'} waiting for ${who(forClient)} ${clientDoes} and ` +
           `${forEmployer.length} for ${who(forEmployer)} to accept.`
         : `${waiting.length === 1 ? 'It is' : 'They are'} waiting for ` +
-          (forClient.length > 0 ? `${who(forClient)} to sign.` : `${who(forEmployer)} to accept.`)
+          (forClient.length > 0 ? `${who(forClient)} ${clientDoes}.` : `${who(forEmployer)} to accept.`)
     const waitingSays =
       waiting.length === 0
         ? null
@@ -870,6 +876,13 @@ export async function GET(request: NextRequest) {
   // Where the one read fails, each week is asked on its own as before, so a
   // failure still costs only the week it is about.
   const emailAnswer = new Map<string, NonNullable<Parameters<typeof weekDoor>[0]['email']>>()
+  // The client's signature on the line a week is filed on, read off the
+  // same signers as the waiting rows, so a client not on Etyme is said
+  // one way on every row.
+  const clientOf = (sellContractId: string) => {
+    const c = signersOf.get(sellContractId)?.find((s) => s.role === 'CLIENT_APPROVAL')
+    return c ? { name: c.name, offEtyme: c.offEtyme === true } : undefined
+  }
   const waitingOnClient = timesheets.filter((x) => x.status === 'SUBMITTED' && x.clientApprovedAt === null)
   const reader = readerOf(caller)
   const answered = waitingOnClient.length
@@ -885,6 +898,7 @@ export async function GET(request: NextRequest) {
       clientName: r.seen.week.clientName,
       refused: r.seen.act.ok ? r.seen.act.refused : r.seen.act.says,
       linkWaiting: link ? { to: link.approverName, on: link.sentAt } : null,
+      emailLeaves: mailLeaves(),
     })
   }
 
@@ -982,6 +996,7 @@ export async function GET(request: NextRequest) {
           clientApproved: t.clientApprovedAt !== null,
           approvedBy: approvalWords.get(t.id) ?? null,
           email: emailAnswer.get(t.id),
+          client: clientOf(t.sellContractId),
         }),
         // Its one state, read the same way as the tiles above it
         // (`weekState`): "waiting on Computer Systems Inc", "owed to
@@ -1075,7 +1090,14 @@ export async function POST(request: NextRequest) {
 
   const mine = await prisma.sellContract.findMany({
     where: { personId },
-    select: { id: true, personId: true, companyId: true, clientCompanyId: true, state: true, startDate: true, endDate: true },
+    select: {
+      id: true, personId: true, companyId: true, clientCompanyId: true, state: true, startDate: true, endDate: true,
+      // The client's claim, read as GET reads it, so the sentence after
+      // filing says the same about a client not on Etyme as the page does.
+      company: { select: { id: true, name: true, claimedAt: true } },
+      clientCompany: { select: { id: true, name: true, claimedAt: true } },
+      endClientCompany: { select: { id: true, name: true, claimedAt: true } },
+    },
   })
   const rungs = mine.map((c) => ({
     id: c.id,
@@ -1204,13 +1226,36 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // A client not on Etyme was sent nothing: the week is filed, and she
+  // attaches the timesheet it approved. Decided by the week's own signers
+  // (`weekSigners`, through isShell), the same reading as her page.
+  const lineOf = placementLines(
+    mine.map((c, i) => ({
+      ...rungs[i],
+      companyName: c.company.name,
+      clientName: c.clientCompany.name,
+      endClientName: c.endClientCompany?.name ?? null,
+    })),
+    () => null
+  ).find((l) => l.rungs.some((r) => r.id === contractId))
+  const topOf = lineOf ? mine.find((c) => c.id === lineOf.rungs[lineOf.rungs.length - 1].id) : undefined
+  const clientOf = topOf ? topOf.endClientCompany ?? topOf.clientCompany ?? topOf.company : null
+  const clientSigner = lineOf && clientOf
+    ? weekSigners(
+        { rungs: lineOf.rungs.map((r) => ({ companyId: r.companyId, companyName: r.companyName })) },
+        { id: clientOf.id, name: clientOf.name, claimedAt: clientOf.claimedAt }
+      )[0]
+    : undefined
+
   return NextResponse.json(
     {
       data: {
         timesheetId,
         status: 'SUBMITTED',
         anomaly: createdBody.data.timesheet.anomalyReason ?? null,
-        message: `Sent ${check.totalHours} hours for ${week.label} ${again ? 'again, corrected, ' : ''}for approval.`,
+        message: clientSigner?.offEtyme
+          ? clientOffEtymeAfterSays(clientSigner.name, shortDay(today, now))
+          : `Sent ${check.totalHours} hours for ${week.label} ${again ? 'again, corrected, ' : ''}for approval.`,
       },
     },
     { status: 201 }

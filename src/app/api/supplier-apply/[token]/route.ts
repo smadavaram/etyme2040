@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import { notify } from '@/lib/notify'
 import { desksFor, deskPeople, orderedOfSuppliers, keepSupplierPaper } from '@/lib/supplier-desks'
 import { applyPrefill, approvedSays, claimUrl, sentSays, type EarlierApplication } from '@/lib/supplier-link'
-import { earlierApplications, firmOnRecord, paperIdOf, sessionEmail, signedInAt } from './firm'
+import { answersForFirm, earlierApplications, firmOnRecord, paperIdOf, sessionEmail, signedInAt } from './firm'
 import { bankChange } from '@/lib/money/remit-change'
 import { provideItems, vendorItems, wantsDates, withOrderedItems, type ChecklistItem } from '@/lib/supplier-onboarding'
 import { checkDocumentUpload, MAX_DOCUMENT_BYTES, sizeSaid } from '@/lib/document-request'
@@ -78,7 +78,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         fileName: i.fileName ?? null, says: i.says ?? null,
         wantsDates: wantsDates(i), validFrom: i.validFrom ?? null, validUntil: i.validUntil ?? null,
       })),
-      application: app,
+      // Who answered is the client's last yes's to read, never the link's.
+      application: app ? (({ answeredBy: _who, ...rest }) => rest)(app) : app,
     },
   })
 }
@@ -225,8 +226,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (references.length >= 2) provided.push({ key: 'REFERENCES', fileName: `${references.length} references` })
 
   const prior = (row.application ?? {}) as Record<string, unknown>
+  // Who answered, where it can be told: a person signed in and seated at
+  // the firm this link is for. That, and only that, is the firm itself
+  // taking part, which is what lets the client's last yes put a firm
+  // already on Etyme on its list without asking it again (review,
+  // 2026-11-13). The client's own people hold this link too, and a typed
+  // domain proves nothing, so neither counts. Kept once said, so a later
+  // answer from the link without signing in does not take it back.
+  const who = await whoApplies(row)
+  // And only a seat that may answer an ask to link (`answersForFirm`):
+  // any other seat at the firm is its person, not its yes.
+  const answeredBy = who.firm && who.atFirm && (await answersForFirm(who.firm.id, await sessionEmail()))
+    ? { firmId: who.firm.id, at: now.toISOString() }
+    : (prior.answeredBy ?? null)
   const application = {
     ...prior,
+    answeredBy,
     legalName: str('legalName') || prior.legalName || null,
     address: str('address') || prior.address || null,
     duns: str('duns') || prior.duns || null,

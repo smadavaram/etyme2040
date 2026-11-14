@@ -16,6 +16,8 @@ import {
 import { countryFromDomain } from '@/lib/company-defaults'
 import { skipStops, confirmAllWords } from '@/lib/site-rules'
 import { setupReminderFor } from '@/lib/setup-checklist-state'
+import { readCompanySeats, teammatesOf } from '@/lib/company-seats'
+import { joinSentenceFor } from '@/lib/join-words'
 
 async function checklistReminder(companyId: string): Promise<(Reminder & { link: string }) | null> {
   const r = await setupReminderFor(companyId, { mayRun: true })
@@ -59,16 +61,18 @@ export interface SetupState {
     /** Said as a guess where the country is still the one guessed from the domain. */
     countrySays: string | null
     packSays: string | null
+    /** How people join this company, read off what the doors do (lib/join-words). Null for a one-person firm. */
+    joinSays: string | null
   }
 }
 
 export async function setupFactsFor(companyId: string): Promise<SetupFacts> {
   const [imported, seats] = await Promise.all([
     prisma.import.count({ where: { companyId, committedAt: { not: null } } }),
-    prisma.context.count({ where: { companyId, type: 'EMPLOYEE', revokedAt: null } }),
+    readCompanySeats(companyId),
   ])
-  // The founder holds one seat; anybody else is a teammate.
-  return { peopleImported: imported > 0, teammates: Math.max(0, seats - 1) }
+  // The founder holds one seat; anybody else is a teammate (lib/company-seats).
+  return { peopleImported: imported > 0, teammates: teammatesOf(seats) }
 }
 
 export async function setupStateFor(
@@ -83,13 +87,14 @@ export async function setupStateFor(
     },
   })
   if (!c) return null
-  const [claimedFrom, siteRows] = await Promise.all([
+  const [claimedFrom, siteRows, joinSays] = await Promise.all([
     c.claimedAt ? clientThatInvited(c.id) : Promise.resolve(null),
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
       select: { name: true, isPrimary: true },
     }),
+    joinSentenceFor(companyId).catch(() => null),
   ])
   const primary = siteRows.find((r) => r.isPrimary)?.name ?? null
   const record = readRecord(c.setupSteps)
@@ -133,6 +138,7 @@ export async function setupStateFor(
       templatePack: c.templatePack,
       countrySays: country === guessed ? countryGuessSentence(country, c.domain) : null,
       packSays: c.templatePack ? packSentence(c.templatePack, c.kind) : null,
+      joinSays,
     },
   }
 }

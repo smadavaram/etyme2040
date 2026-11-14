@@ -38,7 +38,7 @@ describe('setup asks five things, then stops', () => {
     // The hard-coded seven, "Accountant" among them, are gone.
     expect(addCompany).not.toContain('const DEFAULT_ROLES')
     expect(addCompany).not.toContain("'Accountant'")
-    for (const piece of ['packFor(input.kind, country)', 'rolesFor(input.kind)', 'companyLocation.create', 'holidaysFor(country, y)']) {
+    for (const piece of ['packFor(input.kind, country)', 'rolesFor(input.kind, { foundingAdmin: proofRule })', 'companyLocation.create', 'holidaysFor(country, y)']) {
       expect(create, piece).toContain(piece)
     }
   })
@@ -227,7 +227,8 @@ describe('setup after round two of the sign-up walk', () => {
 
     // The page says nothing about colleagues to her, and draws no list or team step.
     const page = src('src/app/(auth)/start/page.tsx')
-    expect(page).toContain("{!solo && ' Colleagues join by invitation")
+    // How people join is the join sentence, which is null for a one-person firm (lib/join-words).
+    expect(page).toContain('{setup.company.joinSays && ` ${setup.company.joinSays}`}')
     expect(page).toContain("{step === 'PEOPLE' && !solo && (")
     expect(page).toContain("{step === 'TEAM' && !solo && (")
     expect(page).not.toMatch(/Step \d of 5/)
@@ -318,5 +319,30 @@ describe('staff bootstrap, on a deployment with no email', () => {
     const doc = src('docs/run-etyme-on-etyme.md')
     expect(doc).toContain('"address": "tapin"')
     expect(doc).not.toContain('"address": "etyme"')
+  })
+})
+
+// The founder's first-day list (2026-11-13): no button on the first
+// sign-in is greyed out for an empty field; it is pressable and says what
+// is missing, like every other form.
+describe('the first sign-in never greys a button out for an empty field', () => {
+  const start = readFileSync(join(process.cwd(), 'src/app/(auth)/start/page.tsx'), 'utf8')
+
+  it('no button on the first sign-in is disabled for an empty field, only while a press is being answered', () => {
+    expect(start).not.toMatch(/disabled=\{busy \|\| !/)
+    expect(start).not.toMatch(/disabled=\{!/)
+  })
+
+  it('Set up my company pressed with no name says to type the company’s name first', async () => {
+    const { NAME_MISSING } = await import('@/app/(auth)/start/missing')
+    expect(NAME_MISSING).toBe('Type your company’s name first, then press Set up my company.')
+    expect(start).toMatch(/if \(!name\.trim\(\)\) \{ setMissingFor\(t\.key\); return \}/)
+    expect(start).toMatch(/\{NAME_MISSING\}/)
+  })
+
+  it('Continue pressed before a kind is chosen says to choose which one you are first', async () => {
+    const { KIND_MISSING } = await import('@/app/(auth)/start/missing')
+    expect(KIND_MISSING).toBe('Choose which one you are first, then press Continue.')
+    expect(start).toMatch(/if \(!type\) \{ setError\(KIND_MISSING\); return \}/)
   })
 })

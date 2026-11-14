@@ -48,6 +48,35 @@ export function statusMeans(status: number): string {
 }
 
 /**
+ * The error readJson throws: the sentence, and the status and the route's
+ * code beside it, so a page can tell a refusal (403) from a fault.
+ *
+ * Until 2026-11-12 it carried the sentence only, and two pages that drew
+ * a refusal on `e.status === 403` (Settings → Owners, Settings →
+ * Sign-in) could never reach that branch: a person who answered an
+ * ownership ask saw the page replaced by a refusal instead of their own
+ * answer (the Owner walk).
+ */
+/**
+ * `field` names the form field the refusal is about, where the route
+ * said one (`error.field`), so a form can put the sentence beside it.
+ */
+export type ReplyError = Error & { status: number; code?: string; field?: string }
+
+function replyError(message: string, status: number, code?: unknown, field?: unknown): ReplyError {
+  const e = new Error(message) as ReplyError
+  e.status = status
+  if (typeof code === 'string' && code) e.code = code
+  if (typeof field === 'string' && field) e.field = field
+  return e
+}
+
+/** True where a thrown error is the server saying no (403), not a fault. */
+export function isRefusal(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (e as { status?: unknown }).status === 403
+}
+
+/**
  * The JSON body, or a thrown error a person can read.
  *
  * Never throws a parser error. A response with no body, half a body or
@@ -71,14 +100,14 @@ export async function readJson<T = any>(res: Response): Promise<T> {
   }
 
   if (!res.ok) {
-    throw new Error(body?.error?.message ?? statusMeans(res.status))
+    throw replyError(body?.error?.message ?? statusMeans(res.status), res.status, body?.error?.code, body?.error?.field)
   }
 
   if (body === null) {
     // A 200 with nothing in it is not success, whatever the status line
     // says. Letting it through hands the page `undefined` and moves the
     // failure somewhere harder to read.
-    throw new Error('The server sent an empty reply.')
+    throw replyError('The server sent an empty reply.', res.status)
   }
 
   return body as T

@@ -8,7 +8,7 @@ import { POST as confirmReset } from '@/app/api/auth/password/reset/confirm/rout
 import { GET as entry } from '@/app/api/onboarding/route'
 import { POST as enter } from '@/app/api/onboarding/route'
 import { GET as probe } from '@/app/api/auth/password/signup/route'
-import { verifyEmail, checkPassword, resetPassword, issueSetPassword, resetLinkState } from '@/lib/password-door'
+import { verifyEmail, checkPassword, resetPassword, issueSetPassword, resetLinkState, setOwnPassword } from '@/lib/password-door'
 import { ASK_ETYME_HREF } from '@/lib/nav-table'
 import { DEMO_REFUSAL, SUPERSEDED, ALREADY_CONFIRMED, firmAddedYou, SIGNUP_SHUT, RESET_SHUT } from '@/lib/password'
 import { ACCOUNT_MAIL } from '@/lib/notify/account-mail'
@@ -98,7 +98,12 @@ describe('a password door, until the single sign-on keys exist', () => {
     expect(made).toMatchObject({ name: 'Kestrel Works', kind: 'CLIENT', country: 'US', currency: 'USD', domain: null, domainVerified: false })
     // No verified domain, so nothing is claimed: the address is the tenant.
     expect(made.claimedDomains).toEqual([])
-    expect(made.contexts.map((c) => [c.personId, c.role?.name])).toEqual([[person.id, 'Owner']])
+    // The first person is an Admin until both proofs stand (2026-11-12), and
+    // the company works at once: the founder's Admin posts a job and bills.
+    expect(made.contexts.map((c) => [c.personId, c.role?.name])).toEqual([[person.id, 'Admin']])
+    expect(made.ownerProofRequiredAt).not.toBeNull()
+    const admin = made.contexts[0].role!
+    expect(admin.permissions).toEqual(expect.arrayContaining(['requirements.write', 'invoices.issue', 'timesheets.approve']))
 
     // Lands in the steps with step 2 answered on the form; Sites is next (2026-10-28).
     as(OWNER)
@@ -123,7 +128,7 @@ describe('a password door, until the single sign-on keys exist', () => {
   it('an address is lowercase letters, digits and hyphens, never a reserved word, and never taken twice', async () => {
     const taken = await json(await signUp(req('POST', '/api/auth/password/signup', company({ email: STRANGER }))))
     expect(taken.status).toBe(422)
-    expect(taken.body.error).toMatchObject({ field: 'address', message: 'kestrel.etyme.com is already somebody else\'s. Choose another, or ask that company to invite you.' })
+    expect(taken.body.error).toMatchObject({ field: 'address', message: 'kestrel.etyme.com is already taken. To join a company already on Etyme, ask its Owner or Admin for an invitation; to start your own, choose another address.' })
 
     const reserved = await json(await signUp(req('POST', '/api/auth/password/signup', company({ email: STRANGER, address: 'demo' }))))
     expect(reserved.body.error.field).toBe('address')
@@ -178,8 +183,9 @@ describe('a password door, until the single sign-on keys exist', () => {
     expect(await prisma.company.count({ where: { slug: 'harrowgate' } })).toBe(0)
 
     // Signing up again with an email that already has an account answers
-    // the same, and tells the mailbox owner instead of the stranger.
-    const dupe = await json(await signUp(req('POST', '/api/auth/password/signup', company())))
+    // the same, and tells the mailbox owner instead of the stranger. (A
+    // fresh address: a taken one is refused for everybody alike.)
+    const dupe = await json(await signUp(req('POST', '/api/auth/password/signup', company({ address: 'kestrel-again' }))))
     expect(dupe.body.data.says).toBe(`Check your email. We sent a link to ${OWNER}. It works for 24 hours.`)
     expect(sent[sent.length - 1]).toMatchObject({ to: OWNER, subject: 'Set your Etyme password' })
     expect(sent[sent.length - 1].text).toContain('You already have an account.')
@@ -187,9 +193,11 @@ describe('a password door, until the single sign-on keys exist', () => {
 
   it('a reset link works once and dies after an hour', async () => {
     const asked = await json(await askReset(req('POST', '/api/auth/password/reset', { email: OWNER })))
-    expect(asked.body.data.says).toBe(`If there is an account for ${OWNER}, we sent a link. It works for 1 hour.`)
+    expect(asked.body.data.says).toBe(`If there is an account for ${OWNER}, a link is on its way. It works for 1 hour. If nothing arrives in a few minutes, check your spam folder, then write to support@etyme.com.`)
     const nobody = await json(await askReset(req('POST', '/api/auth/password/reset', { email: 'nobody@kestrelworks.test' })))
-    expect(nobody.body.data.says).toBe('If there is an account for nobody@kestrelworks.test, we sent a link. It works for 1 hour.')
+    expect(nobody.body.data.says).toBe('If there is an account for nobody@kestrelworks.test, a link is on its way. It works for 1 hour. If nothing arrives in a few minutes, check your spam folder, then write to support@etyme.com.')
+    // Never a claim that the email went: the provider may still refuse it.
+    expect(nobody.body.data.says).not.toMatch(/we sent/i)
 
     const token = lastLink(OWNER, 'reset')
     const { resetPassword } = await import('@/lib/password-door')
@@ -254,24 +262,16 @@ describe('a password door, until the single sign-on keys exist', () => {
     expect((await checkPassword(email, PASSWORD, '10.0.2.1')).ok).toBe(true)
   })
 
-  it('a colleague signing up with the same address and the owner\'s email domain is seated as Member and the owner is told', async () => {
+  it('a colleague typing the company\'s Etyme address from the owner\'s email domain is seated nowhere and told to ask an Owner or Admin for an invitation, in the sentence a stranger reads', async () => {
     const r = await json(await signUp(req('POST', '/api/auth/password/signup', company({ email: COLLEAGUE, name: 'Kestrel Works' }))))
-    expect(r.status, JSON.stringify(r.body)).toBe(200)
-    const v = await verifyEmail(lastLink(COLLEAGUE, 'verify'))
-    expect(v).toMatchObject({ ok: true, landing: '/start?welcome=1', says: 'You are in Kestrel Works as Member. Your owner has been told; you will see more once they give you a role.' })
-
-    const kestrel = await prisma.company.findUniqueOrThrow({ where: { slug: 'kestrel' } })
-    const seat = await prisma.context.findFirstOrThrow({ where: { person: { primaryEmail: COLLEAGUE } }, include: { role: true } })
-    expect(seat).toMatchObject({ companyId: kestrel.id, type: 'EMPLOYEE', role: { name: 'Member' } })
-    expect(await prisma.company.count({ where: { name: 'Kestrel Works' } })).toBe(1)
-
-    const owner = await prisma.person.findUniqueOrThrow({ where: { primaryEmail: OWNER } })
-    let told = 0
-    for (let i = 0; i < 50 && told === 0; i++) {
-      told = await prisma.notification.count({ where: { personId: owner.id, companyId: kestrel.id, body: { contains: COLLEAGUE } } })
-      if (!told) await new Promise((res) => setTimeout(res, 20))
-    }
-    expect(told).toBeGreaterThan(0)
+    const stranger = await json(await signUp(req('POST', '/api/auth/password/signup', company({ email: STRANGER, name: 'Kestrel Works' }))))
+    expect(r.status).toBe(422)
+    expect(r.body.error).toMatchObject({ field: 'address', message: 'kestrel.etyme.com is already taken. To join a company already on Etyme, ask its Owner or Admin for an invitation; to start your own, choose another address.' })
+    expect(stranger.body.error).toEqual(r.body.error)
+    // The probe offers no company either: Kestrel has no verified domain.
+    const p = await json(await probe(req('GET', `/api/auth/password/signup?email=${encodeURIComponent(COLLEAGUE)}`)))
+    expect(p.body.data.joins).toBeNull()
+    expect(await prisma.context.count({ where: { person: { primaryEmail: COLLEAGUE } } })).toBe(0)
   })
 
   it('a Microsoft or Google sign-in joins an address only through its verified domain', async () => {
@@ -444,7 +444,8 @@ describe('a password door, until the single sign-on keys exist', () => {
     const firm = await prisma.company.findUniqueOrThrow({ where: { slug: 'diallo-nursing' } })
     expect(firm).toMatchObject({ kind: 'CONSULTANT_CORP', name: 'Diallo Nursing LLC', country: 'US', currency: 'USD' })
     const person = await prisma.person.findUniqueOrThrow({ where: { primaryEmail: email }, include: { contexts: { include: { role: true } } } })
-    expect(person.contexts.some((c) => c.companyId === firm.id && c.role?.name === 'Owner')).toBe(true)
+    // A one-person firm's person is its Admin until the identity check stands.
+    expect(person.contexts.some((c) => c.companyId === firm.id && c.role?.name === 'Admin')).toBe(true)
     expect(person.contexts.some((c) => c.type === 'CONSULTANT')).toBe(true)
     expect((await prisma.consultantProfile.findUnique({ where: { personId: person.id } }))?.ownCompanyId).toBe(firm.id)
     expect(await checkPassword(email, PASSWORD, '10.0.9.5')).toMatchObject({ ok: true })
@@ -577,5 +578,35 @@ describe('a password door, until the single sign-on keys exist', () => {
     } finally {
       process.env.RESEND_API_KEY = key
     }
+  })
+  it('a person seated by the staff tool, signed in with Google, sets a password and can then sign in with it', async () => {
+    // Fault 5, the founder's own case on 2026-11-12: seated by the staff
+    // tool, in with Google, no password and no email to reset one with.
+    const mira = 'mira@pellbrook.test'
+    const MIRA_PW = 'harbor lantern seven oaks'
+    const { bootstrapCompany } = await import('@/lib/staff-bootstrap')
+    const made = await bootstrapCompany({ name: 'Pellbrook Talent', domain: 'pellbrook.test', kind: 'VENDOR', address: 'pellbrook', seats: [{ email: mira, role: 'Owner' }] } as any)
+    expect(made.ok, JSON.stringify(made)).toBe(true)
+    const person = await prisma.person.findUniqueOrThrow({ where: { primaryEmail: mira } })
+    expect(person.passwordHash).toBeNull()
+
+    const { authOptions } = await import('@/lib/auth')
+    const user: any = { id: 'google-sub-mira', email: mira }
+    const account = { provider: 'google', providerAccountId: 'google-sub-mira', type: 'oauth' }
+    expect(await authOptions.callbacks!.signIn!({ user, account, profile: { email_verified: true } } as any)).toBe(true)
+    const token: any = await authOptions.callbacks!.jwt!({ token: {}, user, account } as any)
+    expect(token).toMatchObject({ email: mira, door: 'GOOGLE_SOCIAL' })
+
+    expect((await checkPassword(mira, MIRA_PW, null)).ok).toBe(false)
+    const set = await setOwnPassword({ email: token.email, door: token.door, authAt: token.authAt, sessionVersion: token.sv, password: MIRA_PW })
+    expect(set).toMatchObject({ ok: true, changed: false })
+
+    const signedIn = await checkPassword(mira, MIRA_PW, null)
+    expect(signedIn).toMatchObject({ ok: true, email: mira, personId: person.id })
+    expect(await prisma.accessLog.count({ where: { action: 'PASSWORD_SET', subjectId: person.id } })).toBe(1)
+    // A first password ends no session: the one that set it still stands.
+    const { liveSessionStands } = await import('@/lib/identity/read')
+    expect(await liveSessionStands({ email: mira, door: 'GOOGLE_SOCIAL', issuer: null, tokenVersion: token.sv })).toEqual({ stands: true })
+    expect(logged.join('\n')).not.toContain(MIRA_PW)
   })
 })

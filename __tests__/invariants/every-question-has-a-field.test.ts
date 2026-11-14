@@ -648,3 +648,60 @@ describe('a student’s CPT page: every field the start rule reads, the Visas ta
     expect(petitionBody({ personId: 'p', type: 'H1B', country: 'US', employerNamed: 'x' })).toEqual({ personId: 'p', type: 'H1B', country: 'US' })
   })
 })
+
+describe('Pause and End on Users & permissions ask the reason the access route asks for', () => {
+  const route = readFileSync(join(process.cwd(), 'src/app/api/access/[contextId]/route.ts'), 'utf8')
+  const page = readFileSync(join(process.cwd(), 'src/app/dashboard/access/page.tsx'), 'utf8')
+
+  it('the access route refuses a pause or an ending with no reason, in a sentence naming the reason field', () => {
+    expect(route).toContain("if (action !== 'reinstate' && !reason)")
+    expect(route).toContain("'Say why they are being paused. They can be told, and somebody will ask later.'")
+    expect(route).toContain("field: 'reason'")
+  })
+
+  it('a pause with no reason typed posts no reason, which the route refuses, and the page has the field for it', async () => {
+    const { ASKS, lifecycleBody } = await import('@/app/api/access/row-acts')
+    expect(ASKS.suspend).toContain('reason')
+    expect(ASKS.revoke).toContain('reason')
+    expect(lifecycleBody('suspend', {}).reason).toBe('')
+    expect(lifecycleBody('suspend', { reason: '  On leave until March ' })).toEqual({ action: 'suspend', reason: 'On leave until March' })
+    expect(page).toContain("ASKS[action].includes('reason')")
+    expect(page).toContain('aria-label="Reason"')
+  })
+
+  it('Reinstate asks nothing and posts no reason', async () => {
+    const { ASKS, lifecycleBody } = await import('@/app/api/access/row-acts')
+    expect(ASKS.reinstate).toEqual([])
+    expect(lifecycleBody('reinstate', { reason: 'x' }).reason).toBe('')
+  })
+})
+
+describe('the first sign-in "Your company" form asks for the name the onboarding route refuses without', () => {
+  const page = readFileSync(join(process.cwd(), 'src/app/(auth)/start/page.tsx'), 'utf8')
+  const route = readFileSync(join(process.cwd(), 'src/app/api/onboarding/route.ts'), 'utf8')
+
+  it('a company name sent blank is refused in the screen’s own sentence, and a name not sent at all may still be guessed', async () => {
+    const { blankNameSays, COMPANY_NAME_MISSING, NAME_MISSING } = await import('@/app/(auth)/start/missing')
+    expect(blankNameSays({ type: 'CLIENT', name: '   ' }, false)).toBe(COMPANY_NAME_MISSING)
+    expect(blankNameSays({ type: 'CLIENT', name: '' }, true)).toBe(NAME_MISSING)
+    expect(blankNameSays({ type: 'CLIENT' }, false)).toBeNull()
+    expect(blankNameSays({ type: 'CLIENT', name: 'Lantern Works' }, false)).toBeNull()
+    expect(COMPANY_NAME_MISSING).toBe('Type your company’s name first, then press Continue.')
+  })
+
+  it('the onboarding route refuses a blank name before any company is made, and never guesses over it', () => {
+    const refused = route.indexOf('const blank = blankNameSays(body, ownFirm)')
+    expect(refused).toBeGreaterThan(0)
+    expect(refused).toBeLessThan(route.indexOf('await createCompany({'))
+  })
+
+  it('pressing Continue with the company name cleared says the name is missing beside the box and sends nothing', () => {
+    const press = page.slice(page.indexOf("if (!type) { setError(KIND_MISSING); return }"))
+    const guard = press.indexOf("if (!name.trim()) { setError(null); setMissingFor('COMPANY'); return }")
+    expect(guard).toBeGreaterThan(0)
+    expect(guard).toBeLessThan(press.indexOf('enter({ type, name, country, currency'))
+    const box = page.slice(page.indexOf('<Lbl>Company name</Lbl>'), page.indexOf('<Lbl>Which one are you?</Lbl>'))
+    expect(box).toContain("{missingFor === 'COMPANY' && <p role=\"alert\"")
+    expect(box).toContain('{COMPANY_NAME_MISSING}')
+  })
+})

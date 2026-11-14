@@ -72,17 +72,17 @@ describe('inviting the team', () => {
   it('Users & permissions has the form: name, work email, what they do here', () => {
     const page = read('src/app/dashboard/access/page.tsx')
     expect(page).toContain('Invite a teammate')
-    expect(page).toContain("fetch('/api/access/invite'")
-    expect(page).toContain('<option value="">What they do here…</option>')
+    expect(page).toContain("sendAndRead('/api/access/invite'")
+    expect(page).toContain('<Field label="What they do here">')
   })
   it('the invitation is emailed and says when the seat becomes theirs', () => {
-    const route = read('src/app/api/access/invite/route.ts')
+    const route = read('src/app/api/access/invite/route.ts') + read('src/app/api/access/invite/one.ts')
     expect(route).toContain("channel: 'EMAIL'")
     // The inviter's sentence is written by inviteSays (lib/access-grant),
     // whether or not an email could leave.
     expect(route).toContain('inviteSays(')
     for (const mail of ['SENT', 'FAILED', 'NOT_CONFIGURED'] as const) {
-      const says = inviteSays({ personName: 'Imelda Santoro', email: 'imelda@brightmoor.example', roleName: 'Accounts Receivable', door: 'PASSWORD', mail, login: null })
+      const says = inviteSays({ personName: 'Imelda Santoro', email: 'imelda@brightmoor.example', roleName: 'Accounts Receivable', mail })
       expect(says, mail).toContain('The seat is theirs when they sign in with imelda@brightmoor.example.')
     }
   })

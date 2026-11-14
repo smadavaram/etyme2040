@@ -101,6 +101,8 @@ interface SupplierRequest {
   decidedBy: string | null
   decisionNote: string | null
   mine: boolean
+  /** Approved for a firm on Etyme that has not said yes to linking: the press is offered. */
+  awaitsLink?: boolean
   mayAct: boolean
   whyNot: string | null
   leadNamed: boolean
@@ -168,6 +170,12 @@ export default function SuppliersPage() {
    * one shade quieter.
    */
   const [told, setTold] = useState<string | null>(null)
+  /**
+   * Pasted rows that are firms on Etyme and do not work with this company
+   * yet. Nothing was written for them; each carries the route's sentence
+   * and the ask to link, with only what was typed (review, 2026-11-13).
+   */
+  const [linkAsks, setLinkAsks] = useState<{ name: string; domain: string | null; email: string; says: string; answer?: string; failed?: boolean; requestId?: string }[]>([])
   const [requests, setRequests] = useState<SupplierRequest[]>([])
   const [mayRecommend, setMayRecommend] = useState(false)
   const [mayDecide, setMayDecide] = useState(false)
@@ -249,6 +257,17 @@ export default function SuppliersPage() {
     try {
       const body = await readJson(await fetch('/api/supplier-requests'))
       setRequests(body.data.requests)
+      // A firm approved and not linked yet keeps its press after a reload.
+      const waiting = (body.data.requests as SupplierRequest[]).filter((r) => r.awaitsLink)
+      if (waiting.length > 0) {
+        setLinkAsks((all) => [
+          ...all.filter((a) => !a.requestId || !waiting.some((r) => r.id === a.requestId)),
+          ...waiting.map((r) => all.find((a) => a.requestId === r.id) ?? {
+            name: r.name, domain: null, email: '', requestId: r.id,
+            says: 'Approved. It is on Etyme already and becomes your supplier once it says yes to linking with you.',
+          }),
+        ])
+      }
       setMayRecommend(body.data.mayRecommend)
       setMayDecide(body.data.mayDecide)
     } catch (err: any) {
@@ -311,6 +330,15 @@ export default function SuppliersPage() {
       }))
       // A mark speaks through the checklist itself; only a decision gets a banner.
       if (body.data.says && payload.action !== 'mark') setDone(body.data.says)
+      // An approval for a firm already on Etyme sends it nothing; the
+      // press to ask it to link is offered here, and only the press asks.
+      if (payload.action === 'approve' && body.data.askToLink) {
+        const a = body.data.askToLink as { requestId: string; name: string }
+        setLinkAsks((all) => [...all.filter((x) => x.requestId !== a.requestId), {
+          name: a.name, domain: null, email: '', requestId: a.requestId,
+          says: 'Approved. It is on Etyme already and becomes your supplier once it says yes to linking with you.',
+        }])
+      }
       // Except a mark that recorded nothing. The item keeps the desk's
       // note and the firm's file, and the desk is told out loud that no
       // compliance record came of it and whose verdict it would take —
@@ -374,19 +402,63 @@ export default function SuppliersPage() {
     if (!rows) return
     setBusy(true)
     setError(null)
+    setLinkAsks([])
     try {
       const res = await fetch('/api/suppliers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ rows }),
       })
-      const body = await readJson(res)
+      // A paste where every row was refused answers 409 with the rows it
+      // refused, so the body is read here rather than thrown away.
+      const body = await res.json().catch(() => null)
+      const refusedRows: any[] = body?.data?.refused ?? body?.error?.refused ?? []
+      setLinkAsks(
+        refusedRows
+          .filter((r) => r?.askToLink)
+          .map((r) => ({ name: String(r.askToLink.name), domain: r.askToLink.domain ?? null, email: String(r.email ?? ''), says: String(r.says) })),
+      )
+      if (!res.ok) {
+        const others = refusedRows.filter((r) => !r?.askToLink)
+        if (others.length > 0 || refusedRows.length === 0) {
+          setError(body?.error?.message ?? 'The list was not added. Try again in a minute.')
+        }
+        if (refusedRows.length > 0) { setRows(null); setText('') }
+        return
+      }
       setDone(body.data.summary)
       setRows(null)
       setText('')
       load()
     } catch (err: any) {
       setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Ask a firm already on Etyme to link as a supplier: the ask Companies makes, with what was typed. */
+  async function askToLink(i: number) {
+    const ask = linkAsks[i]
+    if (!ask) return
+    setBusy(true)
+    try {
+      const res = ask.requestId
+        ? await fetch(`/api/supplier-requests/${ask.requestId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ask_to_link' }),
+          })
+        : await fetch('/api/trade-links', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: ask.name, domain: ask.domain, relationship: 'SUPPLIER' }),
+          })
+      const body = await res.json().catch(() => ({}) as any)
+      const answer = res.ok
+        ? body.data?.says ?? 'Asked. Nothing is on either list until they say yes.'
+        : body.error?.message ?? 'The ask could not be sent. Try again in a minute.'
+      setLinkAsks((all) => all.map((a, j) => (j === i ? { ...a, answer, failed: !res.ok } : a)))
+    } catch {
+      setLinkAsks((all) => all.map((a, j) => (j === i ? { ...a, answer: 'Network error. Please try again.', failed: true } : a)))
     } finally {
       setBusy(false)
     }
@@ -886,6 +958,24 @@ export default function SuppliersPage() {
 
       {told && <FormMessage tone="error">{told}</FormMessage>}
       {done && <FormMessage tone="ok">{done}</FormMessage>}
+      {linkAsks.length > 0 && (
+        <section className="space-y-2">
+          {linkAsks.map((a, i) => (
+            <div key={`${a.email}-${i}`} className="rounded-lg border border-etyme-rule bg-etyme-surface px-3 py-2 text-[13px]">
+              <p className="text-etyme-ink"><span className="font-medium">{a.name}</span>{a.email ? ` · ${a.email}` : ''}</p>
+              <p className="mt-1 text-etyme-muted">{a.says}</p>
+              {a.answer ? (
+                <p className={`mt-1 ${a.failed ? 'text-etyme-danger' : 'text-etyme-verified'}`}>{a.answer}</p>
+              ) : (
+                <button type="button" onClick={() => askToLink(i)} disabled={busy}
+                  className="mt-2 rounded border border-etyme-rule px-2 py-0.5 text-[12px] text-etyme-ink hover:border-etyme-action">
+                  Ask them to link
+                </button>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* ── What it made of the paste ─────────────────────────────── */}
       {rows && (

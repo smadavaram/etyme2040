@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { needsVerifiedOwnerAt, gateRefusal } from '@/lib/owner-proof'
 import { checkPayeeBank } from '@/lib/money/bank-check-read'
 import { alreadyOnABill } from '@/lib/money/billed-elsewhere'
 import { hasPermission } from '@/lib/permissions'
@@ -19,6 +20,9 @@ import {
 import { amount } from '@/lib/money-display'
 import { formatDay } from '@/lib/format-date'
 import { readLines } from '@/lib/money/keyed-lines'
+import { recordKeyedPayment } from '@/lib/money/keyed-payment'
+import { logPaymentRefused, refusalWhy } from '@/lib/money/payment-refused'
+import { tellPaidOrReport, toldSays } from '@/lib/money/paid-notice'
 import { paidSellLine, clientLinesFrom } from '@/lib/money/paid-line'
 import {
   booksFor, noteMoneyRead, seatMayPay, seatedRefusal, moneyTrailFor,
@@ -230,7 +234,33 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const status = String(body.status ?? (paidAt ? 'PAID' : 'RECEIVED')).toUpperCase()
+  // ── Never recorded as already paid ────────────────────────────────
+  //
+  // Review of 2026-11-12: a receipt typed in with a paid date, a paid
+  // amount or the status PAID was written settled here, with no Payment
+  // row, no word to the supplier, and none of the gates a payment passes:
+  // the verified Owner, the supplier's checked bank, the three-way check.
+  // Every payment goes through one function (`recordKeyedPayment`, read
+  // by PATCH below), so intake records the receipt unpaid and the payment
+  // is made from its row.
+  const statusAsked = body.status == null ? null : String(body.status).toUpperCase()
+  const paidOnIntake = paidAt != null || Number(body.paid ?? 0) > 0 || statusAsked === 'PAID'
+  if (paidOnIntake) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'VALIDATION',
+          message:
+            'An invoice receipt is recorded unpaid. Record it without a paid date, then pay it from its row ' +
+            'so the payment is checked and the supplier is told.',
+          field: paidAt != null ? 'paidAt' : statusAsked === 'PAID' ? 'status' : 'paid',
+        },
+      },
+      { status: 422 }
+    )
+  }
+
+  const status = statusAsked ?? 'RECEIVED'
   if (!STATUSES.includes(status)) {
     return NextResponse.json(
       { error: { code: 'VALIDATION', message: `Status must be one of ${STATUSES.join(', ')}`, field: 'status' } },
@@ -546,24 +576,6 @@ export async function POST(request: NextRequest) {
   const failedSoft = match.checks.filter((c) => c.outcome === 'FAIL')
   const statusAfterMatch = failedSoft.length > 0 ? 'DISPUTED' : status
 
-  // Recorded as already paid, it is paid on the same check as any other
-  // payment: a receipt that does not pass is not written down as settled.
-  const paidOnIntake = paidAt != null || Number(body.paid ?? 0) > 0 || status === 'PAID'
-  if (failedSoft.length > 0 && paidOnIntake) {
-    return NextResponse.json(
-      {
-        error: {
-          code: 'MATCH_FAILED',
-          message:
-            `${match.summary.replace(/[.\s]+$/, '')}. A receipt that does not pass the check is not recorded as paid. ` +
-            `Record it without a paid date and it is held as disputed.`,
-          checks: match.checks,
-        },
-      },
-      { status: 422 }
-    )
-  }
-
   // ── Checked before saving ─────────────────────────────────────────
   //
   // The screen asks what the check would say before the clerk saves, and
@@ -604,10 +616,11 @@ export async function POST(request: NextRequest) {
       periodEnd: coversTo,
       currency,
       totalCents,
-      paidCents: paidAt ? totalCents : Math.round(Number(body.paid ?? 0) * 10 ** decimalsFor(currency)),
+      // Unpaid on intake, always: a payment is made from the row (PATCH).
+      paidCents: 0,
       receivedAt,
       dueAt,
-      paidAt,
+      paidAt: null,
       status: statusAfterMatch,
       payWhenPaid,
       // Written with the receipt, in one statement, so a receipt is never
@@ -763,6 +776,21 @@ export async function PATCH(request: NextRequest) {
   }
   const vendorName = bill.vendorCompany.name
 
+  // The proof rule (founder, 2026-11-11): a company formed under it pays no
+  // firm until it has a verified Owner, refused before any write in the
+  // gate's own sentence, which names the step and links to it.
+  const owner = await needsVerifiedOwnerAt(reading.companyId, 'PAY')
+  // Every rule's refusal below is kept before it is said.
+  const refusedPay = (why: NonNullable<ReturnType<typeof refusalWhy>>, says: string) =>
+    logPaymentRefused({
+      companyId: reading.companyId, byPersonId: caller.isService ? null : caller.person.id,
+      door: 'RECEIPT_PAY', why, says, vendorBillId: bill.id, number: bill.number,
+    })
+  if (!owner.ok) {
+    await refusedPay('OWNER_NOT_VERIFIED', owner.says)
+    return NextResponse.json(gateRefusal(owner), { status: 403 })
+  }
+
   // ── The one gate, run at the moment money leaves ────────────────────
   //
   // Release walk, 2026-10-18: a receipt recorded as disputed was paid by
@@ -777,6 +805,7 @@ export async function PATCH(request: NextRequest) {
     ? null
     : await checkKeyedReceipt(asKeyed(bill), 'pay')
   if (check?.notAccepted) {
+    await refusedPay('MATCH_FAILED', check.notAccepted.says)
     return NextResponse.json(
       { error: { code: 'WEEK_NOT_ACCEPTED', message: check.notAccepted.says } },
       { status: 422 }
@@ -789,6 +818,8 @@ export async function PATCH(request: NextRequest) {
   // the three-way check). The sentence names who checks.
   const gate = await keyedPayGateNow(bill, vendorName, check, caller.isService ? null : caller.person.id)
   if (!gate.ok) {
+    const why = refusalWhy(gate.code)
+    if (why) await refusedPay(why, gate.says)
     return NextResponse.json(
       { error: { code: gate.code, message: gate.says, checks: check?.match.checks ?? [] } },
       { status: 409 }
@@ -799,6 +830,24 @@ export async function PATCH(request: NextRequest) {
   if (Number.isNaN(paidAt.getTime())) {
     return NextResponse.json(
       { error: { code: 'VALIDATION', message: 'That paidAt could not be read', field: 'paidAt' } },
+      { status: 422 }
+    )
+  }
+  // The day money left has happened: a date after tomorrow (a day's grace
+  // for a payer ahead of UTC) is refused, as the confirmation refuses it,
+  // because a future date read as money gone would flatter days to pay.
+  const latest = new Date()
+  latest.setUTCHours(0, 0, 0, 0)
+  latest.setUTCDate(latest.getUTCDate() + 2)
+  if (paidAt.getTime() >= latest.getTime()) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'VALIDATION',
+          message: 'The paid date has not happened yet. Enter the day the money left.',
+          field: 'paidAt',
+        },
+      },
       { status: 422 }
     )
   }
@@ -845,85 +894,66 @@ export async function PATCH(request: NextRequest) {
     )
   }
 
-  const newPaid = bill.paidCents + addCents
-  const settled = newPaid >= bill.totalCents
-
-  // ── Who paid whom ──────────────────────────────────────────────────
+  // ── Who paid whom, through the one write ──────────────────────────
   //
-  // Written on every payment, as a payment on a platform invoice is: a
-  // `Payment` row naming the receipt it pays, who paid, who was paid, how
-  // much, when, how and the reference, and who pressed it — beside the
-  // receipt's own paid figure, in one transaction, so the two can never
-  // disagree. Never unapplied cash on the supplier's books: it names the
-  // receipt it settles, and every receivables view leaves such a row out.
-  // Under the seat where it was made in one.
+  // Every door that pays a typed-in invoice receipt goes through
+  // `recordKeyedPayment` (lib/money/keyed-payment): the receipt's paid
+  // figure and date, the `Payment` row naming who paid whom, how much,
+  // when, how and the reference, and the trail, in one transaction, so the
+  // two can never disagree. The write refuses where the receipt's paid
+  // figure moved since it was read, so a second press at the same moment
+  // pays nothing. Only a receipt paid in full carries a paid date: a part
+  // payment has not closed the obligation. Under the seat where it was
+  // made in one.
   //
   // No cycle is closed here, on purpose: the date this receipt was expected
   // closed when it was recorded, and when it falls due is the receipt's own
-  // `dueAt`, never a cycle (lib/cycle-kinds). Closing again would close the
-  // next period's date.
+  // `dueAt`, never a cycle (lib/cycle-kinds).
   const method = body.method ? String(body.method) : null
-  const reference = body.reference ? String(body.reference) : null
-  const d = decimalsFor(bill.currency)
-  const { updated, payment } = await prisma.$transaction(async (tx) => {
-    const updated = await tx.vendorBill.update({
-      where: { id },
-      data: {
-        paidCents: newPaid,
-        // Only a bill paid in full carries a paid date. A part payment has
-        // not closed the obligation, and dating it as if it had would
-        // report the first installment as the day the supplier was paid.
-        paidAt: settled ? paidAt : null,
-        status: settled ? 'PAID' : 'APPROVED',
-      },
-      select: { id: true, paidCents: true, totalCents: true, paidAt: true, status: true },
-    })
-    const payment = await tx.payment.create({
-      data: {
-        vendorBillId: bill.id,
-        payerCompanyId: reading.companyId,
-        receivedByCompanyId: bill.vendorCompanyId,
-        amount: (addCents / 10 ** d).toFixed(d),
-        currency: bill.currency,
-        method,
-        reference,
-        receivedAt: paidAt,
-        appliedAt: new Date(),
-        appliedById: caller.person.id,
-      },
-      select: { id: true },
-    })
-    await tx.automationLog.create({
-      data: {
-        companyId: reading.companyId,
-        action: 'PAYMENT_RECORDED',
-        summary:
-          `Payment of ${amount(addCents, bill.currency)} recorded on ${vendorName}’s invoice ${bill.number}. ` +
-          (settled ? 'Now paid in full.' : `${amount(bill.totalCents - newPaid, bill.currency)} outstanding.`),
-        reason:
-          moneyTrailFor(reading.seat ?? null, `Payment of ${amount(addCents, bill.currency)} recorded`) ??
-          `Recorded by ${caller.person.name} at ${caller.company!.name}, paying`,
-        payload: {
-          vendorBillId: bill.id,
-          paymentId: payment.id,
-          number: bill.number,
-          paidBy: { companyId: reading.companyId, name: reading.companyName },
-          paidTo: { companyId: bill.vendorCompanyId, name: vendorName },
-          paidCents: addCents,
-          currency: bill.currency,
-          method,
-          reference,
-          paidAt: paidAt.toISOString(),
-          settled,
-          byPersonId: caller.person.id,
-          seatId: reading.seat?.id ?? null,
-          officeCompanyId: reading.seat?.officeCompany.id ?? null,
-        },
-        reversible: false,
+  const reference = body.reference ? String(body.reference).trim() || null : null
+  const out = await prisma.$transaction((tx) =>
+    recordKeyedPayment(tx, {
+      billId: bill.id,
+      payerCompanyId: reading.companyId,
+      payerName: reading.companyName,
+      vendorCompanyId: bill.vendorCompanyId,
+      vendorName,
+      number: bill.number,
+      currency: bill.currency,
+      amountCents: addCents,
+      expectPaidCents: bill.paidCents,
+      paidAt,
+      payerReference: reference,
+      etymeReference: null,
+      runId: null,
+      method,
+      appliedById: caller.person.id,
+      appliedByName: caller.person.name,
+      reason:
+        moneyTrailFor(reading.seat ?? null, `Payment of ${amount(addCents, bill.currency)} recorded`) ??
+        `Recorded by ${caller.person.name} at ${caller.company!.name}, paying`,
+      trail: {
+        seatId: reading.seat?.id ?? null,
+        officeCompanyId: reading.seat?.officeCompany.id ?? null,
       },
     })
-    return { updated, payment }
-  })
+  )
+  if (!out.ok) {
+    return NextResponse.json({ error: { code: 'INVALID_STATE', message: out.says } }, { status: 409 })
+  }
+
+  // Committed: the supplier is told, once (lib/money/paid-notice).
+  const suppliersTold = await tellPaidOrReport(out.notice, 'a typed-in invoice receipt paid')
+
+  const settled = out.settled
+  const updated = {
+    id: bill.id,
+    paidCents: out.paidCents,
+    totalCents: bill.totalCents,
+    paidAt: settled ? paidAt : null,
+    status: settled ? 'PAID' : 'APPROVED',
+  }
+  const payment = { id: out.paymentId }
 
   return NextResponse.json({
     data: {
@@ -940,10 +970,12 @@ export async function PATCH(request: NextRequest) {
         recordedBy: caller.person.name,
       },
       readInASeat: reading.seated,
-      note: settled
+      suppliersTold,
+      note: (settled
         ? `Paid in full on ${formatDay(paidAt)}. Days to pay for this supplier count to this date.`
         : 'Part paid. No paid date is set — the obligation is still open, and dating it ' +
-          'now would report the first installment as the day they were paid.',
+          'now would report the first installment as the day they were paid.') +
+        ` ${toldSays([{ vendorName, told: suppliersTold }])}`,
     },
   })
 }
