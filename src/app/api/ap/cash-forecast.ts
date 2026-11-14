@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { owedOnRow } from '@/lib/money/period-pay-left'
 import { iso, type Period } from '@/lib/periods'
 import { settingsFrom } from '@/lib/days-off'
 import { ratePeriods, type RatePeriod } from '@/lib/contract-rate'
@@ -229,7 +230,7 @@ export async function forecastInputs(a: ForecastReadIn): Promise<ForecastInputs>
   const buyRates = await ratesFor('BUY', buyLines.map((b) => b.id))
   const readsPayroll = a.payrollRows != null
   const pendingRows = (a.payrollRows ?? []).filter((p) =>
-    (p.payStatus === 'PENDING' || p.payStatus === 'CALCULATED') && typeof p.grossPay === 'number' && p.grossPay > 0)
+    (p.payStatus === 'PENDING' || p.payStatus === 'CALCULATED') && typeof p.grossPay === 'number' && owedOnRow(p) > 0)
   const payrollLines: RunningLine[] = []
 
   for (const bc of buyLines) {
@@ -252,7 +253,7 @@ export async function forecastInputs(a: ForecastReadIn): Promise<ForecastInputs>
 
     for (const cand of bc.candidates) {
       const row = byPayroll ? (a.payrollRows ?? []).find((p) => p.buyContractCandidateId === cand.id) : null
-      const shown = row?.payPeriod?.end && ['PENDING', 'CALCULATED', 'PROCESSED'].includes(row.payStatus)
+      const shown = row?.payPeriod?.end && ['PENDING', 'CALCULATED', 'PROCESSED', 'HELD'].includes(row.payStatus)
         ? after(new Date(row.payPeriod.end))
         : row?.payPeriod?.start ? new Date(row.payPeriod.start) : null
       const line: RunningLine = {
@@ -282,7 +283,8 @@ export async function forecastInputs(a: ForecastReadIn): Promise<ForecastInputs>
       pending: pendingRows.map((p) => ({
         currency: typeof p.payCurrency === 'string' ? p.payCurrency : null,
         at: p.nextPayDate ? new Date(p.nextPayDate) : null,
-        minor: p.grossPay,
+        // What is still to pay, never a week paid already.
+        minor: owedOnRow(p),
       })),
       lines: payrollLines,
     }

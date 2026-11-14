@@ -7,19 +7,28 @@ import { spreadOn, blendedSpread } from '@/lib/money/placement-margin'
 import { resolveOwnCompany } from '@/lib/resolve-client-company'
 import { prisma } from '@/lib/db'
 import { daysFor } from '@/lib/contract-links'
-import { periodFor, hoursInPeriod, type Terms } from '@/lib/periods'
+import { periodFor, hoursInPeriod, type Period, type Terms } from '@/lib/periods'
 import { rateInForce, priceByDay, ratePeriods } from '@/lib/contract-rate'
 import { ORDER_HEADER_SELECT, periodTermsFor } from '@/lib/money/order-terms'
 import { sheetOvertime, premiumByDay, overtimeSaysFor, wageLineFor, EXEMPT_SELECT } from '@/lib/money/sheet-overtime'
 import { methodFor } from '@/lib/money/overtime-method'
-import { payLineOn, payLineSays, weeklyWorked } from '@/lib/money/pay-line'
+import { payLineOn, payLineSays, weeklyWorked, heldForExemption, withoutHeldWeeks, heldSays, owedSinceRecordedSays } from '@/lib/money/pay-line'
 import { acceptanceForPay, paySheet, payCutSays, straightTimeWeeks } from '@/lib/money/pay-hours'
 import { cutOvertimeFor } from '@/lib/cut-overtime-choice'
 import { weekStart } from '@/lib/overtime'
 import { nextOpen, overdueOpen, todayUtc } from '@/lib/money/next-cycle'
 import { paidByPayroll, notPayrollSays } from '@/lib/money/paid-through'
-import { ACTIVE_PAY_STATES, STOPPED_PAY_STATES, onPayrollFor, stoppedSince, periodPayStatus, payrollClientFor } from '@/lib/money/payroll-rows'
-import { plainDate } from '@/lib/plain-date'
+import { ACTIVE_PAY_STATES, STOPPED_PAY_STATES, onPayrollFor, stoppedSince, periodPayStatus, periodPayDay, payrollClientFor, periodStatusFromRuns, notAcceptedSays } from '@/lib/money/payroll-rows'
+import { plainDate, daySpan } from '@/lib/plain-date'
+import { paidBook, paidKey, PAYROLL_RUN } from '@/lib/payroll-paid'
+import { workedOutKeys, isWorkedOut, payCovers, coversLeft } from '@/lib/money/payroll-worked-out'
+import { companyPayPeriods } from '@/lib/money/company-pay-periods'
+import {
+  periodsAround, periodHolding, periodLabel, periodWords, periodShownSays, calendarMonthSays,
+  nothingToPaySays, isDayKey, payFileCsv, payFileWaits, MONTH_HAS_NO_PAY_FILE, noHolidaysSays, payFileName, monthPayFileName, PICK_A_MONTH_FOR_PAY_FILE, PAY_FILE_NOTE, pickerPeriods, unpaidPeriodWords, statusWithHeld, payStatusSays, heldAboveTableSays, type PayPeriodOn,
+} from '@/lib/money/pay-periods'
+import { PAY_PERIOD_WORDS } from '@/lib/pay-dates'
+import { payLeftInPeriod, partPaidSays, type PricedDay, type PremiumDay } from '@/lib/money/period-pay-left'
 
 /**
  * GET /api/payroll
@@ -57,7 +66,55 @@ export async function GET(request: NextRequest) {
   )
   if (notYours) return notYours
   const status = url.searchParams.get('status')
-  const period = url.searchParams.get('period') // YYYY-MM
+  // A calendar month, "2026-12"; or a day, "2026-12-06", which asks for
+  // the company's own pay period holding it; or nothing.
+  const period = url.searchParams.get('period')
+  const dayAsked = isDayKey(period) ? period : null
+  // A calendar month, "2026-06". Anything else asked for is refused in a
+  // sentence rather than read as a date nobody gave (period=all was a 500).
+  const monthAsked = typeof period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(period) ? period : null
+  if (period && !dayAsked && !monthAsked) {
+    return NextResponse.json(
+      { error: { code: 'VALIDATION', field: 'period', message: 'Pick a month or one of your pay periods.' } },
+      { status: 422 }
+    )
+  }
+  const companyName = caller.company?.id === companyId ? caller.company.name : 'Your company'
+
+  // ── The company's own pay periods (2026-11-14) ─────────────────────
+  //
+  // The founder, for Tapin: "W2 first, outside payroll provider,
+  // biweekly". A company paying every week or every other week, whose
+  // Owner said which Sunday the first period starts on, has its pay
+  // listed by its own periods (lib/money/pay-periods). Every line is cut
+  // to the company's period, whatever rhythm the line was written with:
+  // payroll is run by the company's period, and a line's own pay dates
+  // are neither read for it nor rewritten.
+  const thisYear = new Date().getUTCFullYear()
+  const askedYear = dayAsked ? Number(dayAsked.slice(0, 4)) : thisYear
+  const co = await companyPayPeriods(companyId, {
+    fromYear: Math.min(thisYear, askedYear) - 3,
+    toYear: Math.max(thisYear, askedYear) + 3,
+  })
+  if (dayAsked && !co.byPeriod) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'VALIDATION',
+          field: 'period',
+          message: `${calendarMonthSays(companyName, co.rhythm)} Pick a calendar month instead.`,
+        },
+      },
+      { status: 422 }
+    )
+  }
+  const shownPeriod: PayPeriodOn | null = dayAsked ? periodHolding(dayAsked, co.rhythm, co.rule) : null
+  const asPeriod = (p: PayPeriodOn): Period => ({
+    start: new Date(`${p.start}T00:00:00.000Z`),
+    end: new Date(`${p.end}T00:00:00.000Z`),
+    label: periodLabel(p),
+  })
+  const todayKey = todayUtc().toISOString().slice(0, 10)
 
   // Every buy contract that is working, and every one that stopped and
   // may still have a period on this run. This read working contracts
@@ -65,7 +122,9 @@ export async function GET(request: NextRequest) {
   // it worked — Karthik Menon read as nobody on Teleworld's payroll for
   // the three months he was paid for. Which stopped ones are actually
   // shown is `onPayrollFor`'s answer, below (lib/money/payroll-rows).
-  const since = stoppedSince(period)
+  const since = shownPeriod
+    ? new Date(Date.parse(`${shownPeriod.start}T00:00:00.000Z`) - 31 * 86_400_000)
+    : stoppedSince(period)
   const buyContracts = await prisma.buyContract.findMany({
     where: {
       companyId,
@@ -200,6 +259,47 @@ export async function GET(request: NextRequest) {
     rateRows.set(r.contractId, [...(rateRows.get(r.contractId) ?? []), r])
   }
 
+  // What the runs recorded, for a period with no pay day of its own: an
+  // open-ended placement has none, and its months read "Processed" before
+  // anybody paid her (walk, 2026-11-14). The paid book says what a run
+  // paid; the calculate runs say what was worked out (lib/payroll-paid).
+  const book = await paidBook(companyId, buyContracts.map((b) => b.id))
+  const workedOut = workedOutKeys(
+    (
+      await prisma.automationLog.findMany({
+        where: { companyId, action: PAYROLL_RUN, payload: { path: ['action'], equals: 'calculate' } },
+        // Oldest first, so the latest calculation of a period is the one that counts.
+        orderBy: { at: 'asc' },
+        select: { payload: true },
+      })
+    ).map((r) => r.payload as { contracts?: any[] } | null)
+  )
+
+  // Weeks filed and not accepted yet. They are not paid, and the row
+  // names each one inside its period rather than reading as complete.
+  const sourceIds = [
+    ...new Set(
+      buyContracts.flatMap((bc) => [
+        ...bc.sellLinks.map((l) => l.sellContractId),
+        ...(bc.supplierSellContract ? [bc.supplierSellContract.id] : []),
+      ])
+    ),
+  ]
+  const notAcceptedSheets = sourceIds.length
+    ? await prisma.timesheet.findMany({
+        where: {
+          sellContractId: { in: sourceIds },
+          status: { in: ['SUBMITTED', 'APPROVED'] },
+          submittedAt: { not: null },
+          assertions: { none: { role: 'EMPLOYER_ACCEPTANCE', state: 'LIVE' } },
+        },
+        select: {
+          id: true, personId: true, sellContractId: true, periodStart: true, periodEnd: true,
+          totalHours: true, days: true, clientApprovedAt: true,
+        },
+      })
+    : []
+
   // Payroll pays our own employees and nobody else. A worker bought from
   // a supplier, through their own company or as a 1099 individual is paid
   // on an invoice receipt, so a line like that is one plain sentence here
@@ -220,6 +320,11 @@ export async function GET(request: NextRequest) {
         }),
       }))
     )
+
+  // Days holding accepted hours nobody has paid, on a company that pays by
+  // its own periods: every period holding one is offered on the picker,
+  // however far back (lib/money/pay-periods, `pickerPeriods`).
+  const unpaidDays = new Set<string>()
 
   const payItems = buyContracts.filter((bc) => paidByPayroll(bc)).flatMap((bc) => {
     // Whether anything is still open decides the status, as it always
@@ -320,13 +425,27 @@ export async function GET(request: NextRequest) {
                   all, mine: filedDays, leaveDays, afterHours: line.afterHours, accepted: acceptance,
                   cutOvertime: cutOvertimeFor(bc).rule,
                 })
-            const mineDays = pay?.days ?? {}
+            // A week over the line for a person nobody has said is exempt
+            // or not is held off pay, never paid at straight time on a
+            // guess (lib/money/pay-line, `heldForExemption`).
+            // A week an earlier run paid in full is not held: it was paid,
+            // at straight time, and the row says so in the line's sentence.
+            const held = (pay
+              ? heldForExemption({ line, days: filedDays, leaveDays, accepted: pay.accepted, cutOvertime: cutOvertimeFor(bc).rule })
+              : []
+            ).filter((w) => !Object.entries(pay?.days ?? {}).every(([day, h]) =>
+              weekStart(day.slice(0, 10)) !== w.weekOf ||
+                (book.paid.get(paidKey(bc.id, cand.personId, ts.id, day.slice(0, 10))) ?? 0) + 0.005 >= Number(h)))
+            const kept = withoutHeldWeeks(pay?.days ?? {}, held)
+            const mineDays = kept.days
             const mineHours = Object.keys(all).length > 0
-              ? (pay ? pay.cut.paid : 0)
+              ? (pay ? Math.round((pay.cut.paid - kept.hoursHeld) * 100) / 100 : 0)
               : acceptance === 'MANY' ? 0 : Number(acceptance?.hours ?? ts.totalHours)
             return {
             id: ts.id,
             line,
+            held,
+            heldDays: held.length > 0 ? Object.fromEntries(Object.entries(pay?.days ?? {}).filter(([d]) => !(d in kept.days))) : {},
             filed: filedDays,
             accepted: pay?.accepted ?? null,
             cut: pay?.cut ?? null,
@@ -349,6 +468,27 @@ export async function GET(request: NextRequest) {
             }
           })
       )
+
+      if (co.byPeriod) {
+        for (const ts of linkedTimesheets) {
+          if (ts.many) continue
+          const dayKeys = Object.keys(ts.days ?? {})
+          if (dayKeys.length === 0 && Object.keys(ts.heldDays).length === 0) {
+            // A week filed as a total: unpaid while no run paid any day of it.
+            const anyPaid = [...book.paid.keys()].some((k) => k.startsWith(`${bc.id}|${cand.personId}|${ts.id}|`))
+            if (ts.totalHours > 0 && !anyPaid) unpaidDays.add(weekStart(ts.rawStart.toISOString().slice(0, 10)))
+            continue
+          }
+          for (const day of dayKeys) {
+            const hours = Number((ts.days as Record<string, number>)[day] ?? 0)
+            const key = day.slice(0, 10)
+            if (hours > 0 && (book.paid.get(paidKey(bc.id, cand.personId, ts.id, key)) ?? 0) + 0.005 < hours) unpaidDays.add(key)
+          }
+          // A held week is accepted and not paid: its period is offered, so
+          // the row that says why it is held can be found.
+          for (const day of Object.keys(ts.heldDays)) unpaidDays.add(day.slice(0, 10))
+        }
+      }
 
       // ── The pay period the contract says it is ────────────────────
       //
@@ -378,14 +518,23 @@ export async function GET(request: NextRequest) {
 
       // The period asked for, or the one containing the most recent work.
       // Never "all of it".
-      const anchorDate = period
-        ? new Date(`${period}-01T00:00:00Z`)
-        : linkedTimesheets.reduce<Date | null>(
-            (latest, ts) => (!latest || ts.rawEnd > latest ? ts.rawEnd : latest),
-            null
-          )
+      const anchorDate = dayAsked
+        ? null
+        : period
+          ? new Date(`${period}-01T00:00:00Z`)
+          : linkedTimesheets.reduce<Date | null>(
+              (latest, ts) => (!latest || ts.rawEnd > latest ? ts.rawEnd : latest),
+              null
+            )
 
-      const payPeriod = anchorDate ? periodFor(anchorDate, terms) : null
+      // The company's own period: the one asked for, or on the view of
+      // every period, the one holding the most recent week's Sunday. A
+      // calendar month asked for stays a calendar month.
+      const companyHeld: PayPeriodOn | null = shownPeriod
+        ?? (co.byPeriod && !period && anchorDate
+          ? periodHolding(weekStart(anchorDate.toISOString().slice(0, 10)), co.rhythm, co.rule)
+          : null)
+      const payPeriod = companyHeld ? asPeriod(companyHeld) : anchorDate ? periodFor(anchorDate, terms) : null
 
       const shares = payPeriod
         ? linkedTimesheets
@@ -401,7 +550,7 @@ export async function GET(request: NextRequest) {
         : []
 
       // The working of the cut stays here; the row carries its sentence.
-      const filteredTimesheets = shares.map(({ ts: { cut: _cut, filed: _filed, line: _line, ...ts }, share }) => ({
+      const filteredTimesheets = shares.map(({ ts: { cut: _cut, filed: _filed, line: _line, held: _held, heldDays: _heldDays, ...ts }, share }) => ({
         ...ts,
         totalHours: share!.hours,
         partPeriod: share!.partial,
@@ -444,6 +593,14 @@ export async function GET(request: NextRequest) {
       let overtimeHours = 0
       const said: string[] = []
       const lineSaid: string[] = []
+      // Each day's premium, by the key the paid book keeps, so what is
+      // still to pay is the run's own subtraction (lib/money/period-pay-left).
+      const premiumDays: PremiumDay[] = []
+      // The straight hours priced on a day in this period, by the same key.
+      const pricedOnDay = (key: string) =>
+        shares.reduce((n, x, i) => n + priced[i].days
+          .filter((d) => paidKey(bc.id, cand.personId, x.ts.id, d.day) === key)
+          .reduce((m, d) => m + d.hours, 0), 0)
       shares.forEach((x, i) => {
         const weeks = sheetOvertime({
           days: x.ts.filed,
@@ -456,9 +613,10 @@ export async function GET(request: NextRequest) {
           line: wageLine,
         })
         const inPeriod = new Set(priced[i].days.map((d) => d.day))
-        for (const p of premiumByDay(weeks, inPeriod).values()) {
+        for (const [day, p] of premiumByDay(weeks, inPeriod)) {
           premiumExact += p.premiumCents
           overtimeHours += p.hours
+          premiumDays.push({ key: paidKey(bc.id, cand.personId, x.ts.id, day), hours: p.hours, premiumCents: p.premiumCents })
         }
         const note = overtimeSaysFor(weeks, inPeriod)
         if (note) said.push(note)
@@ -507,10 +665,78 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Each week filed inside the period and not accepted yet: left out
+      // of gross pay, as before, and now named in one sentence.
+      const notAcceptedSaid: string[] = []
+      if (payPeriod) {
+        for (const ts of notAcceptedSheets.filter((t) => t.personId === cand.personId)) {
+          const src = sources.find((s) => s.sellContractId === ts.sellContractId)
+          if (!src) continue
+          const all = (ts.days as Record<string, number>) ?? {}
+          const filed = !src.supplier && Object.keys(all).length > 0 ? daysFor(bc.id, links, all) : all
+          const share = hoursInPeriod(
+            { id: ts.id, periodStart: ts.periodStart, periodEnd: ts.periodEnd, days: filed, totalHours: Number(ts.totalHours) },
+            payPeriod,
+            terms.straddle
+          )
+          if (!share || share.hours <= 0) continue
+          const clientCo = src.supplier ? client : (src.sellContract.endClientCompany ?? src.sellContract.clientCompany ?? client)
+          notAcceptedSaid.push(
+            notAcceptedSays({
+              personName: cand.person.name,
+              week: daySpan(ts.periodStart.toISOString(), ts.periodEnd.toISOString()),
+              hours: share.hours,
+              clientApproved: ts.clientApprovedAt != null,
+              clientName: clientCo?.name ?? null,
+              employerName: bc.company?.name ?? null,
+            })
+          )
+        }
+      }
+
+      // Each week held because nobody has said whether the person is
+      // exempt, inside this period: left out of gross pay and the file,
+      // and said on the row with the step that releases it.
+      const heldInPeriod = payPeriod
+        ? linkedTimesheets.flatMap((t) => t.held.filter((w) =>
+            Object.keys(t.heldDays).some((d) => {
+              const at = new Date(`${d.slice(0, 10)}T00:00:00.000Z`).getTime()
+              return weekStart(d.slice(0, 10)) === w.weekOf && at >= payPeriod.start.getTime() && at <= payPeriod.end.getTime()
+            })))
+        : []
+      const heldHours = Math.round(heldInPeriod.reduce((n, w) => n + w.workedHours, 0) * 100) / 100
+      const exemptHeld = heldSays(cand.person.name, heldInPeriod)
+
+      // A week a run paid at straight time before the person was recorded
+      // as not exempt: its straight time is paid, its premium is not. The
+      // premium is still to pay, said first, and paid only once Calculate
+      // covers it (lib/money/pay-line, `owedSinceRecordedSays`).
+      const owedByWeek = new Map<string, number>()
+      for (const p of premiumDays) {
+        const priorStraight = book.paid.get(p.key) ?? 0
+        const dayHours = pricedOnDay(p.key)
+        if (dayHours <= 0 || priorStraight + 0.005 < dayHours) continue
+        const unpaid = Math.round((p.hours - (book.premiumHours.get(p.key) ?? 0)) * 100) / 100
+        if (unpaid <= 0 || p.hours <= 0) continue
+        const w = weekStart(p.key.split('|')[3] ?? '')
+        owedByWeek.set(w, (owedByWeek.get(w) ?? 0) + (p.premiumCents * unpaid) / p.hours)
+      }
+      const owedSinceRecorded = owedSinceRecordedSays(
+        cand.person.name,
+        [...owedByWeek.entries()].map(([weekOf, c]) => ({ weekOf, premiumCents: Math.round(c) })),
+        (c) => amountOf(c, cand.payCurrency),
+      )
+
       // Rounded once for the row.
       const premiumCents = Math.round(premiumExact)
       const grossPay =
         [...byRate.entries()].reduce((n, [r, h]) => n + Math.round(Math.round(h * 100) / 100 * r), 0) + premiumCents
+      // What earlier runs paid in this period and what is still to pay, so
+      // a week paid already is never shown, filed or counted as due again.
+      const pricedDays: PricedDay[] = shares.flatMap((x, i) =>
+        priced[i].days.map((d) => ({ key: paidKey(bc.id, cand.personId, x.ts.id, d.day), hours: d.hours, rateCents: d.rateCents }))
+      )
+      const left = payLeftInPeriod(pricedDays, premiumDays, book)
       // The rate a reader sees on the row: the one in force at the end of
       // the period, which is the one the next hour will be paid at.
       const rateNow = payPeriod
@@ -520,7 +746,18 @@ export async function GET(request: NextRequest) {
       // The period's own pay day decides, where the line has one: a month
       // the run has settled is processed, whatever older date was never
       // marked (lib/money/payroll-rows).
-      const own = payPeriod
+      //
+      // A company period is not the line's own: the line's pay dates were
+      // cut on the rhythm it was written with, so they say nothing about
+      // this period, and what the runs recorded for it decides.
+      //
+      // And on a company that pays by its own periods, a calendar month or
+      // the view of every period is never judged on the line's pay dates
+      // either: a period run pays days, not the line's cycles, so a month
+      // whose days a period run paid read "Pending" (walk, 2026-11-14).
+      // What the runs paid decides there too.
+      const byLineDates = !companyHeld && !co.byPeriod
+      const own = payPeriod && byLineDates
         ? periodPayStatus(bc.buyCycles, payPeriod, (d) => periodFor(d, terms), cand.startDate)
         : null
       let payStatus: string
@@ -528,12 +765,40 @@ export async function GET(request: NextRequest) {
         payStatus = 'NO_HOURS'
       } else if (own) {
         payStatus = own
-      } else if (nextCalcCycle && !nextCalcCycle.completedAt) {
+      } else if (byLineDates && nextCalcCycle && !nextCalcCycle.completedAt) {
         payStatus = 'PENDING'
-      } else if (nextSalaryCycle && !nextSalaryCycle.completedAt) {
+      } else if (byLineDates && nextSalaryCycle && !nextSalaryCycle.completedAt) {
         payStatus = 'CALCULATED'
-      } else {
+      } else if (book.unrecorded.has(bc.id)) {
+        // A run before 2026-09-29 paid this line without saying which
+        // hours; the run route refuses it, and the row keeps its old word.
         payStatus = 'PROCESSED'
+      } else {
+        // No pay day for this period: what the runs recorded decides, and
+        // a period nobody paid is pending, never processed.
+        payStatus = periodStatusFromRuns({
+          days: shares.flatMap((x, i) =>
+            priced[i].days.map((d) => ({ key: paidKey(bc.id, cand.personId, x.ts.id, d.day), hours: d.hours }))
+          ),
+          paid: book.paid,
+          // Overtime still owed on days whose straight time a run paid.
+          premiumOwed: owedByWeek.size > 0,
+          // Worked out only while what is still to pay is what the latest
+          // calculation covered: a week accepted after Calculate sends the
+          // period back to Calculate (lib/money/payroll-worked-out).
+          workedOut: payPeriod
+            ? isWorkedOut(workedOut, {
+                buyContractId: bc.id, buyContractCandidateId: cand.id,
+                start: payPeriod.start.toISOString(), end: payPeriod.end.toISOString(),
+              }, payCovers(coversLeft(
+                shares.flatMap((x, i) =>
+                  priced[i].days.map((d) => ({ key: paidKey(bc.id, cand.personId, x.ts.id, d.day), hours: d.hours }))
+                ),
+                premiumDays,
+                book,
+              )))
+            : false,
+        })
       }
 
       return {
@@ -542,7 +807,7 @@ export async function GET(request: NextRequest) {
         // Whether this row is on the run at all; read and dropped below.
         onRun: onPayrollFor(
           { state: bc.state, startDate: cand.startDate, endDate: cand.endDate ?? bc.endDate },
-          { period: payPeriod, asked: Boolean(period), hours: totalApprovedHours, settled: own === 'PROCESSED' }
+          { period: payPeriod, asked: Boolean(period), hours: totalApprovedHours + heldHours, settled: own === 'PROCESSED' }
         ),
         // The client the work is for, with or without hours this period.
         client,
@@ -582,18 +847,53 @@ export async function GET(request: NextRequest) {
         payLine: lineSaid.length ? lineSaid.join(' ') : null,
         // Where fewer hours were accepted than filed, which were paid.
         accepted: acceptedSaid.length ? acceptedSaid.join(' ') : null,
+        // Each week filed in the period and not accepted yet, which gross
+        // pay leaves out: the person, the week, the hours, who must act.
+        notAccepted: notAcceptedSaid.length ? notAcceptedSaid.join(' ') : null,
         // Each week worked over the line and accepted at or under it:
         // "38 of 45 hours accepted; paid at straight time because the
         // accepted week is not over 40."
         straightTime: straightSaid.length ? straightSaid.join(' ') : null,
-        payStatus,
-        nextPayDate: comingPay?.dueOn.toISOString() ?? null,
-        nextCalcDate: comingCalc?.dueOn.toISOString() ?? null,
+        // Each week held off pay because nobody has said whether the person
+        // is exempt from overtime, the hours held, and the sentence; with
+        // what is recorded, so the row offers the step that releases it.
+        exemptHeld,
+        heldHours,
+        exemptStatus: (row?.status as 'EXEMPT' | 'NONEXEMPT' | undefined) ?? null,
+        // A week paid at straight time before "not exempt" was recorded,
+        // and the overtime still owed on it.
+        owedSinceRecorded,
+        // A period whose every other hour is paid reads HELD while a week
+        // is held, never PROCESSED; the chip says ", week held" in every
+        // state (lib/money/pay-periods, `statusWithHeld`, `payStatusSays`).
+        payStatus: statusWithHeld(payStatus, heldHours),
+        statusSays: payStatusSays(statusWithHeld(payStatus, heldHours), heldHours),
+        // Each held week and its hours, for the pay file's own column.
+        heldWeeks: heldInPeriod.map((w) => ({ weekOf: w.weekOf, hours: w.workedHours })),
+        // What earlier runs paid in this period, null where nothing was;
+        // what a run would pay now; and, where both, one sentence.
+        paidSoFar: left.paid,
+        toPay: left.toPay,
+        partPaid: partPaidSays(left, (c) => amountOf(c, cand.payCurrency)),
+        // On a company period, its own work-out day and pay day, moved off
+        // a day nobody works by the one rule every pay date follows.
+        nextPayDate: companyHeld ? `${companyHeld.payOn}T00:00:00.000Z` : comingPay?.dueOn.toISOString() ?? null,
+        // The pay day of this row's own period, for the month's pay file:
+        // never the next pay day from today, which pays another month
+        // (found by hand, 2026-11-14: June's file read 2026-12-07, not Jul 7).
+        periodPayDay: payPeriod && byLineDates
+          ? periodPayDay(bc.buyCycles, payPeriod, (d) => periodFor(d, terms), cand.startDate)
+          : companyHeld ? companyHeld.payOn : null,
+        nextCalcDate: companyHeld ? `${companyHeld.calcOn}T00:00:00.000Z` : comingCalc?.dueOn.toISOString() ?? null,
         // Pay dates before today still open: how many, and the oldest.
-        payDatesOverdue: {
-          count: overduePay.count,
-          earliest: overduePay.earliest?.toISOString() ?? null,
-        },
+        payDatesOverdue: companyHeld
+          ? companyHeld.payOn < todayKey && (payStatus === 'PENDING' || payStatus === 'CALCULATED')
+            ? { count: 1, earliest: `${companyHeld.payOn}T00:00:00.000Z` }
+            : { count: 0, earliest: null }
+          : {
+              count: overduePay.count,
+              earliest: overduePay.earliest?.toISOString() ?? null,
+            },
       }
     })
   })
@@ -631,7 +931,7 @@ export async function GET(request: NextRequest) {
       })
     ),
     byStatus: Object.fromEntries(
-      ['PENDING', 'CALCULATED', 'PROCESSED', 'NO_HOURS'].map((s) => [
+      ['PENDING', 'CALCULATED', 'PROCESSED', 'HELD', 'NO_HOURS'].map((s) => [
         s,
         filtered.filter((p) => p.payStatus === s).length,
       ])
@@ -661,8 +961,97 @@ export async function GET(request: NextRequest) {
     }
   })
 
+  // ── The pay file for one of the company's periods ───────────────────
+  //
+  // Built from these rows and nothing else, so every figure on the file is
+  // the figure on the screen (lib/money/pay-periods, `payFileCsv`).
+  // Pay never goes out before it is worked out: while anybody on the
+  // period is not worked out, the file is refused in the sentence the
+  // screen shows in the button's place (`payFileWaits`).
+  //
+  // On a company that pays by its own periods, a calendar month or the
+  // view of every period offers no pay file at all: a month's file could
+  // hand a provider hours a period run already paid (walk, 2026-11-14).
+  //
+  // On a company that pays by the month, the month's file comes from here
+  // too, from the same rows (found by hand, 2026-11-14). It came from the
+  // older export, which never read the paid book: after a late week was
+  // worked out and paid, the second download listed the first, paid week
+  // again as unpaid, and a provider paying from it paid that week twice.
+  // Now its hours and gross pay are what is still to pay, with "Paid
+  // already" beside them, as on a period's file. The view of every period
+  // offers no file: a file is one month's.
+  const monthFile = !co.byPeriod && Boolean(monthAsked)
+  const fileWaits = shownPeriod || monthFile
+    ? payFileWaits(onRun)
+    : co.byPeriod ? MONTH_HAS_NO_PAY_FILE : PICK_A_MONTH_FOR_PAY_FILE
+  if (url.searchParams.get('format')?.toLowerCase() === 'csv') {
+    if (!shownPeriod && !monthFile) {
+      return NextResponse.json(
+        { error: { code: 'VALIDATION', field: 'period', message: fileWaits ?? PICK_A_MONTH_FOR_PAY_FILE } },
+        { status: 422 }
+      )
+    }
+    if (fileWaits) {
+      return NextResponse.json(
+        { error: { code: 'NOT_WORKED_OUT', field: 'period', message: fileWaits } },
+        { status: 409 }
+      )
+    }
+    return new NextResponse(payFileCsv(items, shownPeriod), {
+      headers: {
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': `attachment; filename="${shownPeriod ? payFileName(shownPeriod) : monthPayFileName(monthAsked!)}"`,
+      },
+    })
+  }
+
+  // The company's own periods for the picker: the current one first, the
+  // next, then the earlier ones. Null where pay is listed by month.
+  // Then every earlier period that still holds accepted hours nobody paid.
+  const around = co.byPeriod ? periodsAround(todayKey, co.rhythm, co.rule, { earlier: 6, later: 1 }) : null
+  const said = (p: PayPeriodOn) => ({ ...p, label: periodLabel(p), words: periodWords(p) })
+  const payPeriods = around
+    ? {
+        current: around[0].start,
+        periods: pickerPeriods(around, unpaidDays, co.rhythm, co.rule).map((p) => ({
+          ...said(p),
+          // Said only where its pay day has passed: the current period's
+          // hours are unpaid because its pay day has not come yet.
+          unpaid: p.unpaid && p.payOn < todayKey,
+          words: p.unpaid && p.payOn < todayKey ? unpaidPeriodWords(p) : periodWords(p),
+        })),
+        shown: shownPeriod ? said(shownPeriod) : null,
+      }
+    : null
+
+  // The sentence over the rows: the period shown and its pay day; or, on a
+  // month, why the page lists by month, and where the Owner sets the day.
+  const periodSays = shownPeriod
+    ? periodShownSays(companyName, co.rhythm, shownPeriod)
+    : co.byPeriod
+      ? `${companyName} pays ${PAY_PERIOD_WORDS[co.rhythm.payPeriod].toLowerCase()}, so pay is worked out and paid ` +
+        'by pay period. Pick one above to run it; a calendar month is shown here for reading only.'
+      : calendarMonthSays(companyName, co.rhythm)
+  const nothingToPay = shownPeriod && !onRun.some((p) => p.totalApprovedHours > 0) ? nothingToPaySays(shownPeriod) : null
+
   return NextResponse.json({
     data: {
+      periodSays,
+      payPeriods,
+      // Whether Calculate and Process may be offered on this view: on a
+      // company that pays by its own periods, only on one of them.
+      runsHere: co.byPeriod ? Boolean(shownPeriod) && !nothingToPay : true,
+      nothingToPay,
+      payFileNote: PAY_FILE_NOTE,
+      // Above the table, before the run: who has a week held, and that the
+      // answer is recorded on the row. Read off every row on this view,
+      // whatever status the table is filtered to.
+      heldSays: heldAboveTableSays(onRun),
+      // In the pay file button's place, while the period is not worked out.
+      payFileWaits: fileWaits,
+      // Beside the company's periods, where its holiday calendar is empty.
+      noHolidays: co.byPeriod ? noHolidaysSays(companyName, co.rule) : null,
       payItems: items,
       /** The column's name, from the service every screen reads it from. */
       spreadLabel: readsMargin ? AGREED_SPREAD : null,

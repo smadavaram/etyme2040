@@ -75,6 +75,8 @@ interface OwedWeek {
   dueOn?: string | null
   overdue?: boolean
   paidOn?: string | null
+  /** Held by Payroll until the overtime answer is recorded: no figure, no pay day. */
+  held?: boolean
   /** Where its days are paid on more than one pay day, each part on its own. */
   parts?: OwedPart[] | null
   // Only on a week still waiting.
@@ -608,8 +610,8 @@ function YourCV() {
  * of prose until the sign-up walk of 2026-10-08, and it offered "set up
  * a company of your own", a door that did not exist; the one-person firm
  * is a sign-up type now, and the page says so in one line.
- * **There is no "submit yourself" and no "find a role", because Etyme
- * places nobody** — the invitation comes from a firm that read their
+ * **There is no "submit yourself" and no "find a role", because only a
+ * firm she said yes to puts her forward** — the invitation comes from a firm that read their
  * page, which is why the page is the only thing worth doing today. The
  * two links go to what is actually theirs: their page and their paperwork.
  */
@@ -672,12 +674,14 @@ function NothingYet({ says, listedBy = null, ownFirm = null }: {
         </section>
       </div>
 
-      {/* Etyme places nobody, so this card offers no button to be placed.
-          How a firm finds them depends on their standing, and the page
-          says that part (OWN_MAKING: through their page; a bench: the firm
-          that lists them, in the line above). */}
+      {/* Only a firm she said yes to puts her forward, so this card
+          offers no button to be placed. The older line about Etyme was
+          taken off every page (the founder, 2026-11-14, record 69). How a firm finds them
+          depends on their standing, and the page says that part
+          (OWN_MAKING: through their page; a bench: the firm that lists
+          them, in the line above). */}
       <p className="text-[13px] text-etyme-muted mt-4">
-        Etyme places nobody.
+        Only a firm you have said yes to can put you forward.
       </p>
 
       {/* The one-person firm is a sign-up type, and the line is its door:
@@ -965,7 +969,9 @@ function FileYourWeek({ filing, asked, onSent }: { filing: Filing[]; asked?: str
 const STAGE: Record<WeekStage, (w: OwedWeek) => { word: string; tone: 'attention' | 'verified' | 'action' | 'passive' }> = {
   WAITING_FOR_CLIENT: (w) => ({ word: `Waiting for ${w.waitingOn ?? 'the client'}`, tone: 'passive' }),
   WAITING_FOR_EMPLOYER: (w) => ({ word: `Waiting for ${w.waitingOn ?? w.payer}`, tone: 'action' }),
-  OWED: (w) => (w.overdue ? { word: 'Past its pay day', tone: 'attention' } : { word: 'Owed to you', tone: 'attention' }),
+  // A week Payroll holds until her overtime answer is recorded is not owed at any figure yet.
+  OWED: (w) => (w.held ? { word: 'On hold', tone: 'passive' }
+    : w.overdue ? { word: 'Past its pay day', tone: 'attention' } : { word: 'Owed to you', tone: 'attention' }),
   PAID: () => ({ word: 'Paid', tone: 'verified' }),
 }
 

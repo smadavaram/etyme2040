@@ -1,15 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { readJson } from '@/lib/read-response'
 import { DEFAULT_CYCLE_SHIFT, SHIFT_WORDS } from '@/lib/cycle-shift'
 import {
   PAY_PERIODS, PAY_PERIOD_WORDS, STATE_PAY_NOTE, SUGGESTED_DAYS_OF_MONTH,
-  checkPaySettings, dayOfMonthWords, offsetWords, payPreview,
-  type PayPeriod, type PayRhythm,
+  checkPaySettings, dayOfMonthWords, offsetWords, payrollBody,
+  checkFirstPeriodStart, firstPeriodSays, firstDayChangeWarning, asksBeforeFirstDayChange,
+  payPeriodHolding, payrollLineSays,
+  FIRST_PERIOD_LABEL, FIRST_PERIOD_HELP, FIRST_PERIOD_UNSET, FIRST_PERIOD_WHO,
+  FIRST_DAY_CONFIRM_TITLE, FIRST_DAY_CONFIRM_BUTTON,
+  type PayPeriod, type PayRhythm, type PayPeriodOn, type DayOffRule,
 } from '@/lib/pay-dates'
 import { Empty, Lbl, Panel, setLine } from './panel-bits'
-import { Field, Select, SubmitButton, FormMessage } from '@/components/ui/form'
+import { Field, Input, Select, SubmitButton, FormMessage } from '@/components/ui/form'
 
 // ── Payroll ──────────────────────────────────────────
 //
@@ -18,11 +22,35 @@ import { Field, Select, SubmitButton, FormMessage } from '@/components/ui/form'
 // and the refusals are lib/pay-dates, through /api/settings/payroll. The
 // preview is computed here with the same payDatesFor money's generator
 // calls, so what the screen promises is what the dates will be.
+//
+// The first pay period's Sunday (2026-11-14, Tapin pays every two weeks):
+// asked of a weekly or two-week company only. Once saved, the line under
+// it says the first period and its pay day as the route works them out
+// (`firstPeriod`, from payPeriodAt). While a Sunday is typed and not yet
+// saved, the same sentence is worked out here by the same arithmetic
+// (payPeriodHolding) with the company's own day-off rule from the route,
+// and says it is not saved yet (the Tapin walk, 2026-11-14). The line
+// under the choices says the company's own current period once its Sunday
+// is set, and the example only where it is not (payrollLineSays). Where
+// the holiday calendar is empty, money's sentence is said beside the pay day.
+//
+// Where the company has run payroll (`payrollRun`, from the same route),
+// moving the first day asks first, in a box with its own heading, its
+// second press focused and named for what it does, and Cancel.
 
 interface PayAnswers extends PayRhythm {
   setAt: string | null
   setByName: string | null
+  /** The saved first period, worked out by the route. Null until a Sunday is saved. */
+  firstPeriod: PayPeriodOn | null
+  /** Whether this company has run payroll, so a moved first day is asked about first. */
+  payrollRun?: boolean
+  /** The company's own day-off rule, so a typed Sunday is said before Save. */
+  dayOffRule?: DayOffRule
+  /** Money's sentence where the company's holiday calendar is empty (noHolidaysSays); null where it is not. */
+  noHolidays?: string | null
 }
+
 
 /**
  * `shiftSection` says whether the weekend-and-holiday section is drawn
@@ -35,6 +63,14 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
   const [err, setErr] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [asking, setAsking] = useState(false)
+  // The second press is focused and brought into view, so it cannot be missed.
+  const confirmRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (!asking) return
+    confirmRef.current?.focus()
+    confirmRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [asking])
 
   const load = useCallback(async () => {
     try {
@@ -47,8 +83,13 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
   }, [])
   useEffect(() => { load() }, [load])
 
-  async function save() {
+  async function save(confirmed = false) {
     if (!draft) return
+    if (!confirmed && asksBeforeFirstDayChange(saved?.payFirstPeriodStart ?? null, draft.payFirstPeriodStart ?? null, !!saved?.payrollRun)) {
+      setAsking(true)
+      return
+    }
+    setAsking(false)
     setBusy(true)
     setErr(null)
     setNote(null)
@@ -56,13 +97,7 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
       const body = await readJson(await fetch('/api/settings/payroll', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          payPeriod: draft.payPeriod,
-          payCalcOffsetDays: draft.payCalcOffsetDays,
-          payDayOffsetDays: draft.payDayOffsetDays,
-          payDaysOfMonth: draft.payDaysOfMonth,
-          payCalcDaysBefore: draft.payCalcDaysBefore,
-        }),
+        body: JSON.stringify(payrollBody(draft)),
       }))
       setNote(body.data?.message ?? 'Saved.')
       await load()
@@ -92,6 +127,14 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
   const upTo = (current: number) => Array.from({ length: Math.max(14, current + 1) }, (_, i) => i)
   const days = Array.from({ length: 28 }, (_, i) => i + 1)
   const check = checkPaySettings({}, draft)
+  // Said under the box while it is typed in, by the door's own check.
+  const firstCheck = checkFirstPeriodStart(draft.payFirstPeriodStart ?? null)
+  const firstSaved = saved?.firstPeriod && saved.payFirstPeriodStart === draft.payFirstPeriodStart ? saved.firstPeriod : null
+  // While a Sunday is typed and not saved yet, its first period and pay day,
+  // by the arithmetic the route uses and the company's own day-off rule.
+  const rule = saved?.dayOffRule ?? {}
+  const firstTyped = !firstSaved && firstCheck.ok && firstCheck.day ? payPeriodHolding(firstCheck.day, draft, rule) : null
+  const firstShown = firstSaved ?? firstTyped
 
   return (
     <Panel
@@ -133,6 +176,27 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
               {upTo(draft.payDayOffsetDays).map((n) => <option key={n} value={n}>{offsetWords(n)}</option>)}
             </Select>
           </Field>
+          <Field
+            label={FIRST_PERIOD_LABEL}
+            className="sm:col-span-2"
+            help={
+              <>
+                {FIRST_PERIOD_HELP} {FIRST_PERIOD_WHO}{' '}
+                {firstShown ? firstPeriodSays(firstShown) : !draft.payFirstPeriodStart ? FIRST_PERIOD_UNSET : null}
+                {firstTyped ? ' Not saved yet.' : null}
+                {firstShown && saved?.noHolidays ? ` ${saved.noHolidays}` : null}
+              </>
+            }
+            error={firstCheck.ok ? undefined : firstCheck.message}
+          >
+            <Input
+              type="date"
+              name="payFirstPeriodStart"
+              value={draft.payFirstPeriodStart ?? ''}
+              disabled={!canEdit || busy}
+              onChange={(e) => setDraft({ ...draft, payFirstPeriodStart: e.target.value || null })}
+            />
+          </Field>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
@@ -158,7 +222,9 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
       )}
 
       <p className="text-[13px] text-etyme-ink mb-3">
-        {check.ok ? payPreview(check.rhythm, new Date()) : <span className="text-etyme-attention">{check.message}</span>}
+        {/* The company's own current period where its Sunday is set; the example only where it is not. */}
+        {check.ok ? payrollLineSays({ ...check.rhythm, payFirstPeriodStart: firstCheck.ok ? firstCheck.day : null }, new Date(), rule) : <span className="text-etyme-attention">{check.message}</span>}
+        {check.ok && saved?.noHolidays && !(byWeek && firstShown) ? ` ${saved.noHolidays}` : null}
       </p>
       <p className="text-[12px] text-etyme-faint mb-4">
         {shiftSection
@@ -171,8 +237,26 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
           {note && <FormMessage tone="ok">{note}</FormMessage>}
         </div>
       )}
-      {canEdit && (
-        <SubmitButton type="button" onClick={save} pending={busy} pendingLabel="Saving…" disabled={!changed}>
+      {canEdit && asking && draft.payFirstPeriodStart && (
+        <div role="alertdialog" aria-labelledby="first-day-confirm" className="mb-3 rounded-md border-2 border-etyme-attention bg-etyme-raised p-4">
+          <p id="first-day-confirm" className="text-[15px] font-semibold text-etyme-ink mb-1">{FIRST_DAY_CONFIRM_TITLE}</p>
+          <p className="text-[13px] text-etyme-ink mb-3">{firstDayChangeWarning(draft.payFirstPeriodStart)}</p>
+          <div className="flex gap-2">
+            <button ref={confirmRef} type="button" onClick={() => save(true)} disabled={busy} aria-busy={busy || undefined} className="btn-primary">
+              {busy ? 'Saving…' : FIRST_DAY_CONFIRM_BUTTON}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAsking(false)}
+              className="px-3 py-1.5 rounded-pill text-[13px] border border-etyme-rule bg-etyme-surface text-etyme-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {canEdit && !asking && (
+        <SubmitButton type="button" onClick={() => save()} pending={busy} pendingLabel="Saving…" disabled={!changed || !firstCheck.ok}>
           Save payroll
         </SubmitButton>
       )}

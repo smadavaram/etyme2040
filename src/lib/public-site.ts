@@ -1,11 +1,12 @@
 import { prisma } from '@/lib/db'
 import { reputationOf, type BuyerReputation } from '@/lib/buyer-reputation'
 import { releasing, summarize, type RollingOff } from '@/lib/releasing-soon'
-import { writeFromRules, DEFAULT_HEADINGS, type SiteVoice } from '@/lib/site-voice'
+import { writeFromRules, DEFAULT_HEADINGS, saysItTrains, type SiteVoice } from '@/lib/site-voice'
 import { speaksForItself } from '@/lib/public-site/speaks'
 import { offersJoinBench } from '@/lib/public-site/join-bench'
 import {
   mayShowPublicly, benchFreeNow, freeSummary, firmContact, offersAsk, type FirmContact,
+  STARTED_STATES, trackRecord,
 } from '@/lib/public-site/firm-page'
 
 /**
@@ -60,13 +61,6 @@ export interface ComingFree {
   provenAt: string | null
 }
 
-export interface Training {
-  title: string
-  category: string | null
-  hours: number | null
-  free: boolean
-}
-
 export interface PublicSite {
   name: string
   slug: string
@@ -95,8 +89,6 @@ export interface PublicSite {
   /** Supplier page: who is about to come free. */
   comingFree: ComingFree[]
   comingFreeSummary: string | null
-  /** Supplier page: what a consultant joining them gets. */
-  training: Training[]
   /** "Join the bench": a staffing or bench firm's page only, never a client's. */
   joinBench: boolean
   /** The ask box for a client, landing in the firm's own Ask Etyme. */
@@ -212,7 +204,10 @@ function voiceFor(
 
   // A blank stored line is nothing stored: the page never opens on an
   // empty sentence because somebody cleared a field.
-  const said = (v: string | null) => (v && v.trim().length > 0 ? v : null)
+  // A stored line that says the firm trains people is not printed either:
+  // an older page was written with "courses open to consultants on their
+  // bench" (record 69).
+  const said = (v: string | null) => (v && v.trim().length > 0 && !saysItTrains(v) ? v : null)
   return {
     tagline: said(company.siteTagline) ?? fallback.tagline,
     intro: said(company.siteIntro) ?? fallback.intro,
@@ -286,16 +281,23 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
     })),
   })
 
-  const [placements, activeNow, clientRows, profiles, verifications] = await Promise.all([
-    prisma.sellContract.count({ where: { companyId: company.id } }),
-    prisma.sellContract.count({ where: { companyId: company.id, state: 'IN_PROGRESS' } }),
+  const [sellLines, profiles, verifications] = await Promise.all([
+    // Only lines where work started: a draft is no placement (walk tpf).
     prisma.sellContract.findMany({
-      where: { companyId: company.id },
-      select: { endClientCompanyId: true, clientCompanyId: true },
+      where: { companyId: company.id, state: { in: [...STARTED_STATES] } },
+      select: { state: true, endClientCompanyId: true, clientCompanyId: true },
     }),
+    // Only people who said yes, and yes to being shown beyond this firm:
+    // an INVITED listing is somebody asked, not somebody who agreed.
     prisma.consultantProfile.findMany({
-      where: { listings: { some: { companyId: company.id, revokedAt: null } } },
-      select: { skills: true },
+      where: { listings: { some: { companyId: company.id, state: 'GRANTED', revokedAt: null, showInMatches: true } } },
+      select: {
+        skills: true,
+        listings: {
+          where: { companyId: company.id },
+          select: { state: true, revokedAt: true, staysUntil: true, showInMatches: true, showBeforeFree: true },
+        },
+      },
     }),
     prisma.verification.findMany({
       where: {
@@ -316,15 +318,13 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
     locations: [...new Set(
       company.locations.map((l) => [l.city, l.state ?? l.country].filter(Boolean).join(', ')).filter(Boolean)
     )].slice(0, 6),
-    track: {
-      placements,
-      activeNow,
-      clients: new Set(clientRows.map((r) => r.endClientCompanyId ?? r.clientCompanyId)).size,
-      isNew: placements === 0,
-    },
+    track: trackRecord(sellLines),
     skills: (() => {
       const counts = new Map<string, number>()
-      for (const p of profiles) for (const s of p.skills) counts.set(s, (counts.get(s) ?? 0) + 1)
+      // The same yes the "coming free" list reads, so a stay that ran out
+      // takes her skills off the page too. A count names nobody.
+      const shown = profiles.filter((p) => p.listings.some((l) => mayShowPublicly(l, now, false)))
+      for (const p of shown) for (const s of p.skills) counts.set(s, (counts.get(s) ?? 0) + 1)
       return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
         .map(([skill, count]) => ({ skill, count }))
     })(),
@@ -427,12 +427,13 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
       ),
       comingFree: [],
       comingFreeSummary: null,
-      training: [],
     }
   }
 
   // ── Talking to candidates, clients and peer firms ───────────────────
-  const [rollingOff, courses, benchListings] = await Promise.all([
+  // A firm's courses are never read here: its public page never says it
+  // trains people, because a client can open it (record 69).
+  const [rollingOff, benchListings] = await Promise.all([
     prisma.sellContract.findMany({
       where: {
         companyId: company.id,
@@ -463,14 +464,6 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
         },
         rolloff: { select: { outcome: true, claimedById: true } },
       },
-    }),
-    // Training a candidate can see before deciding to join. Already opt-in
-    // per course, which is the right default for anything public.
-    prisma.course.findMany({
-      where: { companyId: company.id, isPublic: true },
-      orderBy: { createdAt: 'desc' },
-      take: 12,
-      select: { title: true, category: true, duration: true, price: true },
     }),
     // People on this firm's bench who said yes to being shown beyond it.
     // Free now unless a running contract says otherwise, checked below.
@@ -564,17 +557,11 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
       clients: base.track.clients,
       openPositions: 0,
       comingFree: comingFree.length,
-      trainingCourses: courses.length,
+      trainingCourses: 0,
     }),
     openPositions: [],
     reputation: null,
     comingFree,
     comingFreeSummary,
-    training: courses.map((c) => ({
-      title: c.title,
-      category: c.category,
-      hours: c.duration,
-      free: c.price === null || c.price === 0,
-    })),
   }
 }

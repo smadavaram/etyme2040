@@ -11,6 +11,10 @@ import { compact as formatRate, amount } from '@/lib/money-display'
 import { ListSurface, type Column } from '@/components/list-surface'
 import { FilterChips, LoadingState, PageHead, RefusedState, Stat } from '@/components/ui'
 import { plainDate } from '@/lib/plain-date'
+import { payFileHref } from '@/lib/money/payroll-rows'
+import { hasPermission } from '@/lib/permissions'
+import { EXEMPTION_CHOICES, exemptBody, exemptSavedSays, type ExemptChoice } from '@/lib/money/exempt-form'
+import { formatMonth } from '@/lib/format-date'
 
 /**
  * Payroll working surface — what the buy lines pay out.
@@ -88,17 +92,59 @@ interface PayItem {
   payLine?: string | null
   /** Where fewer hours were accepted than filed, which hours are paid. */
   accepted?: string | null
+  /** Each week filed in the period and not accepted yet, left out of gross pay. */
+  notAccepted?: string | null
+  /**
+   * Where earlier runs paid part of the period: "Paid already: $800.00 for
+   * 40 hours. Still to pay: $1,100.00 for 40 hours." Gross pay is the
+   * whole period; the pay file and cash flow carry only what is still to pay.
+   */
+  partPaid?: string | null
+  /** The period this row pays, as the route cut it. */
+  payPeriod?: { start: string; end: string; label: string } | null
   /**
    * Each week worked over the line and accepted at or under it, paid at
    * straight time — "38 of 45 hours accepted; paid at straight time
    * because the accepted week is not over 40."
    */
   straightTime?: string | null
+  /**
+   * Each week held off this pay because nobody has said whether the
+   * person is exempt from overtime, in a sentence; the hours held; and
+   * what is recorded (null where nothing is).
+   */
+  exemptHeld?: string | null
+  heldHours?: number
+  exemptStatus?: 'EXEMPT' | 'NONEXEMPT' | null
+  /** A week paid at straight time before "not exempt" was recorded, and the overtime still owed. */
+  owedSinceRecorded?: string | null
+  /** What earlier runs paid in the period; null where nothing was. */
+  paidSoFar?: { hours: number; grossCents: number } | null
   payStatus: string
+  /** The status in words: "Processed, week held" while a week is held, never "Processed" alone. */
+  statusSays?: string
   nextPayDate: string | null
   nextCalcDate: string | null
   /** Pay dates before today still open. */
   payDatesOverdue?: { count: number; earliest: string | null }
+}
+
+/** One of the company's own pay periods, as the route lists them for the picker. */
+interface PayPeriodChoice {
+  start: string
+  end: string
+  calcOn: string
+  payOn: string
+  label: string
+  /** "Dec 6 – Dec 19, 2026 · paid Thu, Dec 24, 2026" */
+  words: string
+}
+
+interface PayPeriods {
+  /** The first day of the period holding today. */
+  current: string
+  periods: PayPeriodChoice[]
+  shown: PayPeriodChoice | null
 }
 
 interface PayrollSummary {
@@ -114,7 +160,7 @@ interface PayrollSummary {
   byStatus: Record<string, number>
 }
 
-type StatusFilter = 'ALL' | 'PENDING' | 'CALCULATED' | 'PROCESSED' | 'NO_HOURS'
+type StatusFilter = 'ALL' | 'PENDING' | 'CALCULATED' | 'PROCESSED' | 'HELD' | 'NO_HOURS'
 
 // ── Status styling ───────────────────────────────────
 
@@ -123,6 +169,7 @@ function statusChipClass(status: string): string {
     PENDING:     'chip--attention',
     CALCULATED:  'chip--action',
     PROCESSED:   'chip--verified',
+    HELD:        'chip--attention',
     NO_HOURS:    'chip--passive',
   }
   return map[status] ?? 'chip--passive'
@@ -167,6 +214,12 @@ function stateLabel(state: string): string {
  */
 function utcDay(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
+/** The clients on a pay row, as the Client column shows them. */
+function clientsOf(row: PayItem): string {
+  const clients = [...new Set(row.timesheets.map((ts) => ts.clientCompany?.name).filter(Boolean))]
+  return clients.length > 0 ? clients.join(', ') : (row.client?.name ?? '')
 }
 
 /** An amount in its own currency and its own decimals, through the one formatter. */
@@ -232,11 +285,16 @@ export default function PayrollPage() {
   // Workers paid on an invoice receipt, not by payroll: one plain line each.
   const [paidElsewhere, setPaidElsewhere] = useState<Array<{ buyContractId: string; person: { id: string; name: string }; says: string }>>([])
   const [summary, setSummary] = useState<PayrollSummary | null>(null)
+  // The pay period the company set, in the route's one sentence.
+  const [periodSays, setPeriodSays] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   /** What the route said when it refused the read; null where it did not. */
   const [refusedSaid, setRefusedSaid] = useState<string | null>(null)
-  const { company, loading: sessionLoading } = useSession()
+  const { company, loading: sessionLoading, permissions } = useSession()
+  // Recording whether somebody is exempt is the payroll run's own
+  // permission, as its route asks; a seat without it reads the sentence only.
+  const mayRecordExempt = hasPermission(permissions, 'payroll.run')
   // The section this page sits under on the reader's own menu, and
   // nothing while that is not known yet — never a word typed by hand.
   const eyebrow = usePageSection('/dashboard/payroll')
@@ -244,6 +302,24 @@ export default function PayrollPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>('')
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
+  // The company's own pay periods, where it pays every week or every
+  // other week and its Owner set the first day; null where it lists pay
+  // by calendar month.
+  const [payPeriods, setPayPeriods] = useState<PayPeriods | null>(null)
+  // Whether this view may run pay: on a company with its own periods,
+  // only one of them, and only where it holds something to pay.
+  const [runsHere, setRunsHere] = useState(true)
+  const [nothingToPay, setNothingToPay] = useState<string | null>(null)
+  const [payFileNote, setPayFileNote] = useState<string | null>(null)
+  // Why the pay file is not offered yet: the period is not worked out.
+  const [payFileWaits, setPayFileWaits] = useState<string | null>(null)
+  // Who has a week held off this pay, above the table, before the run.
+  const [heldSays, setHeldSays] = useState<string | null>(null)
+  // Where the company's holiday calendar is empty, one sentence saying so.
+  const [noHolidays, setNoHolidays] = useState<string | null>(null)
+  // The current period is chosen once for the reader; after that the
+  // picker is theirs.
+  const [periodChosen, setPeriodChosen] = useState(false)
 
   // Resolve the user's company from /api/me
   useEffect(() => {
@@ -286,6 +362,20 @@ export default function PayrollPage() {
       setSpreadLabel(body.data?.spreadLabel ?? null)
       setPaidElsewhere(body.data?.paidElsewhere ?? [])
       setSummary(body.data?.summary ?? null)
+      setPeriodSays(body.data?.periodSays ?? null)
+      const periods: PayPeriods | null = body.data?.payPeriods ?? null
+      setPayPeriods(periods)
+      setRunsHere(body.data?.runsHere !== false)
+      setNothingToPay(body.data?.nothingToPay ?? null)
+      setPayFileNote(body.data?.payFileNote ?? null)
+      setPayFileWaits(body.data?.payFileWaits ?? null)
+      setHeldSays(body.data?.heldSays ?? null)
+      setNoHolidays(body.data?.noHolidays ?? null)
+      if (!periodChosen) {
+        setPeriodChosen(true)
+        // A company that pays by its own periods opens on the current one.
+        if (periods && !selectedPeriod) setSelectedPeriod(periods.current)
+      }
     } catch (err: any) {
       setError(err.message)
       setPayItems([])
@@ -293,6 +383,8 @@ export default function PayrollPage() {
     } finally {
       setLoading(false)
     }
+    // `periodChosen` is read once, on the first answer, and never refetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, statusFilter, selectedPeriod])
 
   useEffect(() => {
@@ -316,7 +408,11 @@ export default function PayrollPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           buyContractIds: eligible.map((p) => p.buyContractId),
-          period: selectedPeriod || undefined,
+          // One of the company's own periods goes as its first and last
+          // day; a calendar month as the month.
+          period: payPeriods?.shown && payPeriods.shown.start === selectedPeriod
+            ? { start: payPeriods.shown.start, end: payPeriods.shown.end }
+            : selectedPeriod || undefined,
           action,
         }),
       })
@@ -340,7 +436,9 @@ export default function PayrollPage() {
     const months: string[] = []
     const now = new Date()
     for (let i = -2; i <= 1; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      // Built in UTC: a local midnight read back in UTC was the month
+      // before anywhere east of Greenwich.
+      const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() + i, 1))
       months.push(
         d.toISOString().slice(0, 7)
       )
@@ -348,10 +446,11 @@ export default function PayrollPage() {
     return months
   })()
 
-  function periodLabel(ym: string): string {
-    const [y, m] = ym.split('-')
-    const d = new Date(parseInt(y), parseInt(m) - 1)
-    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+  function periodLabel(key: string): string {
+    // One of the company's own periods, by its first day.
+    const own = payPeriods?.periods.find((p) => p.start === key) ?? (payPeriods?.shown?.start === key ? payPeriods.shown : null)
+    if (own) return own.label
+    return formatMonth(`${key}-01`)
   }
 
   // ── Stats ─────────────────────────────────────────
@@ -366,6 +465,7 @@ export default function PayrollPage() {
     pending: summary?.byStatus?.PENDING ?? 0,
     calculated: summary?.byStatus?.CALCULATED ?? 0,
     processed: summary?.byStatus?.PROCESSED ?? 0,
+    held: summary?.byStatus?.HELD ?? 0,
   }
 
   // ── Filtered items ────────────────────────────────
@@ -388,6 +488,7 @@ export default function PayrollPage() {
         </div>
       ),
       sortValue: (row) => row.person.name,
+      exportValue: (row) => row.person.name,
       width: 'min-w-[180px]',
     },
     {
@@ -399,6 +500,7 @@ export default function PayrollPage() {
         </span>
       ),
       sortValue: (row) => row.contractType,
+      exportValue: (row) => contractTypeLabel(row.contractType),
     },
     {
       key: 'client',
@@ -419,6 +521,7 @@ export default function PayrollPage() {
         const names = row.timesheets.map((ts) => ts.clientCompany?.name).filter(Boolean)
         return names[0] ?? row.client?.name ?? ''
       },
+      exportValue: (row) => clientsOf(row),
       hideOnMobile: true,
     },
     {
@@ -435,6 +538,7 @@ export default function PayrollPage() {
         </span>
       ),
       sortValue: (row) => row.payRate,
+      exportValue: (row) => `${formatCents(row.payRate, row.payCurrency)}/hr`,
       align: 'right' as const,
     },
     {
@@ -456,9 +560,24 @@ export default function PayrollPage() {
               {row.straightTime}
             </span>
           )}
+          {/* A week held because nobody has said whether the person is
+              exempt: not in this pay, said, with the answer on the row. */}
+          {row.exemptHeld && (
+            <span className="block max-w-[300px] text-left text-[11px] text-etyme-attention ml-auto">
+              {row.exemptHeld}
+              {mayRecordExempt && <ExemptAnswer row={row} onSaved={fetchPayroll} />}
+            </span>
+          )}
+          {/* A week filed and not accepted yet: not in this pay, said. */}
+          {row.notAccepted && (
+            <span className="block max-w-[260px] text-left text-[11px] text-etyme-attention ml-auto">
+              {row.notAccepted}
+            </span>
+          )}
         </span>
       ),
       sortValue: (row) => row.totalApprovedHours,
+      exportValue: (row) => row.totalApprovedHours,
       align: 'right' as const,
     },
     {
@@ -481,6 +600,19 @@ export default function PayrollPage() {
                 : 'Overtime premium not priced'}
             </span>
           )}
+          {/* Overtime still owed on a week paid at straight time before
+              "not exempt" was recorded: said first, never paid silently. */}
+          {row.owedSinceRecorded && (
+            <span className="block max-w-[260px] text-left text-[11px] font-normal text-etyme-attention ml-auto">
+              {row.owedSinceRecorded}
+            </span>
+          )}
+          {/* Part of the period paid already: what, and what is left. */}
+          {row.partPaid && (
+            <span className="block max-w-[260px] text-left text-[11px] font-normal text-etyme-attention ml-auto">
+              {row.partPaid}
+            </span>
+          )}
           {/* The law's forty where no contract drew a line, or why it
               does not reach this worker — the sentence is the product. */}
           {row.payLine && (
@@ -491,12 +623,32 @@ export default function PayrollPage() {
         </span>
       ),
       sortValue: (row) => row.grossPay,
+      exportValue: (row) => formatCents(row.grossPay, row.payCurrency),
       align: 'right' as const,
+    },
+    {
+      // What earlier runs paid on these days. On the table export too, so
+      // a file made from this table never reads paid hours as owed.
+      key: 'paidAlready',
+      label: 'Paid already',
+      render: (row) => (
+        <span className="tabular-nums text-[12px] text-etyme-muted">
+          {row.paidSoFar && row.paidSoFar.grossCents > 0
+            ? `${formatCents(row.paidSoFar.grossCents, row.payCurrency)} for ${row.paidSoFar.hours} hours`
+            : '—'}
+        </span>
+      ),
+      sortValue: (row) => row.paidSoFar?.grossCents ?? 0,
+      exportValue: (row) => (row.paidSoFar && row.paidSoFar.grossCents > 0 ? formatCents(row.paidSoFar.grossCents, row.payCurrency) : null),
+      align: 'right' as const,
+      hideOnMobile: true,
     },
     {
       key: 'carry',
       label: 'Carry',
       render: (row) => <CarryCell sellContractId={row.sellContractId} />,
+      // Read on demand, one contract at a time, so the file carries none.
+      exportValue: () => null,
       align: 'right' as const,
     },
     ...(spreadLabel ? [{
@@ -528,6 +680,7 @@ export default function PayrollPage() {
         )
       },
       sortValue: (row: PayItem) => row.agreed?.pct ?? -1,
+      exportValue: (row: PayItem) => (row.agreed?.pct == null ? null : `${row.agreed.pct.toFixed(1)}%`),
       align: 'right' as const,
       hideOnMobile: true,
     }] : []),
@@ -536,10 +689,11 @@ export default function PayrollPage() {
       label: 'Status',
       render: (row) => (
         <span className={`chip ${statusChipClass(row.payStatus)}`}>
-          {row.payStatus.replace('_', ' ')}
+          {row.statusSays ?? row.payStatus.replace('_', ' ')}
         </span>
       ),
       sortValue: (row) => row.payStatus,
+      exportValue: (row) => row.statusSays ?? row.payStatus.replace('_', ' '),
     },
     {
       key: 'nextPay',
@@ -559,6 +713,7 @@ export default function PayrollPage() {
         </span>
       ),
       sortValue: (row) => row.nextPayDate ? new Date(row.nextPayDate).getTime() : 0,
+      exportValue: (row) => (row.nextPayDate ? utcDay(row.nextPayDate) : null),
       align: 'right' as const,
       hideOnMobile: true,
     },
@@ -580,6 +735,7 @@ export default function PayrollPage() {
     { key: 'PENDING', label: 'Pending', count: stats.pending },
     { key: 'CALCULATED', label: 'Calculated', count: stats.calculated },
     { key: 'PROCESSED', label: 'Processed', count: stats.processed },
+    { key: 'HELD', label: 'Processed, week held', count: stats.held },
     { key: 'NO_HOURS', label: 'No hours' },
   ]
 
@@ -600,22 +756,50 @@ export default function PayrollPage() {
       <PageHead
         eyebrow={eyebrow}
         title="Payroll"
-        subtitle="Buy-side payment processing. Calculate, approve, and process pay for everybody who worked in the period, including placements that have since ended."
+        subtitle="Pay your W-2 people for hours their client approved. Calculate, approve and pay everybody who worked in the period, including people whose contracts have ended."
         actions={<>
           {/* Period selector + run action */}
           <select
+            aria-label="Pay period"
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
             className="px-3 py-2 text-[13px] border border-etyme-rule rounded-lg bg-white
                        text-etyme-ink focus:outline-none focus:ring-2 focus:ring-etyme-action/20"
           >
-            <option value="">All periods</option>
-            {periodOptions.map((ym) => (
-              <option key={ym} value={ym}>{periodLabel(ym)}</option>
-            ))}
+            {/* The company's own periods first, the current one at the top;
+                the calendar month stays as a second choice. */}
+            {payPeriods && (
+              <optgroup label="Pay periods">
+                {payPeriods.periods.map((p) => (
+                  <option key={p.start} value={p.start}>
+                    {p.words}{p.start === payPeriods.current ? ' (current)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="Calendar month">
+              <option value="">All periods</option>
+              {periodOptions.map((ym) => (
+                <option key={ym} value={ym}>{periodLabel(ym)}</option>
+              ))}
+            </optgroup>
           </select>
 
-          {stats.pending > 0 && (
+          {/* The pay file for the period shown, a pay period or a month:
+              the rows on this page, with what was paid already taken off.
+              Names, hours, rates and gross pay in dollars. */}
+          {/* Pay never goes out before it is worked out: on a period not
+              worked out, the route's sentence stands in the button's place. */}
+          {!nothingToPay && payFileWaits && (
+            <span className="max-w-[36ch] text-[12px] text-etyme-attention">{payFileWaits}</span>
+          )}
+          {!nothingToPay && !payFileWaits && (
+            <a href={payFileHref(selectedPeriod)} className="btn-secondary" download>
+              Download pay file
+            </a>
+          )}
+
+          {runsHere && stats.pending > 0 && (
             <button
               onClick={() => handleRunPayroll('calculate')}
               disabled={processing}
@@ -624,7 +808,7 @@ export default function PayrollPage() {
               {processing ? 'Running…' : `Calculate (${stats.pending})`}
             </button>
           )}
-          {stats.calculated > 0 && (
+          {runsHere && stats.calculated > 0 && (
             <button
               onClick={() => handleRunPayroll('process')}
               disabled={processing}
@@ -635,6 +819,18 @@ export default function PayrollPage() {
           )}
         </>}
       />
+
+      {periodSays && <p className="mb-2 text-[12.5px] text-etyme-muted">{periodSays}</p>}
+      {/* Beside the company's pay periods and their pay days: an empty
+          holiday calendar moves no pay day off a public holiday. */}
+      {payPeriods && noHolidays && <p className="mb-2 text-[12.5px] text-etyme-attention">{noHolidays}</p>}
+      {/* Etyme moves no money and holds no W-4, bank account or tax number:
+          the payroll provider does. Said once, beside the pay file. */}
+      {payFileNote && !nothingToPay && <p className="mb-2 text-[12.5px] text-etyme-muted">{payFileNote}</p>}
+      {nothingToPay && <p className="mb-2 text-[12.5px] text-etyme-ink">{nothingToPay}</p>}
+      {/* A held week is found before the run, not after it: who has one,
+          and that the answer is recorded on the row. */}
+      {heldSays && <p className="mb-2 text-[12.5px] text-etyme-attention">{heldSays}</p>}
 
       {/* Stats row — prototype Stat component pattern */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -984,5 +1180,76 @@ function Statutory() {
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * The answer that releases a held week: is this person exempt from
+ * overtime? Posts to POST /api/contracts/[id]/exempt, the one door that
+ * records it (lib/money/exempt-form). "Not exempt" is one press.
+ * "Exempt" names the exemption and takes a note, which the route needs
+ * where the pay cannot meet the exemption's salary test.
+ */
+function ExemptAnswer({ row, onSaved }: { row: PayItem; onSaved: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [basis, setBasis] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [said, setSaid] = useState<string | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
+
+  async function save(choice: ExemptChoice) {
+    setSaving(true)
+    setRefused(null)
+    try {
+      const res = await fetch(`/api/contracts/${row.buyContractId}/exempt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(exemptBody(row.person.id, choice, { basis, note })),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRefused(body.error?.message ?? 'That was not recorded. Try again.')
+        return
+      }
+      setSaid(exemptSavedSays(row.person.name, choice))
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (said) return <span className="mt-1 block text-etyme-verified">{said}</span>
+  return (
+    <span className="mt-1 block">
+      <span className="flex flex-wrap gap-2">
+        <button type="button" className="btn-secondary !px-2 !py-1 !text-[11.5px]" disabled={saving} onClick={() => save('NONEXEMPT')}>
+          Not exempt
+        </button>
+        <button type="button" className="btn-secondary !px-2 !py-1 !text-[11.5px]" disabled={saving} onClick={() => setOpen((o) => !o)}>
+          Exempt…
+        </button>
+      </span>
+      {open && (
+        <span className="mt-2 block space-y-1 text-etyme-ink">
+          <label className="block">
+            <span className="block text-[11px] text-etyme-muted">Which exemption</span>
+            <select aria-label="Which exemption" className="input !py-1 !text-[12px]" value={basis} onChange={(e) => setBasis(e.target.value)}>
+              <option value="">Pick one</option>
+              {EXEMPTION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-[11px] text-etyme-muted">Why, in a sentence</span>
+            <textarea aria-label="Why, in a sentence" className="input !py-1 !text-[12px]" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <button type="button" className="btn-primary !px-2 !py-1 !text-[11.5px]" disabled={saving || !basis} onClick={() => save('EXEMPT')}>
+            Record as exempt
+          </button>
+          {!basis && <span className="block text-[11px] text-etyme-muted">Pick an exemption to record it.</span>}
+        </span>
+      )}
+      {refused && <span className="mt-1 block text-etyme-danger">{refused}</span>}
+    </span>
   )
 }

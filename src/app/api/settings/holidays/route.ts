@@ -3,6 +3,9 @@ import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { hasPermission, askTheDesk } from '@/lib/permissions'
 import { holidaysFor } from '@/lib/holidays'
+import { holidaysFrom } from '@/lib/pay-dates'
+import { policyFrom } from '@/lib/cycle-shift'
+import { holidaysAddedSays } from './says'
 
 /**
  * POST   /api/settings/holidays        — add a day, or seed a country's year
@@ -60,7 +63,11 @@ export async function POST(request: NextRequest) {
       )
     }
     const country = String(body.country ?? 'US').toUpperCase()
-    const days = holidaysFor(country, year)
+    const all = holidaysFor(country, year)
+    // `from` (YYYY-MM-DD) adds only the days on or after it: the rest of
+    // this year, so a November firm gets Christmas without typing it.
+    const from = typeof body.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.from) ? body.from : null
+    const days = all ? holidaysFrom(all, from) : null
     if (!days) {
       return NextResponse.json(
         {
@@ -73,16 +80,50 @@ export async function POST(request: NextRequest) {
         { status: 422 }
       )
     }
+    // Which of them are already on the calendar, read first, so the answer
+    // names the days it added rather than a count (./says).
+    const key = (d: Date) => d.toISOString().slice(0, 10)
+    const there = new Set(
+      days.length === 0
+        ? []
+        : (await prisma.holiday.findMany({
+            where: { companyId, date: { in: days.map((h) => new Date(h.date + 'T00:00:00Z')) } },
+            select: { date: true },
+          })).map((h) => key(h.date))
+    )
+    const fresh = days.filter((h) => !there.has(h.date))
     const result = await prisma.holiday.createMany({
-      data: days.map((h) => ({
+      data: fresh.map((h) => ({
         companyId,
         date: new Date(h.date + 'T00:00:00Z'),
         name: h.name,
         country,
       })),
       // Re-seeding the same year is a no-op rather than an error, because
-      // somebody will click it twice.
+      // somebody will click it twice — or twice at once.
       skipDuplicates: true,
+    })
+
+    // A pay day already written on one of this company's placements, not
+    // yet paid, on a day just added. Said, never moved: whether it moves
+    // is the founder's to decide.
+    const onAdded = fresh.length === 0
+      ? []
+      : await prisma.cycle.findMany({
+          where: {
+            kind: 'SALARY_PAY',
+            completedAt: null,
+            // The whole day, whatever hour the date was stored at.
+            OR: fresh.map((h) => ({
+              dueOn: { gte: new Date(h.date + 'T00:00:00Z'), lt: new Date(Date.parse(h.date + 'T00:00:00Z') + 86_400_000) },
+            })),
+            buyContract: { companyId },
+          },
+          select: { dueOn: true, buyContract: { select: { candidates: { select: { person: { select: { name: true } } } } } } },
+        })
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { cycleShiftHours: true, cycleShiftPay: true, cycleShiftBill: true, daysOff: true },
     })
 
     return NextResponse.json(
@@ -92,10 +133,16 @@ export async function POST(request: NextRequest) {
           country,
           added: result.count,
           skipped: days.length - result.count,
-          message:
-            result.count === 0
-              ? `${year} was already set up.`
-              : `Added ${result.count} public holiday(s) for ${year}.`,
+          message: holidaysAddedSays({
+            year,
+            rest: Boolean(from),
+            offered: days,
+            added: fresh,
+            payDaysOnAdded: onAdded.flatMap((c) =>
+              c.buyContract!.candidates.map((k) => ({ date: key(c.dueOn), person: k.person.name }))
+            ),
+            payMoves: policyFrom(company).pay !== 'NONE',
+          }),
         },
       },
       { status: 201 }

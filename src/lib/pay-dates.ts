@@ -31,12 +31,23 @@
  * lib/cycle-shift, with the company's own days off and its pay direction,
  * applied by the generator after these dates are found.
  *
- * This file imports only the date formatter, which imports nothing, so
- * the settings screen may use it for its preview. The door to the row is
- * lib/payroll-settings.
+ * This file imports only the date formatter and lib/cycle-shift, neither
+ * of which imports the database, so the settings screen may use it for
+ * its preview. The door to the row is lib/payroll-settings.
+ *
+ * ── Where the first pay period starts (2026-11-14) ───────────────────
+ *
+ * The founder, for Tapin: "W2 first, outside payroll provider, biweekly".
+ * Every other week needs a first week, and no date is guessed: the Owner
+ * gives it. The week runs Sunday to Saturday and hours are accepted by
+ * the week, so a weekly or two-week period is whole weeks and starts on
+ * a Sunday. Periods run forward and back from that Sunday without end,
+ * so a week worked before the first period still falls in one. A week
+ * belongs to the period that holds its Sunday (`payPeriodHolding`).
  */
 
-import { formatDay } from '@/lib/format-date'
+import { formatDay, formatDayLong, formatRange } from '@/lib/format-date'
+import { DEFAULT_CYCLE_SHIFT, localDayKey, shiftToWorkingDay, type ShiftDirection } from '@/lib/cycle-shift'
 
 export type PayPeriod = 'WEEKLY' | 'BIWEEKLY' | 'SEMIMONTHLY' | 'MONTHLY'
 
@@ -62,6 +73,14 @@ export interface PayRhythm {
   payDaysOfMonth: number[]
   /** Twice a month and monthly: days before the pay day that pay is worked out. */
   payCalcDaysBefore: number
+  /**
+   * Every week and every other week: the Sunday the first pay period
+   * starts on, as "2026-12-06". Null where nobody has said; then no
+   * period is worked out from it. Kept while the company pays by the
+   * month, so switching back finds it. Optional only so a caller that
+   * builds a rhythm by hand need not name it.
+   */
+  payFirstPeriodStart?: string | null
 }
 
 export const DEFAULT_PAY_RHYTHM: Readonly<PayRhythm> = Object.freeze({
@@ -70,6 +89,7 @@ export const DEFAULT_PAY_RHYTHM: Readonly<PayRhythm> = Object.freeze({
   payDayOffsetDays: 6, // Saturday + 6 = Friday
   payDaysOfMonth: [28], // month end
   payCalcDaysBefore: 3, // 28 − 3 = the 25th
+  payFirstPeriodStart: null, // nobody has said; never guessed
 })
 
 /** The pay days a monthly shape starts from when a screen switches to it. */
@@ -100,6 +120,29 @@ export interface PayChanges {
   payDayOffsetDays?: unknown
   payDaysOfMonth?: unknown
   payCalcDaysBefore?: unknown
+  /** "2026-12-06", or null or "" to clear it. */
+  payFirstPeriodStart?: unknown
+}
+
+/**
+ * Every answer the payroll door takes, by name: the route reads these from
+ * the request and the settings screen sends these, so neither can ask for
+ * a field the other does not have.
+ */
+export const PAY_CHANGE_FIELDS = Object.freeze([
+  'payPeriod', 'payCalcOffsetDays', 'payDayOffsetDays', 'payDaysOfMonth', 'payCalcDaysBefore', 'payFirstPeriodStart',
+] as const) satisfies readonly (keyof PayChanges)[]
+
+/** What the settings screen sends when Save payroll is pressed: every answer on it. */
+export function payrollBody(draft: PayRhythm): Record<(typeof PAY_CHANGE_FIELDS)[number], unknown> {
+  return {
+    payPeriod: draft.payPeriod,
+    payCalcOffsetDays: draft.payCalcOffsetDays,
+    payDayOffsetDays: draft.payDayOffsetDays,
+    payDaysOfMonth: draft.payDaysOfMonth,
+    payCalcDaysBefore: draft.payCalcDaysBefore,
+    payFirstPeriodStart: draft.payFirstPeriodStart ?? null,
+  }
 }
 
 export type PayCheck =
@@ -122,7 +165,11 @@ const OFFSET_WORDS = {
  */
 export function checkPaySettings(changes: PayChanges, current: PayRhythm = DEFAULT_PAY_RHYTHM): PayCheck {
   const changed: string[] = []
-  const next: PayRhythm = { ...current, payDaysOfMonth: [...current.payDaysOfMonth] }
+  const next: PayRhythm = {
+    ...current,
+    payDaysOfMonth: [...current.payDaysOfMonth],
+    payFirstPeriodStart: current.payFirstPeriodStart ?? null,
+  }
 
   if (changes.payPeriod !== undefined) {
     if (!isPeriod(changes.payPeriod)) {
@@ -152,6 +199,16 @@ export function checkPaySettings(changes: PayChanges, current: PayRhythm = DEFAU
     changed.push('payDaysOfMonth')
   }
 
+  // Twice a month and once a month have no weeks to start: the first day
+  // is not stored and not reported as changed, as the days of the month
+  // are not while the company pays by the week.
+  if (changes.payFirstPeriodStart !== undefined && isWeekShape(next.payPeriod)) {
+    const first = checkFirstPeriodStart(changes.payFirstPeriodStart)
+    if (!first.ok) return first
+    next.payFirstPeriodStart = first.day
+    changed.push('payFirstPeriodStart')
+  }
+
   if (next.payPeriod === 'SEMIMONTHLY' && next.payDaysOfMonth.length !== 2) {
     return {
       ok: false,
@@ -177,6 +234,7 @@ export function rhythmFrom(row: {
   payDayOffsetDays?: number | null
   payDaysOfMonth?: number[] | null
   payCalcDaysBefore?: number | null
+  payFirstPeriodStart?: Date | string | null
 } | null | undefined): PayRhythm {
   // A stored answer that would fail the door reads as the default rather
   // than as a pay day nobody chose. The days of the month are kept even
@@ -185,6 +243,10 @@ export function rhythmFrom(row: {
   const keptDays = Array.isArray(days) && days.length > 0 && days.every(isDayOfMonth)
     ? Array.from(new Set(days)).sort((a, b) => a - b)
     : [...DEFAULT_PAY_RHYTHM.payDaysOfMonth]
+  // A stored first day that is not a Sunday reads as nobody having said,
+  // never as a period nobody chose. Kept whatever the period is.
+  const first = checkFirstPeriodStart(row?.payFirstPeriodStart ?? null)
+  const keptFirst = first.ok ? first.day : null
   const check = checkPaySettings(
     {
       payPeriod: row?.payPeriod ?? undefined,
@@ -192,10 +254,10 @@ export function rhythmFrom(row: {
       payDayOffsetDays: row?.payDayOffsetDays ?? undefined,
       payCalcDaysBefore: row?.payCalcDaysBefore ?? undefined,
     },
-    { ...DEFAULT_PAY_RHYTHM, payDaysOfMonth: keptDays },
+    { ...DEFAULT_PAY_RHYTHM, payDaysOfMonth: keptDays, payFirstPeriodStart: keptFirst },
   )
   if (check.ok) return check.rhythm
-  return { ...DEFAULT_PAY_RHYTHM, payDaysOfMonth: [...DEFAULT_PAY_RHYTHM.payDaysOfMonth] }
+  return { ...DEFAULT_PAY_RHYTHM, payDaysOfMonth: [...DEFAULT_PAY_RHYTHM.payDaysOfMonth], payFirstPeriodStart: keptFirst }
 }
 
 // ── Dates ──────────────────────────────────────────────────────────────
@@ -303,4 +365,300 @@ export function payPreview(s: PayRhythm, today: Date): string {
   }
   const { calcOn, payOn } = payDatesFor(day, s)
   return `The next pay day, ${short(payOn)}, is worked out ${short(calcOn)}.`
+}
+
+// ── The first pay period, and the period any day falls in ──────────────
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/**
+ * What the setting is called on the screen. Not "first pay period
+ * starts on": periods run back from it as well as forward, so the day is
+ * no first (the Tapin walk, 2026-11-14). It is the Sunday the company's
+ * periods are counted from.
+ */
+export const FIRST_PERIOD_LABEL = 'The Sunday your pay periods are counted from'
+
+/** The one line under the field, saying what it does. */
+export const FIRST_PERIOD_HELP =
+  'Pick any Sunday a pay period starts on. Periods run Sunday to Saturday, before and after it.'
+
+/** Said where a weekly or two-week company has not set the day. */
+export const FIRST_PERIOD_UNSET =
+  'Until this is set, the Payroll page lists pay by calendar month.'
+
+export const FIRST_PERIOD_NOT_A_DAY = 'Enter the first pay period’s first day as a date, such as Dec 6, 2026.'
+
+/** Midnight UTC of a calendar day "YYYY-MM-DD", or null where it is not a real day. */
+function dayMs(key: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null
+  const [y, m, d] = key.split('-').map(Number)
+  const ms = Date.UTC(y, m - 1, d)
+  const back = new Date(ms)
+  // "2026-02-30" is not a day; Date.UTC would quietly make it March 2.
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== m - 1 || back.getUTCDate() !== d) return null
+  return ms
+}
+
+const keyOfMs = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+
+/**
+ * A calendar day as "YYYY-MM-DD". A `Date` is read in UTC, because every
+ * stored day in this product is midnight UTC; a string is taken as the
+ * day it names. Never the reader's time zone, which moves a day.
+ */
+function dayKeyOf(day: Date | string): string | null {
+  if (day instanceof Date) return Number.isNaN(day.getTime()) ? null : day.toISOString().slice(0, 10)
+  return dayMs(day) === null ? null : day
+}
+
+/**
+ * The sentence for a day that is not a Sunday: "December 9, 2026 is a
+ * Wednesday. A pay period starts on a Sunday: pick December 6, 2026 or
+ * December 13, 2026."
+ */
+export function notASundaySays(key: string): string {
+  const ms = dayMs(key)
+  if (ms === null) return FIRST_PERIOD_NOT_A_DAY
+  const wd = new Date(ms).getUTCDay()
+  const before = keyOfMs(ms - wd * DAY)
+  const after = keyOfMs(ms + (7 - wd) * DAY)
+  return `${formatDayLong(key)} is a ${WEEKDAY_NAMES[wd]}. A pay period starts on a Sunday: ` +
+    `pick ${formatDayLong(before)} or ${formatDayLong(after)}.`
+}
+
+export type FirstPeriodCheck =
+  | { ok: true; day: string | null }
+  | { ok: false; field: 'payFirstPeriodStart'; message: string }
+
+/**
+ * Whether a day may be the first day of the first pay period: a real
+ * calendar day that is a Sunday. Null, or an empty box, clears it.
+ */
+export function checkFirstPeriodStart(value: unknown): FirstPeriodCheck {
+  if (value === null || value === '') return { ok: true, day: null }
+  const key = typeof value === 'string' ? dayKeyOf(value.trim()) : value instanceof Date ? dayKeyOf(value) : null
+  if (!key) return { ok: false, field: 'payFirstPeriodStart', message: FIRST_PERIOD_NOT_A_DAY }
+  if (new Date(dayMs(key)!).getUTCDay() !== 0) {
+    return { ok: false, field: 'payFirstPeriodStart', message: notASundaySays(key) }
+  }
+  return { ok: true, day: key }
+}
+
+/**
+ * The company's rule for a pay date on a day nobody works: its days off,
+ * its holiday calendar as "YYYY-MM-DD" keys, and its pay direction. Each
+ * left out reads as the shipped default: Saturday and Sunday off, no
+ * holidays, and the working day before.
+ */
+export interface DayOffRule {
+  holidays?: Iterable<string>
+  direction?: ShiftDirection
+  daysOff?: readonly number[]
+}
+
+/** One weekly or two-week pay period, with the days its pay is worked out and paid. */
+export interface PayPeriodOn {
+  /** The period's Sunday, "YYYY-MM-DD". */
+  start: string
+  /** The period's Saturday. */
+  end: string
+  /** The day pay is worked out, after the day-off rule. */
+  calcOn: string
+  /** The day pay is paid, after the day-off rule. */
+  payOn: string
+  /** The Saturday plus the company's offset, before any move. */
+  calcOnUnmoved: string
+  payOnUnmoved: string
+}
+
+/**
+ * A day moved off a day nobody works by the one rule the cycle generator
+ * uses (`shiftToWorkingDay` in lib/cycle-shift). That rule reads the
+ * weekday and the holiday key in the server's own zone, so the day is
+ * built there at its own midnight and read back the same way: no time
+ * zone can move it.
+ */
+function movedOff(key: string, rule: DayOffRule): string {
+  const [y, m, d] = key.split('-').map(Number)
+  const local = new Date(y, m - 1, d)
+  const moved = shiftToWorkingDay(local, new Set(rule.holidays ?? []), rule.direction ?? DEFAULT_CYCLE_SHIFT.pay, rule.daysOff)
+  return localDayKey(moved)
+}
+
+/**
+ * The weekly or two-week pay period that holds this day, counted from the
+ * company's first period: period n starts on the first day plus 7 or 14
+ * days times n, for any whole n, before the first period as well as
+ * after it. A week belongs to the period that holds its Sunday, which is
+ * the period that holds every day of it, because a period never splits a
+ * week.
+ *
+ * Pay is worked out on the period's Saturday plus `payCalcOffsetDays` and
+ * paid on the Saturday plus `payDayOffsetDays`, each then moved off a day
+ * nobody works by the company's own rule.
+ *
+ * Null where the company pays twice a month or once a month, or has not
+ * said which Sunday its first period starts on: nothing is guessed.
+ */
+export function payPeriodHolding(day: Date | string, s: PayRhythm, rule: DayOffRule = {}): PayPeriodOn | null {
+  if (!isWeekShape(s.payPeriod) || !s.payFirstPeriodStart) return null
+  const first = dayMs(s.payFirstPeriodStart)
+  if (first === null || new Date(first).getUTCDay() !== 0) return null
+  const key = dayKeyOf(day)
+  if (!key) return null
+  const step = (s.payPeriod === 'WEEKLY' ? 7 : 14) * DAY
+  const n = Math.floor((dayMs(key)! - first) / step)
+  const start = first + n * step
+  const saturday = start + step - DAY
+  const { calcOn, payOn } = payDatesFor(new Date(saturday), s)
+  const calcOnUnmoved = keyOfMs(calcOn.getTime())
+  const payOnUnmoved = keyOfMs(payOn.getTime())
+  return {
+    start: keyOfMs(start),
+    end: keyOfMs(saturday),
+    calcOn: movedOff(calcOnUnmoved, rule),
+    payOn: movedOff(payOnUnmoved, rule),
+    calcOnUnmoved,
+    payOnUnmoved,
+  }
+}
+
+/**
+ * The first period said in a payroll person's words: "The first period
+ * is Dec 6 – Dec 19, 2026. Its pay is worked out Wed, Dec 23, 2026 and
+ * paid Thu, Dec 24, 2026." Where the pay day moved, one more sentence
+ * says from which day.
+ */
+export function firstPeriodSays(p: PayPeriodOn): string {
+  return periodSays('The first period', p)
+}
+
+/** "<lead> is Dec 6 – Dec 19, 2026. Its pay is worked out … and paid …", with a moved pay day said. */
+function periodSays(lead: string, p: PayPeriodOn): string {
+  const day = (k: string) => formatDay(k, { weekday: true })
+  const moved = p.payOn !== p.payOnUnmoved
+    ? ` The pay day moved from ${day(p.payOnUnmoved)}, a day off or a holiday.`
+    : ''
+  return `${lead} is ${formatRange(p.start, p.end)}. ` +
+    `Its pay is worked out ${day(p.calcOn)} and paid ${day(p.payOn)}.${moved}`
+}
+
+/**
+ * The line under the payroll choices (the Tapin walk, 2026-11-14). Where a
+ * weekly or two-week company has said which Sunday its periods are
+ * counted from, the company's own period holding today, with its two
+ * days: "This pay period is Nov 8 – Nov 21, 2026. Its pay is worked out
+ * …". Anywhere else the example `payPreview` gives, which no set day can
+ * contradict.
+ */
+export function payrollLineSays(s: PayRhythm, today: Date, rule: DayOffRule = {}): string {
+  const now = payPeriodHolding(new Date(utcDay(today)), s, rule)
+  return now ? periodSays('This pay period', now) : payPreview(s, today)
+}
+
+// ── The confirmation before a moved day is saved ───────────────────────
+
+/** The heading of the box that asks before a moved day is saved: the second press, said as one. */
+export const FIRST_DAY_CONFIRM_TITLE = 'One more press: save the new Sunday?'
+
+/** The second press itself. Never a bare "Save" beside the one above it. */
+export const FIRST_DAY_CONFIRM_BUTTON = 'Yes, count pay periods from the new Sunday'
+
+// ── Who sets the first day, its history, and the warning before a change ──
+//
+// The skeptic's walk, 2026-11-14. The route takes any seat that may change
+// payroll settings (`settings.manage`), which by default is the Owner and
+// an Admin, so the words say both. A change, and a change refused to a
+// seat that may not, are each one row on the activity log, with the old
+// day and the new day. Whether it should be the Owner alone is the
+// founder's to say; the gate is unchanged.
+
+/** Who may set the first day, said on the screen. True to the route's gate. */
+export const FIRST_PERIOD_WHO = 'The Owner or an Admin sets it.'
+
+/** A first day as a person reads it in a sentence: "Dec 6, 2026", or null where none is set. */
+function firstDayWords(key: string | null): string | null {
+  if (!key) return null
+  return dayMs(key) === null ? `"${key.slice(0, 40)}"` : formatDay(key)
+}
+
+/**
+ * What the activity log says about a change of the first day:
+ * "Asha Rao changed the first pay period's first day from Dec 6, 2026 to
+ * Dec 13, 2026." Setting it the first time and clearing it are said as
+ * such, never as a change from or to nothing.
+ */
+export function firstDayChangedSays(who: string, from: string | null, to: string | null): string {
+  const a = firstDayWords(from)
+  const b = firstDayWords(to)
+  if (!a) return `${who} set the first pay period’s first day to ${b}.`
+  if (!b) return `${who} cleared the first pay period’s first day, which was ${a}.`
+  return `${who} changed the first pay period’s first day from ${a} to ${b}.`
+}
+
+/** The same change, asked for by a seat that may not make it. */
+export function firstDayRefusedSays(who: string, from: string | null, to: string | null): string {
+  const a = firstDayWords(from) ?? 'not set'
+  const b = firstDayWords(to) ?? 'cleared'
+  return `${who} was refused changing the first pay period’s first day from ${a} to ${b}.`
+}
+
+/** The reason beside a change, on the activity log. */
+export const FIRST_DAY_CHANGED_REASON =
+  'Pay already recorded stays as it is. Pay periods are counted from the new first day.'
+
+/** What the asked-for first day is, as a "YYYY-MM-DD" key or the text sent, or null for cleared. */
+export function askedFirstDay(value: unknown): string | null {
+  if (value === null || value === '' || value === undefined) return null
+  if (value instanceof Date) return dayKeyOf(value)
+  return String(value).trim() || null
+}
+
+/**
+ * The one sentence said before a changed first day is saved, where the
+ * company has run payroll: "Pay already recorded stays as it is, and pay
+ * periods from here on are counted from Dec 13, 2026."
+ */
+export function firstDayChangeWarning(to: string): string {
+  return `Pay already recorded stays as it is, and pay periods from here on are counted from ${formatDay(to)}.`
+}
+
+/**
+ * Whether Save asks first: the first day moves to another Sunday, and the
+ * company has run payroll. Clearing the day lists pay by calendar month
+ * again and is not asked about.
+ */
+export function asksBeforeFirstDayChange(saved: string | null, draft: string | null, payrollRun: boolean): boolean {
+  return payrollRun && !!draft && draft !== saved
+}
+
+// ── The holiday calendar's one-press sets (2026-11-14) ─────────────────
+//
+// The Tapin walk: in November the one-press set offered next year only,
+// so Christmas Day of this year had to be typed, and a pay day on it was
+// not moved. The rest of this year is offered too. Here because a pay day
+// is what the calendar moves; the days themselves are lib/holidays.
+
+/** One one-press set: a country's public holidays for a year, from a day on. */
+export interface HolidaySeedOffer {
+  year: number
+  /** "YYYY-MM-DD": only days on or after it are added. Null for the whole year. */
+  from: string | null
+  label: string
+}
+
+/** The sets offered on `today`: the rest of this year, then all of next year. */
+export function holidaySeedOffers(today: Date, countryWord = 'US'): HolidaySeedOffer[] {
+  const year = today.getUTCFullYear()
+  return [
+    { year, from: keyOfMs(utcDay(today)), label: `Add ${countryWord} holidays for the rest of ${year}` },
+    { year: year + 1, from: null, label: `Add ${countryWord} holidays for ${year + 1}` },
+  ]
+}
+
+/** The days of a set on or after `from`, or every day where `from` is null or not a day. */
+export function holidaysFrom<T extends { date: string }>(days: readonly T[], from: string | null): T[] {
+  if (!from || dayMs(from) === null) return [...days]
+  return days.filter((d) => d.date >= from)
 }

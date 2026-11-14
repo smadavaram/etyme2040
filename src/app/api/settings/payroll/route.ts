@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { hasPermission, askTheDesk } from '@/lib/permissions'
 import { prisma } from '@/lib/db'
-import { paySettingsFor, setPaySettings, type PaySettings } from '@/lib/payroll-settings'
+import {
+  paySettingsFor, setPaySettings, payPeriodAt, recordFirstDayRefused, hasRunPayroll, dayOffRuleFor,
+  PAY_CHANGE_FIELDS, type PaySettings,
+} from '@/lib/payroll-settings'
+import { noHolidaysSays } from '@/lib/money/pay-periods'
+import { paySavedSays } from './saved-says'
 
 /**
  * GET   /api/settings/payroll — how often this company pays, and when pay is worked out and paid
@@ -10,8 +15,20 @@ import { paySettingsFor, setPaySettings, type PaySettings } from '@/lib/payroll-
  *
  * The same shape and the same gate as /api/settings/week: any seat of the
  * company may read it, because a worker may ask when they are paid; only
- * the settings desk may change it. The rules are lib/payroll-settings;
- * this finds the caller's company and says the answer in a sentence.
+ * a seat that may change settings (by default the Owner or an Admin) may
+ * change it. The rules are lib/payroll-settings; this finds the caller's
+ * company and says the answer in a sentence.
+ *
+ * The first pay period's Sunday (2026-11-14) is one more answer through
+ * the same door and the same gate. The answer carries `firstPeriod`: the
+ * period that Sunday starts, with its work-out day and pay day as the
+ * product works them out (`payPeriodAt`), or null where none is set.
+ *
+ * A moved first day is one row on the activity log, and so is a move
+ * asked for by a seat that may not, written before the refusal is sent.
+ * The answer also says whether the company has run payroll
+ * (`payrollRun`), so the screen asks before moving the day under pay
+ * already recorded.
  */
 
 async function guard(request: NextRequest, doing: string, change = true) {
@@ -27,48 +44,60 @@ async function guard(request: NextRequest, doing: string, change = true) {
     }
   }
   if (change && !hasPermission(caller.permissions, 'settings.manage')) {
+    const message = askTheDesk({ doing, needs: 'settings.manage', kind: caller.company?.kind, companyName: caller.company?.name })
     return {
       caller: null,
-      error: NextResponse.json(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: askTheDesk({ doing, needs: 'settings.manage', kind: caller.company?.kind, companyName: caller.company?.name }),
-          },
-        },
-        { status: 403 }
-      ),
+      refused: { caller, message },
+      error: NextResponse.json({ error: { code: 'FORBIDDEN', message } }, { status: 403 }),
     }
   }
   return { caller, error: null }
 }
 
-/** The settings, with the name of whoever last set them, for the screen. */
-async function withName(s: PaySettings) {
+/** The settings, with the name of whoever last set them and the first period, for the screen. */
+async function withName(companyId: string, s: PaySettings) {
   const by = s.setById
     ? await prisma.person.findUnique({ where: { id: s.setById }, select: { name: true } })
     : null
-  return { ...s, setByName: by?.name ?? null }
+  const firstPeriod = s.payFirstPeriodStart ? await payPeriodAt(companyId, s.payFirstPeriodStart) : null
+  // The company's own day-off rule, so the screen says a typed Sunday's
+  // period and pay day before Save, and this period's, by the same
+  // arithmetic (payPeriodHolding). Holidays from last year to two ahead.
+  const y = new Date().getUTCFullYear()
+  const { companyName, rule } = await dayOffRuleFor(companyId, y - 1, y + 2)
+  return {
+    ...s, setByName: by?.name ?? null, firstPeriod, payrollRun: await hasRunPayroll(companyId),
+    dayOffRule: rule,
+    // The Payroll page's own sentence where the calendar is empty (money's noHolidaysSays).
+    noHolidays: noHolidaysSays(companyName, rule),
+  }
 }
 
 export async function GET(request: NextRequest) {
   const { caller, error } = await guard(request, 'Reading this company’s payroll', false)
   if (error) return error
-  return NextResponse.json({ data: await withName(await paySettingsFor(caller!.company!.id)) })
+  const companyId = caller!.company!.id
+  return NextResponse.json({ data: await withName(companyId, await paySettingsFor(companyId)) })
 }
 
 export async function PATCH(request: NextRequest) {
-  const { caller, error } = await guard(request, 'Changing this company’s payroll')
-  if (error) return error
-
   const body = await request.json().catch(() => ({}))
-  const result = await setPaySettings(caller!.company!.id, caller!.person.id, {
-    payPeriod: body.payPeriod,
-    payCalcOffsetDays: body.payCalcOffsetDays,
-    payDayOffsetDays: body.payDayOffsetDays,
-    payDaysOfMonth: body.payDaysOfMonth,
-    payCalcDaysBefore: body.payCalcDaysBefore,
-  })
+  const g = await guard(request, 'Changing this company’s payroll')
+  if (g.error) {
+    // A move of the first day by a seat that may not is kept, with the
+    // day as it stands and the day asked for, before the refusal is sent.
+    if ('refused' in g && g.refused) {
+      const { caller: who, message } = g.refused
+      await recordFirstDayRefused(who.company!.id, { id: who.person.id, name: who.person.name }, body?.payFirstPeriodStart, message)
+    }
+    return g.error
+  }
+  const caller = g.caller
+  const companyId = caller!.company!.id
+  // Every answer the door takes, by its one list, so the screen that
+  // sends them and this route cannot ask for different fields.
+  const changes = Object.fromEntries(PAY_CHANGE_FIELDS.map((f) => [f, body?.[f]]))
+  const result = await setPaySettings(companyId, { id: caller!.person.id, name: caller!.person.name }, changes)
   if (!result.ok) {
     return NextResponse.json(
       { error: { code: 'VALIDATION', message: result.message, field: result.field || undefined } },
@@ -77,9 +106,10 @@ export async function PATCH(request: NextRequest) {
   }
   return NextResponse.json({
     data: {
-      settings: await withName(result.settings),
+      settings: await withName(companyId, result.settings),
       changed: result.changed,
-      message: 'Saved. Pay dates already set keep their dates; this applies from the next contract.',
+      // What is true now: live periods move at once, written dates stay (./saved-says).
+      message: paySavedSays(result.settings),
     },
   })
 }

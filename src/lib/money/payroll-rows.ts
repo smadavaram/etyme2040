@@ -111,6 +111,103 @@ export function periodPayStatus(
   return 'PENDING'
 }
 
+/**
+ * The pay day of one period, read off that period's own pay days by the
+ * rule `periodPayStatus` reads its status by, so the day and the status
+ * on a row never disagree. YYYY-MM-DD; two pay days for one period are
+ * both said, earliest first, "2026-07-03; 2026-07-17". Null where the
+ * line has no pay day for the period: the file leaves the cell blank
+ * rather than name a day that pays another period.
+ *
+ * Found by hand, 2026-11-14: the month's pay file copied the row's next
+ * open pay day from today, so the June file, paid on Jul 7, read Pay day
+ * 2026-12-07.
+ */
+export function periodPayDay(
+  cycles: readonly PayCycle[],
+  period: Period,
+  periodOf: (d: Date) => Period,
+  startedOn?: Date | null
+): string | null {
+  const key = (p: Period) => p.start.toISOString().slice(0, 10)
+  const want = key(period)
+  const all = cycles.filter((c) => c.kind === 'SALARY_PAY')
+  const days = [...new Set(
+    all
+      .filter((c) => key(periodPaidBy(c, all, periodOf, startedOn)) === want)
+      .map((c) => dayOf(c.dueOn).toISOString().slice(0, 10))
+  )].sort()
+  return days.length ? days.join('; ') : null
+}
+
+/**
+ * The status of a period that has no pay day of its own, read off what
+ * the runs recorded: processed only where a run paid every hour in it,
+ * worked out where a calculate run covered it, else pending.
+ *
+ * Found on a walk on 2026-11-14: an open-ended placement has no pay days,
+ * and its months read "Processed" before anybody had paid her. Nothing
+ * saying it was paid must never read as paid.
+ */
+export function periodStatusFromRuns(args: {
+  /** Every day the period pays, by `paidKey`, with its hours. */
+  days: ReadonlyArray<{ key: string; hours: number }>
+  /** Hours already paid, by `paidKey` (`paidBook`). */
+  paid: ReadonlyMap<string, number>
+  /** Whether a calculate run worked this person's period out. */
+  workedOut: boolean
+  /**
+   * True where overtime is still owed on days whose straight time a run
+   * paid: a week paid at straight time before the person was recorded as
+   * not exempt. Such a period is not processed until the premium is paid.
+   */
+  premiumOwed?: boolean
+}): 'PROCESSED' | 'CALCULATED' | 'PENDING' {
+  const allPaid =
+    args.days.length > 0 && args.days.every((d) => (args.paid.get(d.key) ?? 0) + 0.005 >= d.hours)
+  if (allPaid && !args.premiumOwed) return 'PROCESSED'
+  return args.workedOut ? 'CALCULATED' : 'PENDING'
+}
+
+/**
+ * A week filed inside the pay period and not accepted yet, said on the
+ * payroll row. It is not paid in this period, and the row says so rather
+ * than reading as the whole period.
+ */
+export function notAcceptedSays(w: {
+  personName: string
+  /** The week as a person reads it, "Nov 1 – Nov 7, 2026". */
+  week: string
+  hours: number
+  clientApproved: boolean
+  clientName: string | null
+  employerName: string | null
+}): string {
+  const hours = Math.round(w.hours * 100) / 100
+  const employer = w.employerName ?? 'your firm'
+  const until = w.clientApproved
+    ? `${employer} accepts it`
+    : `${w.clientName ?? 'the client'} approves it and ${employer} accepts it`
+  return `${w.personName}'s week of ${w.week}, ${hours} hours, is not in this pay until ${until}.`
+}
+
+/**
+ * The pay file for the period shown: one of the company's own pay
+ * periods, by its first day, or a calendar month. Both are the Payroll
+ * page's own rows (GET /api/payroll?format=csv), which take off what
+ * earlier runs paid, so no hour is handed to a provider twice. The
+ * older export (/api/payroll/export) never read what was paid and gives
+ * no file now (found by hand, 2026-11-14). The view of every period has
+ * no file: the route refuses it in a sentence and the page shows that
+ * sentence in the button's place.
+ */
+export function payFileHref(month: string): string {
+  const params = new URLSearchParams()
+  if (/^\d{4}-\d{2}(-\d{2})?$/.test(month)) params.set('period', month)
+  params.set('format', 'csv')
+  return `/api/payroll?${params}`
+}
+
 export interface Named {
   id: string
   name: string

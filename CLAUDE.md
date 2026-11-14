@@ -113,11 +113,15 @@ Full text → 03, 11, 36, 37, 59, 62, 63.
   labeled as the demo's. The reader is a technical IT buyer and the goal
   is trust: every public sentence is something the reader can check on
   the site, or a plain description of what the product does.
-- **Neutrality is absolute.** Etyme never runs a bench, never places
-  anybody, is never a prime vendor, never holds the contract for a
-  person, never bills for one and never pays one. It may be a
-  vendor-neutral MSP, offered once and quietly as a second way to use the
-  record. Nothing on any page reads as aimed at a supplier.
+- **The product is even-handed with every supplier** (changed
+  2026-11-14 → 69; it read "Neutrality is absolute"). Etyme's own agency
+  runs on it as Tapin and gets no access another supplier lacks: rates
+  stay closed, every read is logged, nothing ranks a firm by who owns
+  it. No page says Etyme runs no bench or places nobody, and nothing a
+  client reads says that it does. It may be a vendor-neutral MSP,
+  offered once and quietly; whether Tapin may supply such a program is
+  the founder's to say. Nothing on any page reads as aimed at a
+  supplier.
 - **Horizontal, never vertical.** Nothing in the core assumes IT staffing.
 - **Plain English for a global reader.** A short heading, then cards,
   steps, lists and tables. Sentences of about fifteen words, never past
@@ -409,7 +413,7 @@ The founder cannot read code. This is the compensating discipline.
 
 ## Who pays, and the order of work
 
-Full text → 40, 11, 56.
+Full text → 40, 11, 56, 68.
 
 - **The client is the customer.** Suppliers come because their client is
   there. Free while testing.
@@ -424,6 +428,10 @@ Full text → 40, 11, 56.
   proven, or named as waiting on the founder; the release check is green;
   the walk on screens says ships. The order is the two trust flows, then
   whatever stops a firm's real first week, then the rest.
+- **Tapin's first payroll cycle comes first** (founder, 2026-11-14):
+  invite candidates, they onboard themselves, a contract starts on the
+  fewest papers the rules allow, payroll runs in the next cycle. The
+  coding block and the party pages wait behind it.
 - **Etyme may run a client's program as a vendor-neutral MSP**, in a seat
   the client grants, under the client's rules, every read logged.
 - **When the training door is built**: a client's view never says
@@ -525,7 +533,7 @@ Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52.
 
 ## Money
 
-Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64.
+Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64, 70.
 
 - **Bill, invoice receipt, payroll.** What a firm issues upward is a
   bill. What it receives from below is an invoice receipt. Its own
@@ -615,6 +623,12 @@ Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64.
   that yes only where no other seat holds it, and the ledger records it.
   Paying from the chat asks for the bank reference first. A one-person
   firm never accepts her own week.
+- **HR decides overtime rates in Settings** (founder, 2026-11-14).
+  What a client is billed for hours over the weekly line is set per
+  client: the same rate by default, one and a half times where the
+  client pays it. What a worker is paid for them follows the country of
+  work, set per country. The two never decide each other. A week over
+  the line is never paid at the usual rate by silence.
 - **What a worker is owed.** Overtime after 40 hours in the week is owed
   to a non-exempt US worker even where the contract sets no line. Back
   pay for a raise dated in the past is put forward for approval, never
@@ -850,11 +864,14 @@ Full text → 27, 29, 13.
 
 ## Tapin
 
-Full text → 28, 22, 23.
+Full text → 28, 22, 23, 68, 69.
 
-- **The founder's bench business runs on Etyme as a supplier like any
-  other, named Tapin** (`tapin.etyme.com`), never `etyme`. It gets no
-  access another supplier lacks. Tapin has no domain and gets none; it
+- **Tapin is Etyme's own agency, run on Etyme** ("Etyme for Etyme
+  first"). Etyme has run an agency since 2021 to prove the model; Tapin
+  is its makeshift company on the product, first to prove and fix the
+  app, then to go to market. On the platform it is a supplier like any
+  other (`tapin.etyme.com`, never `etyme`) and gets no access another
+  supplier lacks. Tapin has no domain and gets none; it
   stays on invitation or hybrid sign-in, and the staff tool is its
   recovery. Its seats: sharath (Owner), hradmin (HR), oliver (Account
   Manager), timesheets (AP & Payroll), and three partners as Admins on
@@ -865,10 +882,24 @@ Full text → 28, 22, 23.
   never a name or a rate. "Join the bench" is the person's own yes, given
   from the invitation letter. Nobody gets a seat or a second record
   before that yes. No separate marketing site, blog or careers portal.
+- **One payroll person may attach the client's approval and accept the
+  same week** (founder, 2026-11-14).
+- **Tapin's first people are W2, paid every two weeks through an
+  outside payroll provider** (founder, 2026-11-14). The provider holds
+  each person's W-4, bank details and tax number; Etyme gives it hours
+  and gross pay as a file and holds none of the three.
+- **Tapin is the way to market: a bench in data engineering** (founder,
+  2026-11-14). Nothing a client reads says Tapin trains, places or is
+  the founder's, and no page claims the opposite: none says Etyme runs
+  no bench or places nobody. Candidates come in by backchannel and
+  referral through Tapin's recruiters, each by her own yes.
+- **A timesheet never comes by email** (founder, 2026-11-14). A
+  candidate files her week, with the timesheet her client approved, on
+  her own page or in Ask Etyme. The email door stays closed.
 
 ## How this project tests and ships
 
-Full text → 33, 34, 17, 20, 52, 57, 41, 65.
+Full text → 33, 34, 17, 20, 52, 57, 41, 65, 67.
 
 - **The simulation drives the real routes as real seats**
   (`npm run simulate`), never rows written into tables, and never on
@@ -888,9 +919,12 @@ Full text → 33, 34, 17, 20, 52, 57, 41, 65.
   reviewers' blockers fixed, the release check green, and the walk
   saying ships.
 - **The work is bound by the usage allowance, not by the number of
-  agents.** One run per owner. The coordinator schedules its own wake
-  while a deploy is not out. A builder's claim is checked by a reader
-  who did not build it.
+  agents.** One run per owner, four agents at once. The coordinator
+  schedules its own wake while a deploy is not out. A builder's claim is
+  checked by a reader who did not build it.
+- **No screen says an email went, or will go, unless email can leave**
+  (`mailLeaves` in `lib/notify/mail-leaves`). Two screens that call one
+  route are fixed together.
 - **Never**: load or simulation on production; a secret, password or
   sign-in code in chat; the coordinator holding the cron secret; a
   one-time link or token shown, copied or logged.

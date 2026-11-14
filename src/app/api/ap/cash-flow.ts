@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { fromPrismaDecimal } from '@/lib/money'
+import { amount } from '@/lib/money-display'
 import { permissionScope } from '@/lib/permission-grants'
 import { paidRunHours } from '@/lib/payroll-paid'
 import { payablesOf } from '@/lib/money/what-we-owe'
 import { owedOn } from '@/lib/money/supplier-invoices'
 import { noteMoneyRead, type Books } from '@/lib/money/seated-books'
 import {
-  cashFlow, isCashPeriod, isGrain,
-  type CashInputs, type Flow, type OpenDoc,
+  cashFlow, isCashPeriod, isGrain, windowFor,
+  type CashInputs, type CashPeriod, type Flow, type OpenDoc,
 } from '@/lib/money/cash-flow'
+import { companyPayPeriods } from '@/lib/money/company-pay-periods'
+import { periodsPayingBetween } from '@/lib/money/pay-periods'
+import { owedOnRow } from '@/lib/money/period-pay-left'
 import { cashForecast } from '@/lib/money/cash-forecast'
 import { loadBook, loadUnplacedPayments } from '../ar/book'
 import { GET as payrollRoute } from '../payroll/route'
@@ -35,7 +39,11 @@ import { forecastInputs } from './cash-forecast'
  *     the two halves Accounts payable and the invoice list read, owed by
  *     `owedOn`, the same open test;
  *   · payroll due — the Payroll page's own answer, asked in-process under
- *     this seat, each row not yet processed at its next pay date;
+ *     this seat, each row not yet processed at its next pay date. For a
+ *     company that pays by its own weekly or two-week periods, the page
+ *     is asked for each period whose pay day falls in the window, and
+ *     accepted pay nobody has paid is due on that period's pay day
+ *     (`payrollDueByPeriod`);
  *   · payroll paid — `paidRunHours` in lib/payroll-paid, what processed
  *     runs paid, which is what the payroll export and the W-2 read.
  *
@@ -111,7 +119,10 @@ export async function cashFlowAnswer(request: NextRequest, reading: Books): Prom
     if ((await permissionScope(reading.caller, 'payroll.read')).scope === 'COMPANY') {
       payrollRows = await payrollPage(request)
       if (payrollRows) {
-        input.payrollDue = payrollDue(payrollRows)
+        const own = await companyPayPeriods(companyId)
+        input.payrollDue = own.byPeriod
+          ? await payrollDueByPeriod(request, own, period, now)
+          : payrollDue(payrollRows)
         const runs = await paidRunHours(companyId)
         input.payrollPaid = runs.runs.map((r) => ({ currency: r.currency, at: r.paidAt, minor: r.paidCents }))
       }
@@ -119,6 +130,9 @@ export async function cashFlowAnswer(request: NextRequest, reading: Books): Prom
   }
 
   const actuals = cashFlow(input, period, grain, now)
+  // Accepted pay with no pay date is still owed: named, never left out in silence.
+  const undatedPay = payrollRows ? payrollUndatedSays(payrollRows) : null
+  if (undatedPay) actuals.says.push(undatedPay)
   const forecast = cashForecast(
     await forecastInputs({
       companyId, companyName: reading.companyName, client, sentBills,
@@ -139,22 +153,73 @@ export async function cashFlowAnswer(request: NextRequest, reading: Books): Prom
  * placing it. Null where the page could not be read, so payroll is blank
  * rather than nought.
  */
-async function payrollPage(request: NextRequest): Promise<any[] | null> {
+async function payrollPage(request: NextRequest, periodStart?: string): Promise<any[] | null> {
   const url = new URL(request.url)
   url.pathname = '/api/payroll'
-  url.search = ''
+  url.search = periodStart ? `?period=${periodStart}` : ''
   const res = await payrollRoute(new NextRequest(url, { headers: request.headers }))
   if (!res.ok) return null
   const body = await res.json().catch(() => null)
   return body?.data?.payItems ?? []
 }
 
+/**
+ * Payroll due for a company that pays by its own periods: each period
+ * whose pay day falls in the window, read from the Payroll page for that
+ * period, each row not yet paid due on the period's own pay day. One
+ * figure, worked out once, by the page the payroll person runs it from.
+ * Null where any period could not be read: blank, never a part.
+ */
+async function payrollDueByPeriod(
+  request: NextRequest,
+  own: Awaited<ReturnType<typeof companyPayPeriods>>,
+  period: CashPeriod,
+  now: Date,
+): Promise<Flow[] | null> {
+  const w = windowFor(period, now)
+  const key = (d: Date) => d.toISOString().slice(0, 10)
+  const out: Flow[] = []
+  for (const p of periodsPayingBetween(key(w.start), key(w.end), own.rhythm, own.rule)) {
+    const rows = await payrollPage(request, p.start)
+    if (!rows) return null
+    for (const r of rows) {
+      if (!owedPay(r)) continue
+      out.push({
+        currency: typeof r.payCurrency === 'string' ? r.payCurrency : null,
+        at: new Date(`${p.payOn}T00:00:00.000Z`),
+        minor: owedOnRow(r),
+      })
+    }
+  }
+  return out
+}
+
+// What is still to pay on the row, never the whole period where part of
+// it was paid already (lib/money/period-pay-left).
+const owedPay = (p: any) =>
+  (p.payStatus === 'PENDING' || p.payStatus === 'CALCULATED') && typeof p.grossPay === 'number' && owedOnRow(p) > 0
+
 function payrollDue(items: any[]): Flow[] {
   return items
-    .filter((p) => (p.payStatus === 'PENDING' || p.payStatus === 'CALCULATED') && typeof p.grossPay === 'number' && p.grossPay > 0)
+    .filter((p) => owedPay(p) && p.nextPayDate)
     .map((p) => ({
       currency: typeof p.payCurrency === 'string' ? p.payCurrency : null,
       at: p.nextPayDate ? new Date(p.nextPayDate) : null,
-      minor: p.grossPay,
+      minor: owedOnRow(p),
     }))
+}
+
+/**
+ * Payroll owed with no pay date, said by name. An open-ended placement has
+ * no pay dates, so her accepted wages fell into no period and the column
+ * read $0.00 while she was owed (walk, 2026-11-14). Each is the period the
+ * Payroll page shows for her, never a total of periods it does not show.
+ */
+export function payrollUndatedSays(items: any[]): string | null {
+  const undated = items.filter((p) => owedPay(p) && !p.nextPayDate)
+  if (undated.length === 0) return null
+  const each = undated.map((p) =>
+    `${p.person?.name ?? 'A worker'}, ${amount(owedOnRow(p), typeof p.payCurrency === 'string' ? p.payCurrency : undefined)}` +
+    (p.payPeriod?.label ? ` for ${p.payPeriod.label}` : ''))
+  return `Payroll due leaves out accepted pay that has no pay date set: ${each.join('; ')}.`
 }

@@ -3,8 +3,9 @@
  *
  * ── Why ──────────────────────────────────────────────────────────────
  *
- * A `Cycle` row carries a date and a kind, and no period bounds (CLAUDE.md,
- * "The cycle engine, honestly", item 7). The payroll run has to decide
+ * A `Cycle` row written before 2026-11-09 carries a date and a kind, and
+ * no period bounds (CLAUDE.md, "The cycle engine, honestly", item 7); one
+ * written since carries its period, and that is read first. The payroll run has to decide
  * which pay days a run for a period has settled, and it used to do that
  * with a fixed allowance: every open pay day from the period's first day
  * to four days after its last. That held while every line was paid on the
@@ -27,6 +28,11 @@
  *                                June, 10 of July, so it pays July, which
  *                                is what the four-day window said too.
  *
+ * A pay day whose row carries its own period (`Cycle.periodEnd`, written
+ * for every cycle since 2026-11-09) pays the period holding that last
+ * day, and nothing below is guessed for it. What follows is for rows
+ * written before, which carry no period.
+ *
  * The first pay day of a line has no pay day before it, and covers the
  * days since the line started (`startedOn`). Where the start is not
  * known, its span is taken as the same length as the gap to the next pay
@@ -47,6 +53,12 @@ export interface PayDayCycle {
   dueOn: Date
   /** Null where it is still open. A completed one is never marked again, and still dates the one after it. */
   completedAt: Date | null
+  /**
+   * The last day of the period this pay day pays, where the cycle writer
+   * wrote it (`Cycle.periodEnd`). Read first; null or absent on an older
+   * row, which is placed by the days since the pay day before it.
+   */
+  periodEnd?: Date | null
 }
 
 /**
@@ -62,6 +74,11 @@ export function periodPaidBy(
   periodOf: (d: Date) => Period,
   startedOn?: Date | null
 ): Period {
+  // The period the row itself says it pays (2026-11-14). A line starting
+  // on Sep 30 has a one-day first period, Sep 30, paid on Oct 9; counted
+  // by days since the line started, Oct 9 held nine days of October and
+  // one of September, and October's file named it beside Nov 9.
+  if (cycle.periodEnd) return periodOf(dayOf(cycle.periodEnd))
   const sorted = [...all].sort((a, b) => a.dueOn.getTime() - b.dueOn.getTime())
   const i = sorted.findIndex((c) => c.id === cycle.id)
   const due = dayOf(cycle.dueOn)
@@ -164,4 +181,34 @@ export function paidOnDay(
     .sort((a, b) => b.getTime() - a.getTime())[0]
   const paid = settled && settled.getTime() >= ran.getTime() ? settled : ran
   return paid.toISOString().slice(0, 10)
+}
+
+/**
+ * The open pay days a run over one of the company's own weekly or
+ * two-week periods settles (2026-11-14).
+ *
+ * A line's pay days are counted from the company's first period
+ * (lib/cycle-generator), and each row carries the period it pays. So a
+ * pay day pays the company period that holds its period's last day:
+ * that is its own period on a line written on the company's weeks, and
+ * on a line written on its own weeks before the first day was set, the
+ * company period most of its days were paid in. Counting days since the
+ * pay day before, as `payDaysToMark` does, ties at six and six on a line
+ * starting in a period's second week, and the tie gave the pay day to the
+ * next period. A row with no period on it is read that older way.
+ */
+export function companyPayDaysToMark(
+  cycles: ReadonlyArray<PayDayCycle & { periodEnd?: Date | null }>,
+  asked: Period,
+  periodOf: (d: Date) => Period,
+  startedOn?: Date | null
+): PayDayCycle[] {
+  const whole = (p: Period) => `${key(p)}|${p.end.toISOString().slice(0, 10)}`
+  const want = whole(asked)
+  const withPeriod = cycles.filter((c) => c.periodEnd)
+  const older = cycles.filter((c) => !c.periodEnd)
+  return [
+    ...withPeriod.filter((c) => c.completedAt == null && whole(periodOf(c.periodEnd!)) === want),
+    ...(older.length ? payDaysToMark(older, [asked], periodOf, startedOn) : []),
+  ].sort((a, b) => a.dueOn.getTime() - b.dueOn.getTime())
 }

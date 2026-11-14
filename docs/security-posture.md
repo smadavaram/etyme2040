@@ -29,9 +29,8 @@ company and every staffing supplier it uses. Requisition, suppliers,
 submissions, screening, interviews, onboarding, timesheets, invoices,
 compliance.
 
-It runs no bench and places nobody, which matters to a reviewer for one
-concrete reason: Etyme never issues a verdict about whether a person may
-work. It records that a check happened — who ran it, when, when it
+One point matters to a reviewer: Etyme never issues a verdict about
+whether a person may work. It records that a check happened — who ran it, when, when it
 expires — and the function that would collapse those into a single
 cleared-to-place judgment throws by design
 (`src/lib/attestation.ts`, `overallVerdict()`). The legal duty stays with
@@ -310,7 +309,7 @@ systems drop and the half an investigation needs.
 `src/lib/access-log.ts`, `AccessLog` in `prisma/schema.prisma`.
 
 **Coverage, stated honestly.** 88 route files write an access-log row
-through `src/lib/access-log.ts`, out of 382 API route files. They are the routes that
+through `src/lib/access-log.ts`, out of 383 API route files. They are the routes that
 read a named person: a profile, a consultant record, a resume file, a
 placement, submissions, a shared document packet, a bench list, an alumni
 list, match results, a compliance record, a classification position, a
@@ -495,10 +494,10 @@ Recomputed from the module on 2026-11-13:
 
 | | Count |
 |---|---|
-| Actions named in the automation log | **236** |
+| Actions named in the automation log | **238** |
 | Unprompted — the system did it and nobody asked | **38** |
-| Enforcement — the system decided what a person was allowed to do | **14** |
-| Attributed — a person did it and the row is the record | **184** |
+| Enforcement — the system decided what a person was allowed to do | **15** |
+| Attributed — a person did it and the row is the record | **185** |
 
 **The finding is the last row.** Most of what sits in an automation log
 is an audit trail of human acts, not automation. Giving those a rung
@@ -893,7 +892,7 @@ Stated in one place so a reviewer does not have to assemble it.
   feed in the message metadata. It is a write path rather than a read, so
   the scanner above does not look at it. `etyme-demand` owns it and is
   closing it; it is recorded here as **open** until that commit lands.
-- Access logging covers 88 route files of 382 (section 4).
+- Access logging covers 88 route files of 383 (section 4).
 - An ordinary read or a list of people is logged fire-and-forget, so a log
   write failure there does not fail the request; staff are told instead.
   Refusals and the reads that must not proceed unlogged wait for their
