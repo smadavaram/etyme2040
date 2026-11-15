@@ -31,7 +31,8 @@
  */
 
 import { hasAnyPermission, type Permission } from '@/lib/permissions'
-import { firmNameKey, type HeldWith } from '@/lib/counterparty'
+import { firmNameKey, identityDomain, notedDomain, type HeldWith } from '@/lib/counterparty'
+import { domainOfEmail } from '@/lib/company-domains'
 
 // ── Who may open the supplier register ───────────────────────────────
 //
@@ -484,15 +485,114 @@ export function mayBePutForwardTo(
 }
 
 /**
- * Which of a firm's own records a pasted or approved supplier is, by name:
- * a company this firm recorded, nobody has claimed, under the same name
- * (`firmNameKey`). One record of a firm, never a second Vendor copy beside
- * the one already on the Companies list. Pure.
+ * The domain a pasted or approved supplier is known by on the firm's own
+ * list (2026-11-15: "the email is the identifier"): the domain typed for
+ * it, else the domain of its contact's address. Never a personal mail
+ * domain, because a personal mailbox is nobody's company. Pure; the twin
+ * rule itself is `twinOnOwnList` in lib/counterparty, the one every door
+ * onto the Companies list reads.
  */
-export function ownRecordByName<T extends { id: string; name: string }>(name: string, mine: readonly T[]): T | null {
-  const key = firmNameKey(name)
-  if (!key) return null
-  return mine.find((c) => firmNameKey(c.name) === key) ?? null
+export function supplierDomain(typed: unknown, email: unknown): string | null {
+  const fromTyped = identityDomain(typed)
+  if (fromTyped) return fromTyped
+  if (typeof email !== 'string' || notedDomain(typed)) return null
+  const d = domainOfEmail(email.trim())
+  return d ? identityDomain(d) : null
+}
+
+/**
+ * The company name a pasted row is saved under: the one the person saw
+ * and could correct on the preview, and nothing else. A row that reaches
+ * the route with no name is never given one made from its domain, because
+ * that name was never shown to anybody. Pure.
+ */
+export function pastedName(row: { company?: unknown }): string | null {
+  const name = typeof row.company === 'string' ? row.company.replace(/\s+/g, ' ').trim() : ''
+  return firmNameKey(name) ? name.slice(0, 120) : null
+}
+
+/** The one sentence for a pasted row that reached the route with no company name. */
+export const NEEDS_A_NAME_SAYS = (email: string) =>
+  `${email} was not added because it has no company name. Paste it again, check the company name, then press Add.`
+
+/** The one sentence for a paste sent with no preview at all. */
+export const READ_IT_FIRST_SAYS =
+  'Nothing was added. Paste the list on Suppliers, check each company name, then press Add.'
+
+// ── What the paste and the list say (walk, 2026-11-15) ───────────────
+
+/**
+ * How many suppliers a read paste comes to: one per domain, else one per
+ * company name, the way the route joins them. Pure.
+ */
+export function firmsIn(rows: readonly { domain: string | null; company: string | null; email: string }[]): number {
+  return new Set(rows.map((r) => r.domain ?? r.company?.trim().toLowerCase() ?? r.email)).size
+}
+
+/** The paste's button, named for what it does: it adds suppliers. Pure. */
+export function addButtonSays(rows: readonly { domain: string | null; company: string | null; email: string }[]): string {
+  const n = firmsIn(rows)
+  return `Add ${n} ${n === 1 ? 'supplier' : 'suppliers'}`
+}
+
+/**
+ * The role a pasted contact is saved under. A paste says nobody's role,
+ * so the neutral one: never a guess like Recruiting.
+ */
+export const PASTED_CONTACT_KIND = 'OTHER' as const
+
+/**
+ * When this client last did work with a supplier: today where somebody is
+ * on site, else the latest submission, order or placement date that has
+ * happened. An invitation or a paste is not work, so a firm with none of
+ * these reads null: none yet. Pure.
+ */
+export function lastEngagementOf(onSiteCount: number, workDates: readonly (Date | null | undefined)[], now: Date): string | null {
+  if (onSiteCount > 0) return now.toISOString()
+  let last: Date | null = null
+  for (const d of workDates) if (d && d <= now && (!last || d > last)) last = d
+  return last?.toISOString() ?? null
+}
+
+/** What the list says of a supplier it has done no work with yet. */
+export const NO_WORK_YET_SAYS = 'No submissions, orders or placements yet.'
+
+/**
+ * Each supplier's name as a list shows it: with its domain beside it where
+ * another supplier on the same list shares the name, read by the same
+ * name key Companies reads. Pure.
+ */
+export function namesTold(rows: readonly { companyId: string; name: string; domain?: string | null }[]): Map<string, string> {
+  const count = new Map<string, number>()
+  for (const r of rows) count.set(firmNameKey(r.name), (count.get(firmNameKey(r.name)) ?? 0) + 1)
+  const out = new Map<string, string>()
+  for (const r of rows) {
+    const shared = (count.get(firmNameKey(r.name)) ?? 0) > 1
+    out.set(r.companyId, shared ? `${r.name} (${r.domain ?? 'no domain yet'})` : r.name)
+  }
+  return out
+}
+
+/**
+ * The Activity log row for one paste: who pasted how many suppliers and
+ * contacts, and what became of the invitations. It says an invitation was
+ * emailed only where one left (`emailed` counts deliveries that went), and
+ * names why none could where no email can leave (`mailLeaves`). Pure.
+ */
+export function pasteLogSays(p: {
+  by: string; suppliers: number; contacts: number; invitations: number; emailed: number; mailCanLeave: boolean
+}): { summary: string; reason: string } {
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`
+  const summary = `${p.by} pasted ${n(p.suppliers, 'supplier', 'suppliers')} and ${n(p.contacts, 'new contact', 'new contacts')} onto Suppliers`
+  const sent =
+    p.invitations === 0
+      ? 'No invitation was sent: each address had one already.'
+      : p.emailed === p.invitations
+        ? `${n(p.invitations, 'invitation was', 'invitations were')} emailed.`
+        : p.emailed === 0
+          ? `${n(p.invitations, 'invitation was', 'invitations were')} made and not emailed${p.mailCanLeave ? ': the email could not be sent.' : ': no email can be sent from here yet.'}`
+          : `${p.emailed} of ${p.invitations} invitations were emailed; the others could not be sent.`
+  return { summary, reason: `Pasted by hand on Suppliers. ${sent}` }
 }
 
 /** Whether a company held in a send-on picker is one a person may be sent on to. Pure. */

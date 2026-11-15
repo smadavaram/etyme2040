@@ -24,6 +24,8 @@
  */
 
 import { hasPermission } from '@/lib/permissions'
+import { isConsumerDomain } from '@/lib/company-domains'
+import { registrableDomain, sameOrganisation } from '@/lib/registrable-domain'
 
 export type Relationship = 'CLIENT' | 'SUPPLIER' | 'PRIME' | 'MSP'
 export type Status = 'PROSPECT' | 'ACTIVE' | 'DORMANT' | 'BLOCKED'
@@ -500,6 +502,48 @@ export function notedDomain(typed: unknown): string | null {
   return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(bare) ? bare : null
 }
 
+/** The refusal for a domain box that does not read as a domain. */
+export const unreadableDomainSays = (typed: string) =>
+  `${typed.length > 60 ? `${typed.slice(0, 60)}…` : typed} does not read as a domain. Type it like northwind-staffing.example, or leave the box empty.`
+
+/**
+ * What a domain box holds, read once for every door that has one (Add a
+ * company, the clients door, Edit). Blank is no domain. An email address
+ * gives its domain, and the reply says so. Anything else that does not
+ * read as a domain is refused in a sentence, so nothing typed is dropped
+ * silently (2026-11-15: "jobs@…", a port, a trailing dot and plain words
+ * were accepted and thrown away). Pure.
+ */
+export function readTypedDomain(typed: unknown):
+  | { ok: true; domain: string | null; says: string | null }
+  | { ok: false; says: string } {
+  if (typed == null) return { ok: true, domain: null, says: null }
+  if (typeof typed !== 'string') return { ok: false, says: 'Type the domain as text, like northwind-staffing.example, or leave the box empty.' }
+  const t = typed.trim()
+  if (!t) return { ok: true, domain: null, says: null }
+  const at = t.lastIndexOf('@')
+  if (at >= 0) {
+    const local = t.slice(0, at)
+    const d = local && !/\s/.test(local) ? notedDomain(t.slice(at + 1)) : null
+    if (!d) return { ok: false, says: unreadableDomainSays(t) }
+    return { ok: true, domain: d, says: `The domain was taken from the email address you typed: ${d}.` }
+  }
+  const d = notedDomain(t)
+  return d ? { ok: true, domain: d, says: null } : { ok: false, says: unreadableDomainSays(t) }
+}
+
+/**
+ * A firm on Etyme the reader reached only by its own writing (a row on
+ * its own register, a job it sent): the reader does not work with it
+ * (record 61), so the list names it and nothing else, its drawer is not
+ * opened, and its seated people are not listed under Contacts. A record
+ * the reader made itself that nobody has claimed is never one. The one
+ * rule the Companies list, the drawer and Contacts ask. Pure.
+ */
+export function notLinkedYet(f: { ownSideOnly: boolean; onEtyme: boolean; mine: boolean }): boolean {
+  return f.ownSideOnly && f.onEtyme && !f.mine
+}
+
 /** The reader recorded this company and nobody has claimed it. Pure. */
 export function isMine(company: { claimedAt: Date | string | null; listedById: string | null }, me: string): boolean {
   return company.claimedAt == null && company.listedById === me
@@ -563,6 +607,197 @@ export function sameNameAmong<T extends { id: string; name: string }>(name: stri
 
 export const sameNameRefused = (existing: { name: string }) =>
   `${existing.name} is on your Companies list already. Open it there rather than record it twice.`
+
+// ── A company is known by its domain (founder, 2026-11-15: "The email is
+// the identifier"). Among the companies one firm recorded itself, the
+// same organization's domain is the same company whatever the names say;
+// two different domains are two companies even under one name; and only
+// where neither side holds a domain does the name decide. Nothing here
+// looks a firm up on Etyme: that is `findFirm`, and it is left alone.
+
+/**
+ * The domain a company is known by, from what somebody typed: the note
+ * form (`notedDomain`), and never a consumer mail domain, because a
+ * personal mailbox is nobody's company. Pure.
+ */
+export function identityDomain(typed: unknown): string | null {
+  const d = notedDomain(typed)
+  if (!d) return null
+  return isConsumerDomain(d) || isConsumerDomain(registrableDomain(d) ?? d) ? null : d
+}
+
+/** One company the caller recorded itself, as the twin rule reads it. */
+export interface OwnRecord {
+  id: string
+  name: string
+  /** The domain the caller typed for it, where one was kept. */
+  domain: string | null
+}
+
+export type TwinRead<T extends OwnRecord> =
+  /** The same company is on the list already: refuse and offer to open it. */
+  | { twin: T; by: 'DOMAIN' | 'NAME'; namesake: null }
+  /** Not a twin. `namesake` is another record of the same name, said in the reply. */
+  | { twin: null; by: null; namesake: T | null }
+
+/**
+ * Whether a company being added is one the caller already recorded. Pure;
+ * `own` is only the caller's own unclaimed records.
+ *
+ *   1. The typed domain is the same organization as a record's domain:
+ *      the same company, whatever the names.
+ *   2. Both hold a domain and the domains differ: two companies.
+ *   3. Neither holds a domain: the name decides, as before.
+ *   4. The names match and exactly one side holds a domain: recorded, and
+ *      the reply says another company on the list shares the name.
+ */
+export function twinOnOwnList<T extends OwnRecord>(typed: { name: string; domain: unknown }, own: readonly T[]): TwinRead<T> {
+  const domain = identityDomain(typed.domain)
+  if (domain) {
+    const same = own.find((c) => c.domain != null && (c.domain === domain || sameOrganisation(c.domain, domain)))
+    if (same) return { twin: same, by: 'DOMAIN', namesake: null }
+  }
+  const key = firmNameKey(typed.name)
+  const named = key ? own.filter((c) => firmNameKey(c.name) === key) : []
+  if (!domain) {
+    const bare = named.find((c) => c.domain == null)
+    if (bare) return { twin: bare, by: 'NAME', namesake: null }
+  }
+  return { twin: null, by: null, namesake: named[0] ?? null }
+}
+
+/** The refusal for a domain already on the caller's list. */
+export const sameDomainRefused = (existing: { name: string; domain: string | null }) =>
+  `${existing.name} (${existing.domain}) is on your Companies list already on that domain. Open it there rather than record it twice.`
+
+/** The line a reply carries where another company on the list shares the name. */
+/**
+ * The activity-log line for a corrected company. It always names the
+ * company: a change that left the name alone read "changed the entity type
+ * from nothing to LLP" with no company in it (walk, 2026-11-15).
+ */
+export function recordEditedSummary(byName: string, name: string, changes: readonly { box: string; from: string | null; to: string | null }[]): string {
+  const said = (v: string | null) => (v == null ? 'nothing' : v)
+  const what = changes.map((c) => `the ${c.box} from ${said(c.from)} to ${said(c.to)}`).join(', ')
+  return changes.some((c) => c.box === 'name') ? `${byName} changed ${what}` : `${byName} changed ${what} on ${name}`
+}
+
+export const namesakeSays = (namesake: { name: string; domain: string | null }) =>
+  namesake.domain
+    ? `Another company on your list is also called ${namesake.name}, on ${namesake.domain}.`
+    : `Another company on your list is also called ${namesake.name}, with no domain yet.`
+
+/** The line a reply carries where the typed domain was a personal mailbox's. */
+export const consumerDomainSays = (typed: string) =>
+  `${typed} is a personal email domain, so it was not kept as their company's domain.`
+
+/**
+ * Whether the caller may correct a company on its own list: its name, the
+ * domain it typed and the entity type. Only a record the caller made that
+ * nobody has claimed and nobody is seated at; a firm on Etyme keeps its own
+ * name. Pure.
+ */
+export function mayEditRecord(ask: {
+  me: { id: string; name: string }
+  permissions: readonly string[]
+  other: { id: string; name: string; claimedAt: Date | string | null; listedById: string | null; seats: number }
+}): { ok: true } | { ok: false; status: number; code: string; says: string } {
+  if (!hasPermission(ask.permissions, 'vendors.manage')) {
+    return {
+      ok: false, status: 403, code: 'FORBIDDEN',
+      says: `Correcting a company on ${ask.me.name}'s list is for whoever manages who you trade with. Ask them to do it, or ask them for that access.`,
+    }
+  }
+  if (ask.other.claimedAt != null || ask.other.seats > 0) {
+    return { ok: false, status: 403, code: 'ON_ETYME', says: `${ask.other.name} is on Etyme, so it keeps its own name and domain. Nothing was changed.` }
+  }
+  if (ask.other.listedById !== ask.me.id) {
+    return { ok: false, status: 403, code: 'NOT_YOURS', says: `${ask.other.name} is not your own record, so it is not yours to correct.` }
+  }
+  return { ok: true }
+}
+
+// ── The Companies tiles: every row on the list is in one (2026-11-15) ──
+
+/** One row of the Companies list, as the tiles count it. */
+export interface TileRow {
+  positions: readonly Position[]
+  notClassified: boolean
+  /** A firm on Etyme reached only through the caller's own writing: not linked yet. */
+  notLinked?: boolean
+}
+
+export interface Tiles {
+  total: number
+  customers: number
+  suppliers: number
+  primes: number
+  msps: number
+  notClassified: number
+  /** On the list through a contract, an order, an invitation or a seat, holding no position. */
+  worksWithYou: number
+  /** A firm on Etyme you wrote down or sent a job to, that has not linked with you. */
+  notLinked: number
+  /** Rows counted in more than one tile: a company can hold two positions. */
+  countedTwice: number
+}
+
+/** The tile a row with no position sits in. Pure. */
+export function noPositionTile(row: TileRow): 'NOT_CLASSIFIED' | 'NOT_LINKED' | 'WORKS_WITH_YOU' | null {
+  if (row.positions.length > 0) return null
+  if (row.notClassified) return 'NOT_CLASSIFIED'
+  if (row.notLinked) return 'NOT_LINKED'
+  return 'WORKS_WITH_YOU'
+}
+
+/** The tiles over the Companies list. Every row is in at least one. Pure. */
+export function companyTiles(rows: readonly TileRow[]): Tiles {
+  const t: Tiles = { total: rows.length, customers: 0, suppliers: 0, primes: 0, msps: 0, notClassified: 0, worksWithYou: 0, notLinked: 0, countedTwice: 0 }
+  for (const r of rows) {
+    let n = 0
+    if (r.positions.includes('CUSTOMER')) { t.customers++; n++ }
+    if (r.positions.includes('SUPPLIER')) { t.suppliers++; n++ }
+    if (r.positions.includes('PRIME')) { t.primes++; n++ }
+    if (r.positions.includes('MSP')) { t.msps++; n++ }
+    const none = noPositionTile(r)
+    if (none === 'NOT_CLASSIFIED') { t.notClassified++; n++ }
+    if (none === 'NOT_LINKED') { t.notLinked++; n++ }
+    if (none === 'WORKS_WITH_YOU') { t.worksWithYou++; n++ }
+    if (n > 1) t.countedTwice++
+  }
+  return t
+}
+
+/** The words under a row's "To you" when it holds no position. Never a bare dash. */
+export const NO_POSITION_WORDS = {
+  WORKS_WITH_YOU: 'Works with you, no position yet',
+  NOT_LINKED: 'Not linked yet',
+} as const
+
+/** What the Domain column says for a row of the Companies list. Never a bare dash. Pure. */
+export function domainCell(row: { domain: string | null; notedDomain?: string | null; notLinked?: boolean }): { domain: string | null; note: string | null } {
+  if (row.notLinked) return { domain: null, note: 'Shown once they link' }
+  if (row.domain) return { domain: row.domain, note: null }
+  if (row.notedDomain) return { domain: row.notedDomain, note: 'typed by you' }
+  return { domain: null, note: 'No domain yet' }
+}
+
+/**
+ * What the Etyme address column says. "Not on Etyme" for a company nobody
+ * there has joined: no seat and no claim (a seat with no claim is on
+ * Etyme). Never a bare dash. Pure.
+ */
+export function addressCell(row: { slug: string; onEtyme: boolean; notLinked?: boolean }): { slug: string | null; note: string | null } {
+  if (row.notLinked) return { slug: null, note: 'Not linked yet' }
+  if (row.onEtyme) return { slug: row.slug, note: null }
+  return { slug: null, note: 'Not on Etyme' }
+}
+
+/** The one line under the tiles where a company is counted twice. */
+export const countedTwiceSays = (n: number) =>
+  n === 1
+    ? '1 company holds two positions with you, such as customer and supplier, so it is counted under both.'
+    : `${n} companies hold two positions with you, such as customer and supplier, so each is counted under both.`
 
 export type PositionVerdict =
   | { ok: true; as: ExtendAs; relationship: Relationship; already: boolean; says: string }
