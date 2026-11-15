@@ -12,8 +12,9 @@ import {
   FIRST_DAY_CONFIRM_TITLE, FIRST_DAY_CONFIRM_BUTTON,
   type PayPeriod, type PayRhythm, type PayPeriodOn, type DayOffRule,
 } from '@/lib/pay-dates'
-import { Empty, Lbl, Panel, setLine, SaveWhy, NOTHING_CHANGED, CHOOSE_A_SUNDAY } from './panel-bits'
+import { Empty, Lbl, Panel, setLine, NOTHING_CHANGED, CHOOSE_A_SUNDAY } from './panel-bits'
 import { Field, Input, Select, SubmitButton, FormMessage } from '@/components/ui/form'
+import { ONLY_OWNER_OR_ADMIN } from './settings-says'
 
 // ── Payroll ──────────────────────────────────────────
 //
@@ -187,8 +188,12 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
             key={p}
             type="button"
             aria-pressed={draft.payPeriod === p}
-            disabled={!canEdit || busy}
-            onClick={() => choose(p)}
+            // The chosen period is never greyed: it reads as chosen whether
+            // or not this reader may change it (fix list G6). Pressing it
+            // again changes nothing.
+            disabled={draft.payPeriod !== p && (!canEdit || busy)}
+            aria-disabled={draft.payPeriod === p && (!canEdit || busy) ? true : undefined}
+            onClick={() => { if (draft.payPeriod !== p) choose(p) }}
             className={`px-3 py-1.5 rounded-pill text-[13px] border transition-colors ${
               draft.payPeriod === p
                 ? 'bg-etyme-ink text-etyme-canvas border-etyme-ink font-medium'
@@ -297,12 +302,12 @@ export function PayrollPanel({ canEdit, shiftSection = true }: { canEdit: boolea
       )}
       {canEdit && !asking && (
         <>
-          <SubmitButton type="button" onClick={() => save()} pending={busy} pendingLabel="Saving…" disabled={!mayPress} aria-describedby={saveWhy ? 'payroll-save-why' : undefined}>
+          <SubmitButton type="button" onClick={() => save()} pending={busy} pendingLabel="Saving…" disabled={!mayPress} whyDisabled={saveWhy}>
             Save payroll
           </SubmitButton>
-          <SaveWhy id="payroll-save-why" says={busy ? null : saveWhy} />
         </>
       )}
+      {!canEdit && <p className="text-[12px] text-etyme-muted">{ONLY_OWNER_OR_ADMIN}</p>}
       <p className="text-[12px] text-etyme-muted border-t border-etyme-rule pt-3 mt-4">{setLine(saved?.setAt ?? null, saved?.setByName ?? null)}</p>
     </Panel>
   )

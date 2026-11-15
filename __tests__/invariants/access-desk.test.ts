@@ -230,10 +230,10 @@ describe('sign-up walk, round three: Users & permissions counts and says what is
     expect(route).not.toContain('needsAttention: review.length')
   })
 
-  it('the page says a domain colleague sees their own pages and what is sent to them, and none of the firm’s, never that they see nothing', () => {
+  it('the page says a domain colleague sees Ask Etyme and their own pages and nothing of the firm’s, in the one sentence the invite form says, never that they see nothing', () => {
     const page = read('src/app/dashboard/access/page.tsx')
     expect(page).not.toContain('can see nothing')
-    expect(page).toContain('A Member sees their own pages and what is sent to them, and none of')
+    expect(page).toContain('return joins ? `${joins} ${NO_ROLE_SEES}` : NO_ROLE_SEES')
   })
 
   it('a desk’s end date is printed as a day a person reads, on the page and in the email', () => {
@@ -541,8 +541,10 @@ describe('Users & permissions as the founder read it, 2026-11-12', () => {
     expect(looksLikeAddress('meera')).toBe(false)
     expect(looksLikeAddress(' meera@brightmoor.example ')).toBe(true)
     expect(INVITE_ADDRESS_MISSING).toBe('Type the full address, like name@example.com.')
-    expect(page).toContain('if (!looksLikeAddress(invite.email)) { setAddressError(INVITE_ADDRESS_MISSING)')
-    expect(page).toContain('error={addressError}')
+    // The press reads the form through one check (`inviteProblems`), the address and the role together.
+    expect(page).toContain('const wrong = inviteProblems({ several, email: invite.email, emails: batchText, choice: invite.roleId })')
+    expect(page).toContain('setAddressError(wrong.email ?? null)')
+    expect(page).toContain('error={addressError ?? addressAsTyped(invite.email, addressChecked)}')
     expect(page).toContain("if (r.field === 'email') setAddressError(r.text)")
   })
 

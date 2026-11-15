@@ -49,7 +49,9 @@ describe('a firm asks somebody who already has an account', () => {
     as(OWNER)
     const r = await json(await addConsultant(req('POST', '/api/consultants', { name: 'M. Brooks', email: MAYA })))
     expect(r.status, JSON.stringify(r.body)).toBe(201)
-    expect(r.body.data.message).toContain('Maya Brooks already has an account')
+    // The firm reads the name it typed, never hers, and nothing says she has an account.
+    expect(r.body.data.message.startsWith('M. Brooks is added.')).toBe(true)
+    expect(JSON.stringify(r.body)).not.toMatch(/Maya Brooks|already has an account/)
     expect(await prisma.person.count({ where: { primaryEmail: MAYA } })).toBe(1)
     expect(await prisma.consultantProfile.count({ where: { personId: mayaId } })).toBe(1)
     // Her own name is kept, and she holds no seat at the firm before she answers.
@@ -77,11 +79,12 @@ describe('a firm asks somebody who already has an account', () => {
     expect(r.body.data.message).not.toContain('has emailed them')
   })
 
-  it('asking her a second time is refused in a sentence and makes nothing', async () => {
+  it('asking her a second time is refused in a sentence that names the name the firm typed first, and makes nothing', async () => {
     as(OWNER)
     const r = await json(await addConsultant(req('POST', '/api/consultants', { name: 'Maya Brooks', email: MAYA })))
     expect(r.status).toBe(409)
-    expect(r.body.error.message).toBe('Walk Bench Staffing already asked Maya Brooks and is waiting on the answer. Nothing new was sent; the invitation can be sent again from Bench.')
+    // She has not said yes, so the firm reads the name it typed at its first ask.
+    expect(r.body.error.message).toBe('Walk Bench Staffing already asked M. Brooks and is waiting on the answer. Nothing new was sent; the invitation can be sent again from Bench.')
     expect(await prisma.benchListing.count({ where: { companyId, consultant: { personId: mayaId } } })).toBe(1)
   })
 })
