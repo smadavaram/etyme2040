@@ -79,6 +79,28 @@ export const LEVEL_LABEL: Record<GrantSensitivity, string> = {
 /** The chip on a seat that holds the Member role: it holds nothing yet. */
 export const NO_ROLE_LABEL = 'No role yet'
 
+/**
+ * Whether a role name leaves the person holding nothing: the Member role,
+ * or no role at all. Read case-blind, so a company that typed "member"
+ * reads the same.
+ */
+export function holdsNoRole(roleName: string | null | undefined): boolean {
+  return !roleName || !roleName.trim() || roleName.trim().toLowerCase() === MEMBER_DESK.toLowerCase()
+}
+
+/**
+ * The one word for a person's role, wherever a person or a choice for a
+ * person is described: "No role yet" for the Member role or none, else
+ * the role's own name (fix list layer 4, 2026-11-15: an Owner changed a
+ * colleague to Member and his row read "No role yet" while the answer,
+ * the activity log, his notice and every picker still said Member).
+ * Settings › Roles keeps the role's real name, because there it names a
+ * role, not a person's state. Pure.
+ */
+export function roleWords(roleName: string | null | undefined): string {
+  return holdsNoRole(roleName) ? NO_ROLE_LABEL : roleName!.trim()
+}
+
 /** What one permission lets somebody do, in Give access's words; '*' is everything. Null for a name the catalog does not hold. */
 function permissionSays(p: string): string | null {
   if (p === '*') return 'do everything here'
@@ -116,7 +138,7 @@ export function levelLegend(): { key: GrantSensitivity | 'NO_ROLE'; label: strin
  * reads "No role yet", never Standard or Read only. Pure.
  */
 export function levelOf(roleName: string | null, permissions: readonly string[]): { key: GrantSensitivity | 'NO_ROLE'; label: string; why: string } {
-  if (!roleName || roleName === 'Member') {
+  if (holdsNoRole(roleName)) {
     return { key: 'NO_ROLE', label: NO_ROLE_LABEL, why: NO_ROLE_SEES }
   }
   const key = sensitivityOf([...permissions])
@@ -289,6 +311,13 @@ export interface HeldAccess {
   expiresAt: Date | null
   /** When this person last did anything needing this access. Null = never. */
   lastUsedAt: Date | null
+  /**
+   * Why a seat past its end date is still open, in the words of
+   * `seatDateLine` (lib/account-lifecycle): an Owner's seat, or the last
+   * one that may manage access. Absent for every other seat. A seat that
+   * is ended by its date is listed under "Access ended" and never reviewed.
+   */
+  keptSays?: string | null
 }
 
 export type AccessFinding =
@@ -317,7 +346,9 @@ export const EXPIRING_DAYS = 14
 
 /** A finding as a person reads it, never the enum ("dormant" was a system word). */
 export const FINDING_WORDS: Record<AccessFinding, string> = {
-  EXPIRED: 'ended',
+  // A seat past its date that is still under "with access" is one kept
+  // open on purpose (2026-11-15), so the finding never says "ended".
+  EXPIRED: 'past its end date',
   DORMANT: 'never used',
   IDLE: 'not used in a long while',
   EXPIRING: 'ending soon',
@@ -337,6 +368,17 @@ export function reviewAccess(held: HeldAccess[], now: Date): AccessReviewItem[] 
 
   for (const h of held) {
     const heldDays = days(now, h.grantedAt)
+
+    if (h.expiresAt && h.expiresAt <= now && h.keptSays) {
+      // Kept open past its date: say why, and what makes the date true again.
+      out.push({
+        contextId: h.contextId, personName: h.personName, roleName: h.roleName,
+        finding: 'EXPIRED',
+        detail: h.keptSays,
+        suggestion: 'Renew it with a new end date, or leave it open.',
+      })
+      continue
+    }
 
     if (h.expiresAt && h.expiresAt <= now) {
       out.push({
@@ -388,6 +430,24 @@ export function reviewAccess(held: HeldAccess[], now: Date): AccessReviewItem[] 
 
 // ── Changing somebody's desk ───────────────────────────────
 
+// ── A seat past its end date, on Users & permissions (2026-11-15) ──
+//
+// A seat whose end date has come stops working (`seatByDate` in
+// lib/account-lifecycle), so it leaves "Everyone with access" for a group
+// of its own, one line per person, and is in no figure. Renewing is the
+// Change role act with the same role, which writes a new end date.
+
+/** The heading over the seats whose end date has come. */
+export const ENDED_HEADING = 'Access ended'
+/** The press on an ended seat: Change role, with the same role chosen. */
+export const RENEW_LABEL = 'Renew'
+/** What renewing is called in the sentence for a reader who may not. */
+export const RENEW_DOING = 'Renewing somebody’s access'
+/** The date column on a seat with no end date. */
+export const NO_END_DATE = 'No end date'
+/** The date column on a seat kept open past its end date; its line says why. */
+export const KEPT_OPEN_COLUMN = 'Kept open'
+
 /**
  * The seat everybody gets by arriving. Spelled here rather than imported
  * because this file has no database and no company defaults in it; the
@@ -401,10 +461,13 @@ export const OWNER_DESK = 'Owner'
  * What a row on "Everyone with access" says under the person's name.
  *
  * A Member can see their own work and nothing else, so the row says what
- * to do about it. Every other desk is just its name.
+ * to do about it, in the chip's own words (fix list D4a, 2026-11-15: the
+ * same person read "Member · give them a role" on the row and "No role
+ * yet" on the chip and on Team structure; one state, one word). Every
+ * other role is just its name. Settings → Roles keeps the role's real name.
  */
-export function deskLine(roleName: string): string {
-  return roleName === MEMBER_DESK ? `${MEMBER_DESK} · give them a role` : roleName
+export function deskLine(roleName: string | null): string {
+  return holdsNoRole(roleName) ? `${NO_ROLE_LABEL} · give them a role` : roleName!
 }
 
 /**
@@ -495,10 +558,29 @@ export interface FigureWords {
 }
 
 /**
+ * What the Invited figure knows about the invitation emails (fix list D1,
+ * 2026-11-15): how many invited seats' newest email did not go, and
+ * whether an email can leave this deployment at all (`mailLeaves`).
+ */
+export interface InvitedMail { notGone: number; leaves: boolean }
+
+/** The Invited figure's line, from how many emails did not go. Pure. */
+function invitedSays(n: number, mail?: InvitedMail): string {
+  const head = `${n} invited, never signed in.`
+  if (!mail) return `${head} Send the invitation again or withdraw it.`
+  // Nothing can leave here, so no single invitation is to blame.
+  if (!mail.leaves) return `${head} No email can be sent from here yet: copy the invitation and send it yourself, or withdraw it.`
+  const k = Math.min(Math.max(0, mail.notGone), n)
+  if (k === 0) return `${head} Send the invitation again or withdraw it.`
+  if (k === 1) return `${head} The email to ${n === 1 ? 'them' : '1 of them'} did not go: send it again, or copy the invitation.`
+  return `${head} The emails to ${k === n ? `all ${n}` : `${k} of them`} did not go: send them again, or copy the invitations.`
+}
+
+/**
  * One figure's words, or null for a figure of zero, which is not drawn,
  * except "With access", the baseline. Pure.
  */
-export function figureWords(key: FigureKey, n: number, parts?: DecisionParts): FigureWords | null {
+export function figureWords(key: FigureKey, n: number, parts?: DecisionParts, invitedMail?: InvitedMail): FigureWords | null {
   if (n <= 0 && key !== 'with-access') return null
   const one = n === 1
   switch (key) {
@@ -509,7 +591,7 @@ export function figureWords(key: FigureKey, n: number, parts?: DecisionParts): F
         showing: `${n} with access`,
       }
     case 'invited':
-      return { key, label: 'Invited', value: n, says: `${n} invited, never signed in. Send the invitation again or withdraw it.`, showing: `${n} invited` }
+      return { key, label: 'Invited', value: n, says: invitedSays(n, invitedMail), showing: `${n} invited` }
     case 'waiting-for-role':
       return { key, label: 'Waiting for a role', value: n, says: `${n} signed in with no role. Give ${one ? 'them' : 'each'} a role.`, showing: `${n} waiting for a role` }
     case 'paused':
@@ -521,7 +603,7 @@ export function figureWords(key: FigureKey, n: number, parts?: DecisionParts): F
       if (p.neverUsed) named.push(`${p.neverUsed} never used in ${DORMANT_DAYS} days`)
       if (p.notUsedLately) named.push(`${p.notUsedLately} not used in ${IDLE_DAYS} days`)
       if (p.endingSoon) named.push(`${p.endingSoon} ending within ${EXPIRING_DAYS} days`)
-      if (p.ended) named.push(`${p.ended} ended`)
+      if (p.ended) named.push(`${p.ended} past ${p.ended === 1 ? 'its' : 'their'} end date`)
       const what = named.length ? `: ${andList(named)}` : ''
       return {
         key, label: 'Needs a decision', value: n,
@@ -533,10 +615,10 @@ export function figureWords(key: FigureKey, n: number, parts?: DecisionParts): F
 }
 
 /** The figures to draw, in order, zeros left out except With access. Pure. */
-export function figuresFor(c: { withAccess: number; invited: number; waitingForRole: number; paused: number }, decisions: number, parts: DecisionParts): FigureWords[] {
+export function figuresFor(c: { withAccess: number; invited: number; waitingForRole: number; paused: number }, decisions: number, parts: DecisionParts, invitedMail?: InvitedMail): FigureWords[] {
   return [
     figureWords('with-access', c.withAccess),
-    figureWords('invited', c.invited),
+    figureWords('invited', c.invited, undefined, invitedMail),
     figureWords('waiting-for-role', c.waitingForRole),
     figureWords('paused', c.paused),
     figureWords('decision', decisions, parts),
@@ -570,6 +652,11 @@ export interface DeskChange {
   othersWhoCanGiveDesks: number
   /** The person's name, for the sentence. */
   personName: string
+  /**
+   * The seat is past its end date and is given a role again: a renewal,
+   * so the same role is the point, never a refusal (2026-11-15).
+   */
+  renewing?: boolean
 }
 
 export type DeskVerdict = { allowed: true } | { allowed: false; says: string }
@@ -579,7 +666,7 @@ export type DeskVerdict = { allowed: true } | { allowed: false; says: string }
  * other change goes through `assessGrant` like a first grant does.
  */
 export function assessDeskChange(c: DeskChange): DeskVerdict {
-  if (c.fromRole === c.toRole) {
+  if (c.fromRole === c.toRole && !c.renewing) {
     return { allowed: false, says: `${c.personName} already works as ${c.toRole}.` }
   }
   if (c.toRole === OWNER_DESK && !c.actorIsOwner) {
@@ -615,7 +702,8 @@ export function waitingLine(w: { invited: boolean; signedIn: boolean; days: numb
   const when = w.days <= 0 ? 'today' : w.days === 1 ? 'yesterday' : `${w.days} days ago`
   if (w.invited && !w.signedIn) {
     const base = `${w.days <= 0 ? 'Invited today' : `Invited ${when}`}, not yet signed in`
-    return w.desk ? `${base} · will have the ${w.desk} role` : base
+    // The Member role is no role: nothing to say it will have (fix list layer 4).
+    return w.desk && !holdsNoRole(w.desk) ? `${base} · will have the ${w.desk} role` : base
   }
   return `joined ${when}`
 }
@@ -652,13 +740,31 @@ export function seatPlace(s: { roleName: string | null; signedIn: boolean }): 'W
  * The notice a person gets when their desk is given or changed. Sent by
  * email as well as in the app: somebody waiting on a desk is not sitting
  * in the app refreshing it. `landing` is the page their new desk opens on.
+ *
+ * Moved to the Member role, or to none, the person is told the role was
+ * taken away and what they still see, never "You now have the Member
+ * role" (fix list layer 4, 2026-11-15). Ask Etyme reads this notice under
+ * "Since you last looked", so the greeting says the same.
  */
 export function deskChangedNotice(n: {
   roleName: string
   companyName: string
   expiresAt: Date | null
   landing: string
+  /** The role they held before. Null or Member: they had none to lose. */
+  fromRoleName?: string | null
 }): { title: string; body: string; href: string } {
+  if (holdsNoRole(n.roleName)) {
+    const lost = !holdsNoRole(n.fromRoleName)
+    const ends = n.expiresAt ? ` Your seat there runs until ${formatDay(n.expiresAt)}.` : ''
+    return {
+      title: lost ? 'Your role was taken away' : 'You have no role yet',
+      body: (lost
+        ? `Your role at ${n.companyName} was taken away; you have no role yet.`
+        : `You have no role yet at ${n.companyName}.`) + ` You see Ask Etyme and your own pages.${ends}`,
+      href: n.landing,
+    }
+  }
   // A day a person reads, never a machine date (round three, #6).
   const runs = n.expiresAt ? ` It runs until ${formatDay(n.expiresAt)}.` : ''
   return {
@@ -666,6 +772,67 @@ export function deskChangedNotice(n: {
     body: `You now have the ${n.roleName} role at ${n.companyName}. Sign in to see it.${runs}`,
     href: n.landing,
   }
+}
+
+/** Who changed whose role, from what to what, and the end date the change set. */
+export interface RoleChange {
+  actorName: string
+  personName: string
+  roleName: string
+  /** The role held before. Null for somebody who had none. */
+  fromRoleName: string | null
+  /** The end date this change sets, or null for none. */
+  expiresAt: Date | null
+  /** The seat was past its end date and is given the same role again. */
+  renewing: boolean
+  /** The end date that had come, on a renewal. */
+  endedOn?: Date | null
+}
+
+/**
+ * The activity log's line for a role given, changed or renewed. A seat
+ * moved to the Member role reads as its role taken away, or left with no
+ * role yet, never "gave Tobias Member" (fix list layer 4, 2026-11-15).
+ * New rows only: a row already written keeps its words. Pure.
+ */
+export function roleChangeSummary(c: RoleChange): string {
+  const until = c.expiresAt ? ` until ${formatDay(c.expiresAt)}` : ''
+  if (holdsNoRole(c.roleName)) {
+    const seatEnds = c.expiresAt ? `; the seat ends on ${formatDay(c.expiresAt)}` : ''
+    if (c.renewing) {
+      return `${c.actorName} renewed ${c.personName}’s seat, with no role yet${c.endedOn ? `, which ended on ${formatDay(c.endedOn)}` : ''}${seatEnds}`
+    }
+    return holdsNoRole(c.fromRoleName)
+      ? `${c.actorName} left ${c.personName} with no role yet${seatEnds}`
+      : `${c.actorName} took ${c.personName}’s role away (was ${c.fromRoleName!.trim()})${seatEnds}`
+  }
+  if (c.renewing) {
+    return `${c.actorName} renewed ${c.personName}’s ${c.roleName} access${c.endedOn ? `, which ended on ${formatDay(c.endedOn)}` : ''}${c.expiresAt ? `, until ${formatDay(c.expiresAt)}` : ''}`
+  }
+  const was = c.fromRoleName === null ? '' : holdsNoRole(c.fromRoleName) ? ' (had no role yet)' : ` (was ${c.fromRoleName})`
+  return `${c.actorName} gave ${c.personName} ${c.roleName}${was}${until}`
+}
+
+/**
+ * The answer after Change role, Give them access or Renew. Moved to the
+ * Member role, or none, it says the page's own sentence (`NO_ROLE_SEES`),
+ * never "read-only access"; the end date is said only where one applies.
+ * Pure.
+ */
+export function roleChangeSays(c: Pick<RoleChange, 'personName' | 'roleName' | 'expiresAt' | 'renewing'>): string {
+  if (holdsNoRole(c.roleName)) {
+    const head = c.renewing ? `${c.personName}’s seat is renewed, with no role yet.` : `${c.personName} has no role yet.`
+    const ends = c.expiresAt ? ` The seat ends on ${formatDay(c.expiresAt)} unless renewed.` : ''
+    return `${head} ${NO_ROLE_SEES}${ends}`
+  }
+  if (c.renewing) {
+    return c.expiresAt
+      ? `${c.personName}’s access as ${c.roleName} is renewed. It ends on ${formatDay(c.expiresAt)} unless renewed again.`
+      : `${c.personName}’s access as ${c.roleName} is renewed, read-only, with no end date.`
+  }
+  return c.expiresAt
+    ? `${c.personName} can now work as ${c.roleName}. This ends on ${formatDay(c.expiresAt)} unless renewed.`
+    : `${c.personName} has read-only access as ${c.roleName}, with no end date.`
 }
 
 // ── The invitation email ───────────────────────────────────
@@ -717,9 +884,12 @@ export interface InviteLetter {
  * link out of the stored copy.
  */
 export function inviteLetter(l: InviteLetter): { lines: string[]; link: string | null } {
-  const youAre = l.roleName
-    ? `You are in ${l.companyName} as ${l.roleName}.`
-    : `You are in ${l.companyName}. Somebody there will give you a role once you are in.`
+  // Member, or no role at all, is "No role yet" on every screen, so the
+  // letter says the same (fix list layer 4, 2026-11-15).
+  const noRole = !l.roleName || l.roleName.trim().toLowerCase() === 'member'
+  const youAre = noRole
+    ? `You are in ${l.companyName} with no role yet. An Owner or Admin there gives you one.`
+    : `You are in ${l.companyName} as ${l.roleName}.`
   const days = l.linkHours >= 24 ? `${Math.round(l.linkHours / 24)} days` : `${l.linkHours} hours`
 
   if (l.door === 'PASSWORD' && l.setPasswordUrl) {
@@ -806,8 +976,10 @@ export function inviteSays(i: {
    */
   reason?: string | null
 }): string {
-  const head = i.roleName ? `${i.personName} has been invited as ${i.roleName}` : `${i.personName} has been invited`
-  const seat = i.roleName
+  // Member reads as no role, the words every screen uses (fix list layer 4).
+  const roleName = i.roleName && i.roleName.trim().toLowerCase() !== MEMBER_DESK.toLowerCase() ? i.roleName : null
+  const head = roleName ? `${i.personName} has been invited as ${roleName}` : `${i.personName} has been invited`
+  const seat = roleName
     ? ` The seat is theirs when they sign in with ${i.email}.`
     // The one sentence the form and the legend say (press walk, 2026-11-15).
     : ` ${NO_ROLE_SEES}`
@@ -896,7 +1068,8 @@ export function signInLinkFor(appUrl: string, email: string): string {
 
 /** The ready message "Copy invitation" puts on the clipboard. Pure. */
 export function copyInvitation(c: CopyInvitation): string {
-  const as = c.roleName ? ` as ${c.roleName}` : ''
+  // Member, or none, is said as no role at all (fix list layer 4).
+  const as = holdsNoRole(c.roleName) ? '' : ` as ${c.roleName!.trim()}`
   const head = `${c.inviterName} invited you to ${c.companyName} on Etyme${as}.`
   const link = signInLinkFor(c.appUrl, c.email)
   if (c.mode === 'SSO_ONLY') {
@@ -919,6 +1092,23 @@ export const MAX_ADDRESSES_AT_ONCE = 20
 export const INVITES_PER_HOUR = 60
 /** The most invitation emails one seat is sent in an hour, the first included. */
 export const SENDS_PER_SEAT_PER_HOUR = 3
+
+/** The email states of an invitation that did not leave. Never counted against a cap. */
+export const MAIL_NOT_GONE: readonly InviteMailState[] = ['FAILED', 'NOT_CONFIGURED', 'DEMO_SKIPPED']
+
+/**
+ * Whether one invitation log row counts against the hourly cap (founder,
+ * 2026-11-15, fix list D1: only a try whose email left counts). A copied
+ * invitation sends nothing; a row that says its email did not leave is a
+ * try, not a send. A row with no mail state, written before the state was
+ * kept or by a send that never returned, still counts: the cap stays safe
+ * where the record cannot say. Pure.
+ */
+export function countsAgainstCap(payload: unknown): boolean {
+  const p = (payload ?? null) as { act?: unknown; mail?: unknown } | null
+  if (p?.act === 'COPIED') return false
+  return !(MAIL_NOT_GONE as readonly unknown[]).includes(p?.mail)
+}
 
 /**
  * The addresses in a pasted list: one per line, or separated by commas or
@@ -977,6 +1167,17 @@ export function capRefusalSays(err: CapRefusal | null | undefined, zone: string 
 }
 
 /** What Send the invitation again says once it has run. */
+/**
+ * The activity log's summary for Send the invitation again, from what the
+ * send returned (fix list D1, 2026-11-15: the row said "sent ... again"
+ * when the email had not gone). Rows already written are not changed. Pure.
+ */
+export function sentAgainLogged(actorName: string, email: string, mail: InviteMailState): string {
+  return mail === 'SENT'
+    ? `${actorName} sent the invitation to ${email} again`
+    : `${actorName} tried to send the invitation to ${email} again; the email did not go`
+}
+
 export function sentAgainSays(email: string, mail: InviteMailState, why: string | null): string {
   if (mail === 'SENT') return `Sent again to ${email}. It is the same seat; nothing was duplicated.`
   return `Not sent to ${email}: ${why ?? 'it did not leave.'} It is the same seat; nothing was duplicated. ${COPY_LABEL} and send it to them yourself.`
@@ -1196,6 +1397,8 @@ export interface PickerRole {
  * wrote or changed, how much it can do, so no option is a bare name.
  */
 export function roleLine(r: PickerRole): string {
+  // The Member role, offered for a person, says what that person sees.
+  if (holdsNoRole(r.name)) return NO_ROLE_SEES
   const blurb = r.blurb?.trim()
   if (blurb) return blurb
   return r.canDo?.trim() ? `A role your company set up. It can do ${r.canDo.trim()}.` : 'A role your company set up.'
@@ -1203,7 +1406,7 @@ export function roleLine(r: PickerRole): string {
 
 /** The option text: "Recruiter: Finds and submits people. Cannot see what anyone costs." */
 export function roleOptionText(r: PickerRole): string {
-  return `${r.name}: ${roleLine(r)}`
+  return `${roleWords(r.name)}: ${roleLine(r)}`
 }
 
 /** What is said under the picker for the choice made, or null where nothing is chosen. */

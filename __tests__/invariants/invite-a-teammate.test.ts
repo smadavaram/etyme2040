@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  DECIDE_LATER, DECIDE_LATER_LABEL, DECIDE_LATER_SAYS, NO_ROLE_SEES, levelLegend, levelOf, INVITE_ADDRESS_MISSING, INVITE_ROLE_MISSING, INVITE_ADDRESSES_MISSING,
+  DECIDE_LATER, DECIDE_LATER_LABEL, DECIDE_LATER_SAYS, NO_ROLE_SEES, NO_ROLE_LABEL, levelLegend, levelOf, INVITE_ADDRESS_MISSING, INVITE_ROLE_MISSING, INVITE_ADDRESSES_MISSING,
   addressAsTyped, addressesAsTyped, inviteProblems, inviteRoleId, inviteSays, roleChoiceSays, roleLine, roleOptionText,
 } from '@/lib/access-grant'
 import { shippedLineFor } from '@/app/api/roles/blurb'
@@ -71,7 +71,9 @@ describe('the role picker', () => {
       for (const seed of rolesFor(kind)) {
         const line = shippedLineFor(kind, seed)
         expect(line, `${kind} ${seed.name}`).toBe(seed.blurb)
-        expect(roleOptionText({ id: 'r', name: seed.name, blurb: line })).toBe(`${seed.name}: ${seed.blurb}`)
+        // The Member role is offered as what it leaves a person with (fix list layer 4).
+        expect(roleOptionText({ id: 'r', name: seed.name, blurb: line }))
+          .toBe(seed.name === 'Member' ? `${NO_ROLE_LABEL}: ${NO_ROLE_SEES}` : `${seed.name}: ${seed.blurb}`)
       }
     }
   })
@@ -97,7 +99,7 @@ describe('the role picker', () => {
   })
 
   it('an Admin is never offered Owner in the invite picker', () => {
-    expect(panel).toContain('{pickable.map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}')
+    expect(panel).toContain('{pickable.filter((r) => !holdsNoRole(r.name)).map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}')
     expect(panel).not.toContain('roles.map(')
   })
 
@@ -110,6 +112,11 @@ describe('the role picker', () => {
 })
 
 describe('Decide later', () => {
+  it('the Invite picker offers one choice that leaves somebody with no role, Decide later, never the Member role beside it', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/dashboard/access/page.tsx'), 'utf8')
+    expect(page).toContain("{pickable.filter((r) => !holdsNoRole(r.name)).map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}")
+  })
+
   it('the invite form, its route and the legend say the same thing about a person invited with no role, and it is what she sees', () => {
     const route = read('src/app/api/access/invite/route.ts')
     // One sentence, said by every place that says it.
@@ -140,6 +147,12 @@ describe('Decide later', () => {
     }
     // With a role chosen the answer is about the seat, and says nothing about a person with no role.
     expect(inviteSays({ personName: 'Kim Oduya', email: 'kim.oduya@example.test', roleName: 'Recruiter', mail: 'SENT' })).not.toContain(NO_ROLE_SEES)
+  })
+
+  it('the answer after inviting somebody as Member reads as one with no role, never "invited as Member"', () => {
+    const says = inviteSays({ personName: 'Sam Ito', email: 'sam.ito@example.test', roleName: 'Member', mail: 'SENT' })
+    expect(says).toContain(NO_ROLE_SEES)
+    expect(says).not.toContain('as Member')
   })
 
   it('Decide later is one of the choices in the picker, and it sends no role', () => {

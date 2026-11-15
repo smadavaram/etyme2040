@@ -5,7 +5,7 @@ import { readJson } from '@/lib/read-response'
 import { usePageSection } from '@/components/page-section'
 import { ListSurface, type Column } from '@/components/list-surface'
 import { Check, ErrorState, Field, FormMessage, Input, LoadingState, PageHead, RefusedState, SubmitButton } from '@/components/ui'
-import { sourceWords, savedByWords, managerFromWords, managerLoadWords, siteShort, siteTimeZoneSays, NO_SITE_TIME_ZONE, type SiteManager, type SiteSource } from '@/lib/site-rules'
+import { sourceWords, savedByWords, managerFromWords, managerLoadWords, siteShort, siteTimeZoneSays, siteAddressLine, NO_SITE_TIME_ZONE, type SiteManager, type SiteSource } from '@/lib/site-rules'
 import { COUNTRIES, COUNTRY_BOX_SAYS } from '@/lib/setup-steps'
 import { ONLY_OWNER_OR_ADMIN, SITE_SUPPLIERS_WHO, regionFixedSays } from '@/components/settings/settings-says'
 
@@ -51,7 +51,8 @@ interface Read {
   sites: Site[]
   approved: { id: string; name: string }[]
   regionalManagers: Record<string, string>
-  company: { id: string; name: string; kind: string }
+  /** `country` is the company's own, two letters; null where it is not known. */
+  company: { id: string; name: string; kind: string; country?: string | null }
   region: string | null
   daysOff: number[]
   mayEdit: boolean
@@ -62,6 +63,9 @@ const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 const NO_REGION = 'No region'
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const listWords = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
+
+/** A country's name where setup offers it, else its two letters. */
+const countryName = (code: string) => COUNTRIES.find((c) => c.code === code)?.name ?? code
 
 /**
  * The names a Country box offers as it is typed in. The box still takes
@@ -128,8 +132,24 @@ export default function SitesPage() {
       .sort((a, b) => Number(b.home) - Number(a.home) || b.contractors - a.contractors || a.region.localeCompare(b.region))
   }, [read])
 
+  // The address under a site's name, naming the country where it is not the
+  // company's own (undefined before the read, null where it is not known).
+  const home = read ? read.company.country ?? null : undefined
+  const addressOf = useCallback((s: Site) => siteAddressLine(s, home, countryName), [home])
+
   const columns: Column<Site>[] = useMemo(() => [
-    { key: 'name', label: 'Site', render: (s) => <span className="text-etyme-ink">{s.name}{s.isPrimary && <span className="ml-2 text-[11px] text-etyme-faint">primary</span>}</span>, sortValue: (s) => s.name },
+    {
+      key: 'name', label: 'Site',
+      // The name, then the address as it is kept, ZIP included (walk, 2026-11-15).
+      render: (s) => (
+        <div>
+          <p className="text-etyme-ink">{s.name}{s.isPrimary && <span className="ml-2 text-[11px] text-etyme-faint">primary</span>}</p>
+          {addressOf(s) && <p className="text-[11px] text-etyme-faint">{addressOf(s)}</p>}
+        </div>
+      ),
+      sortValue: (s) => s.name,
+      exportValue: (s) => s.name,
+    },
     { key: 'country', label: 'Country', render: (s) => <span className="text-etyme-muted">{s.country}</span> },
     { key: 'timeZone', label: 'Time zone', render: (s) => <span className="text-etyme-muted">{s.timeZone ?? NO_SITE_TIME_ZONE}</span>, hideOnMobile: true },
     { key: 'managers', label: 'Hiring managers', render: (s) => <span>{s.managers.map((m) => m.name).join(', ') || <span className="text-etyme-faint">Nobody yet</span>}</span>, sortValue: (s) => s.managers[0]?.name ?? '', exportValue: (s) => s.managers.map((m) => m.name).join('; ') },
@@ -142,7 +162,7 @@ export default function SitesPage() {
       hideOnMobile: true,
     },
     { key: 'contractors', label: 'Contractors', align: 'right', render: (s) => <span className="tabular-nums">{s.contractors}</span>, sortValue: (s) => s.contractors },
-  ], [])
+  ], [addressOf])
 
   if (refused) return <RefusedState says={refused} />
   if (error && !read) return <ErrorState says={error} />
@@ -352,7 +372,7 @@ function OneSite({ site, read, onBack, onSaved, onNext, eyebrow }: {
       <section className="space-y-3">
         <h2 className="font-serif text-[18px] text-etyme-ink">Address</h2>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Street"><Input value={f.address} onChange={set('address')} disabled={!read.mayEdit} placeholder="Not found. Type it." /></Field>
+          <Field label="Street"><Input value={f.address} onChange={set('address')} disabled={!read.mayEdit} placeholder="Street and number" /></Field>
           <Field label="City"><Input value={f.city} onChange={set('city')} disabled={!read.mayEdit} /></Field>
           <Field label="State or province"><Input value={f.state} onChange={set('state')} disabled={!read.mayEdit} /></Field>
           <Field label="ZIP or postal code" error={fieldError.postalCode}><Input value={f.postalCode} onChange={set('postalCode')} disabled={!read.mayEdit} autoComplete="postal-code" /></Field>

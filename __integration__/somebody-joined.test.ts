@@ -40,9 +40,9 @@ async function company(name: string, slug: string, teamsWebhookUrl: string | nul
   return { id: c.id, owner: owner.id, admin: admin.id, member: member.id }
 }
 
-async function seated(companyId: string, roleId: string, name: string, email: string) {
+async function seated(companyId: string, roleId: string, name: string, email: string, expiresAt: Date | null = null) {
   const p = await prisma.person.create({ data: { name, primaryEmail: email } })
-  await prisma.context.create({ data: { personId: p.id, companyId, roleId, type: 'EMPLOYEE' } })
+  await prisma.context.create({ data: { personId: p.id, companyId, roleId, type: 'EMPLOYEE', expiresAt } })
   return p.id
 }
 
@@ -96,7 +96,7 @@ describe('the owners hear that a colleague joined', () => {
     const owners = rows.filter((r) => r.personId !== mailJoiner)
     expect(owners.map((r) => r.personId).sort()).toEqual([mailOwner, mailAdmin].sort())
     for (const r of owners) {
-      expect(r.body).toBe('Sam Ito (sam@cavanaugh.test) joined Cavanaugh Glassworks as Member. Give them a role.')
+      expect(r.body).toBe('Sam Ito (sam@cavanaugh.test) joined Cavanaugh Glassworks with no role yet. Give them a role.')
       expect((r.data as any).href).toBe('/dashboard/access')
     }
   })
@@ -105,7 +105,7 @@ describe('the owners hear that a colleague joined', () => {
     const own = await prisma.notification.findMany({ where: { companyId: mailCo.id, personId: mailJoiner } })
     expect(own).toHaveLength(1)
     expect(own[0].body).toBe(
-      'You are in Cavanaugh Glassworks as Member. Your owner has been told; you will see more once they give you a role.'
+      'You are in Cavanaugh Glassworks with no role yet. You can see your own work now. An Owner or Admin there gives you a role.'
     )
     expect(own[0].channel).toBe('IN_APP')
   })
@@ -136,8 +136,21 @@ describe('the owners hear that a colleague joined', () => {
     expect(cards).toHaveLength(1)
     const card = cards[0].body.attachments[0].content
     expect(card.body.map((b: any) => b.text).join(' ')).toContain(
-      'Priya Nair (priya@northbend.test) joined Northbend Athletic as Member. Give them a role.'
+      'Priya Nair (priya@northbend.test) joined Northbend Athletic with no role yet. Give them a role.'
     )
     expect(card.actions[0].url).toBe('https://app.etyme.example/dashboard/access')
+  })
+
+  it('an Admin whose seat is past its end date is not told somebody joined, and an Owner past the date still is', async () => {
+    const co = await company('Harborline Tech', 'joined-harborline', null)
+    const dayAgo = new Date(Date.now() - 86_400_000)
+    const owner = await seated(co.id, co.owner, 'Dana Reyes', 'dana@harborline-tech.example', dayAgo)
+    const admin = await seated(co.id, co.admin, 'Lee Park', 'lee@harborline-tech.example', dayAgo)
+    const joiner = await seated(co.id, co.member, 'Ana Silva', 'ana@harborline-tech.example')
+
+    expect(await tellOwnerSomebodyJoined(co.id, joiner, 'Member')).toEqual({ owners: 1, joiner: true })
+    const told = (await settledAll({ companyId: co.id })).filter((r) => r.personId !== joiner).map((r) => r.personId)
+    expect(told).toEqual([owner])
+    expect(told).not.toContain(admin)
   })
 })

@@ -99,6 +99,14 @@ describe('who is offered which hats', () => {
     expect(lines.map((l) => l.contextId)).toEqual(['c1', 'c2', 'c1'])
   })
 
+  it('the account menu names a seat holding the Member role, or no role, as No role yet', () => {
+    const lines = hatsFor({
+      seats: [{ contextId: 'm1', type: 'EMPLOYEE', companyName: 'Northwind Staffing', roleName: 'Member' }, { contextId: 'm2', type: 'EMPLOYEE', companyName: 'Harborline Tech', roleName: null }],
+      activeContextId: 'm1', personName: 'Tomas Reyes', isConsultant: false, youOffered: false, hat: 'firm',
+    })
+    expect(lines.map((l) => l.label)).toEqual(['Northwind Staffing · No role yet', 'Harborline Tech · No role yet'])
+  })
+
   it('marks exactly one line as the hat being worn', () => {
     const firm = hatsFor({ seats, activeContextId: 'c2', personName: 'Sharath', isConsultant: false, youOffered: true, hat: 'firm' })
     expect(firm.filter((l) => l.current).map((l) => l.label)).toEqual(['Brightmoor Staffing · Recruiter'])
@@ -174,8 +182,9 @@ describe('the switch is the account menu’s, and a view rather than a permissio
 
   it('a seat chosen in the account menu is used only where it is the person’s own and live, and otherwise the seat it always was', () => {
     const src = read('src/lib/api-context.ts')
-    expect(src).toContain('where: { id: chosen, personId: person.id, ...usable }')
-    expect(src).toMatch(/: null\) \?\? await prisma\.context\.findFirst\(\{\s*where: \{ personId: person\.id, \.\.\.usable \}/)
+    // One reader picks the seat, the person's own and live by date (2026-11-15).
+    expect(src).toContain('where: { ...where, personId: person.id, ...usable }')
+    expect(src).toContain('(chosen ? await pick({ id: chosen }) : null) ?? await pick({})')
   })
 
   it('a switch to another firm’s seat is logged by the route that has always logged one', () => {

@@ -164,7 +164,7 @@ describe('the sidebar props are read off the session the same way for both surfa
       contextType: 'CLIENT_CONTACT',
       company: { id: 'c', name: 'Northbend Athletic', slug: 'nike', kind: 'CLIENT' },
     })
-    expect(props).toMatchObject({ companyKind: 'CLIENT', isConsultant: false, companyName: 'Northbend Athletic', companyLabel: 'Client · Member' })
+    expect(props).toMatchObject({ companyKind: 'CLIENT', isConsultant: false, companyName: 'Northbend Athletic', companyLabel: 'Client · No role yet' })
   })
 
   it('treats somebody on a bench as a consultant, whatever company holds the bench', () => {
@@ -258,7 +258,7 @@ describe('the phone header has no words: the logo and the menu, on every page', 
   })
 
   it('the menu drawer says who you are: your name, your email and your role, above Settings and Sign out', () => {
-    expect(MOBILE).toContain("role={desk.isConsultant ? 'Consultant' : desk.roleName}")
+    expect(MOBILE).toContain("role={seatCrumb({ isConsultant: desk.isConsultant, hasCompany: Boolean(session.company), roleName: desk.roleName, seatedAtClient: desk.seatedAtClient })}")
     expect(MOBILE).toMatch(/\{role && <p[^>]*>\{role\}<\/p>\}/)
   })
 

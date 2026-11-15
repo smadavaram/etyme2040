@@ -13,6 +13,7 @@ import {
 import { MEMBER_ROLE } from '@/lib/company-defaults'
 import { seatAsMember } from '@/lib/seat-member'
 import { createCompany } from '@/lib/company-create'
+import { signUpPersonName } from './person-name'
 import { blankNameSays } from '@/app/(auth)/start/missing'
 import { recordAnswers } from '@/lib/setup-checklist-state'
 import { signUpAnswers } from '@/lib/setup-fill'
@@ -208,19 +209,24 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // The person exists either way — they signed in.
-  const person = await prisma.person.upsert({
-    where: { primaryEmail: email },
-    update: {},
-    create: { primaryEmail: email, name: body.name?.trim() || email.split('@')[0] },
-  })
-
   // The type is read before the personal-address path is taken: a person
   // on gmail who says "I work through my own company" founds a one-person
   // firm, not a consultant seat (round one of the sign-up walk, item 45).
   // Only a type that may register on a personal address does this.
   const chosen = typeByKey(String(body.type ?? ''))
   const ownFirm = decision.action === 'CONSULTANT' && chosen?.personalEmail === true && identity?.door !== 'LINKEDIN'
+
+  // The person exists either way — they signed in. The form's name box
+  // is the company's name, so it never names the person: a name that is
+  // the company's, or a role word, gives way to the address's first part.
+  // A one-person firm is the person and the firm, so her firm's name may
+  // be her own and is kept.
+  const companyNamed = ownFirm ? null : String(body.name ?? '').trim() || ('companyName' in decision ? decision.companyName : '') || null
+  const person = await prisma.person.upsert({
+    where: { primaryEmail: email },
+    update: {},
+    create: { primaryEmail: email, name: signUpPersonName(body.name, email, companyNamed) },
+  })
 
   // ── A consultant. No company, and that is not a lesser outcome. ──
   if (decision.action === 'CONSULTANT' && !ownFirm) {
@@ -286,7 +292,7 @@ export async function POST(request: NextRequest) {
           action: 'JOIN',
           companyId: decision.companyId,
           companyName: decision.companyName,
-          message: `You are in ${decision.companyName} as ${MEMBER_ROLE}, and ${decision.domain} is now theirs so nobody else has to answer that.`,
+          message: `You are in ${decision.companyName} with no role yet, and ${decision.domain} is now theirs so nobody else has to answer that.`,
           role: MEMBER_ROLE,
         },
       })
@@ -327,7 +333,7 @@ export async function POST(request: NextRequest) {
       data: {
         companyId: decision.companyId,
         action: 'COLLEAGUE_JOINED',
-        summary: `${person.name} joined from ${domain} as ${MEMBER_ROLE}`,
+        summary: `${person.name} joined from ${domain} with no role yet`,
         reason: 'Verified work email on a domain this company already owns',
         payload: { personId: person.id, email, role: MEMBER_ROLE },
         reversible: true,
@@ -348,7 +354,7 @@ export async function POST(request: NextRequest) {
         action: 'JOIN',
         companyId: decision.companyId,
         companyName: decision.companyName,
-        message: `You are in ${decision.companyName} as ${MEMBER_ROLE}. You can see your own work now. An owner there gives you a role.`,
+        message: `You are in ${decision.companyName} with no role yet. You can see your own work now. An Owner or Admin there gives you a role.`,
         role: MEMBER_ROLE,
       },
     })

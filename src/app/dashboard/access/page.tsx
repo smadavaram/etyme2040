@@ -4,12 +4,12 @@ import { readJson, statusMeans } from '@/lib/read-response'
 import { pauseReasonHelp } from '@/app/api/access/[contextId]/pause-words'
 import {
   desksOffered, mailLine, capRefusalSays, MAX_ADDRESSES_AT_ONCE,
-  DECIDE_LATER, DECIDE_LATER_LABEL, PICK_A_ROLE, roleOptionText, roleChoiceSays, inviteRoleId, inviteProblems,
+  DECIDE_LATER, DECIDE_LATER_LABEL, PICK_A_ROLE, roleOptionText, roleChoiceSays, roleWords, holdsNoRole, inviteRoleId, inviteProblems,
   addressAsTyped, addressesAsTyped, type PickerRole,
-  COPY_LABEL, SEND_AGAIN_LABEL, levelLegend, LEVEL_LABEL, NO_ROLE_SEES, figureFromQuery, type FigureKey, type FigureWords, type InviteForm, type InviteMail, type GrantSensitivity,
+  COPY_LABEL, SEND_AGAIN_LABEL, levelLegend, LEVEL_LABEL, NO_ROLE_SEES, figureFromQuery,
+  ENDED_HEADING, RENEW_LABEL, NO_END_DATE, KEPT_OPEN_COLUMN, type FigureKey, type FigureWords, type InviteForm, type InviteMail, type GrantSensitivity,
 } from '@/lib/access-grant'
 import { readerZone } from '@/lib/when'
-import { formatDay } from '@/lib/format-date'
 import { GiveAccess } from '@/components/settings/give-access'
 import { focusFromQuery, personAnchor, GIVE_ACCESS_ANCHOR, UNIT_LANDED_SAYS, FOCUS_RING, type AccessFocus } from './focus'
 import {
@@ -48,6 +48,8 @@ interface Waiting {
   said: string
   /** The day this seat ends, set before they arrive, or null. */
   expiresAt?: string | null
+  /** "Ends on <date>", from the one rule (`seatDateLine`), or null for none. */
+  dateLine?: string | null
   acts?: RowOffer
   /** The newest invitation email: whether it left and when, or why not. */
   mail?: InviteMail | null
@@ -66,12 +68,16 @@ interface Person {
   person: { id: string; name: string; primaryEmail: string | null }
   role: string
   roleId: string
-  /** The role, or "Member · give them a role". */
+  /** The role, or "No role yet · give them a role". */
   line: string
   sensitivity: string
   /** The level in words, and the sentence that says why (`levelOf`). */
   level?: { key: string; label: string; why: string }
   expiresAt: string | null
+  /** "Ends on <date>", null for none, or why a seat past its date stays open (`seatDateLine`). */
+  dateLine?: string | null
+  /** Past its end date and kept open: an Owner's seat, or the last that may manage access. */
+  keptPastEndDate?: 'OWNER' | 'LAST_MANAGER' | null
   lastUsedAt: string | null
   reason: string | null
   /** Why the seat is paused, where it is. */
@@ -86,6 +92,24 @@ interface Person {
   findings?: { words: string; detail: string }[]
   /** A shared sign-in such as timesheets@: several people may use the address. */
   shared?: boolean
+}
+/** A seat whose end date has come: listed under "Access ended", in no figure. */
+interface Ended {
+  contextId: string
+  person: { id: string; name: string; primaryEmail: string | null }
+  role: string | null
+  roleId: string | null
+  consultant?: boolean
+  shared?: boolean
+  /** "Ended on <date>" (`seatDateLine`). */
+  dateLine: string | null
+  /** The reason it was last given, offered again on Renew. */
+  reason: string | null
+  paused?: boolean
+  /** Renew is drawn only where the grant route would take it. */
+  renew: boolean
+  /** Who here may renew, for a reader who may not. */
+  whyNoRenew: string | null
 }
 interface Finding {
   contextId: string
@@ -144,10 +168,15 @@ function inviteHelp(joins: string | null | undefined): string {
   return joins ? `${how} ${joins}` : how
 }
 
-/** When access ends, as a day through the shared formatter: "ends Mar 3, 2027", or "no end date". */
-function until(iso: string | null | undefined): string {
-  if (!iso) return 'no end date'
-  return new Date(iso).getTime() < Date.now() ? `ended ${formatDay(iso)}` : `ends ${formatDay(iso)}`
+/**
+ * When access ends, in the register's own words from the one rule
+ * (`seatDateLine` in lib/account-lifecycle): "Ends on Mar 3, 2027", or "No
+ * end date". A seat whose date has come is never on these rows; it is
+ * listed under "Access ended" (2026-11-15).
+ */
+function until(line: string | null | undefined): string {
+  if (!line) return NO_END_DATE
+  return line
 }
 
 /**
@@ -297,7 +326,7 @@ function CanTheySeeForm({ people }: { people: Person[] }) {
           <option value="">Who?</option>
           {people.map((p) => (
             <option key={p.contextId} value={p.person.id}>
-              {p.person.name} — {p.role}
+              {p.person.name} — {roleWords(p.role)}
             </option>
           ))}
         </Select>
@@ -797,6 +826,11 @@ export default function AccessPage() {
   const s = data.summary
   // Owner is offered only to an Owner; the route refuses the same.
   const pickable = desksOffered(roles, data.actorIsOwner === true)
+  // Whether the role chosen in a picker is the Member role, said as "No role yet".
+  const choiceHoldsNoRole = (id: string) => {
+    const r = pickable.find((x) => x.id === id)
+    return r ? holdsNoRole(r.name) : false
+  }
 
   // Which figure filters the lists, where one is drawn: a shared link to
   // a figure that has since gone to zero shows everybody.
@@ -818,7 +852,7 @@ export default function AccessPage() {
           <div className="text-etyme-ink break-words">{w.person.name}{w.consultant ? <span className="text-xs text-etyme-muted">{' · '}{CONSULTANT_NOTE}</span> : null}{w.shared && <SharedChip open={sharedOpen === w.contextId} onToggle={() => setSharedOpen(sharedOpen === w.contextId ? null : w.contextId)} />}</div>
           {w.shared && sharedOpen === w.contextId && <div className="text-xs text-etyme-muted mt-0.5 break-words">{SHARED_SAYS}</div>}
           <Address email={w.person.primaryEmail} />
-          <div className="text-xs text-etyme-muted">{w.said} · {until(w.expiresAt)}</div>
+          <div className="text-xs text-etyme-muted">{w.said} · {until(w.dateLine)}</div>
           <MailSaid mail={w.mail} />
         </div>
         {/* The row's buttons: a line of their own under the name on a
@@ -852,10 +886,10 @@ export default function AccessPage() {
 
       {granting === w.contextId && (
         <div className="mt-4 pt-4 border-t border-etyme-rule flex flex-col gap-3">
-          <Field label="What can they do?">
+          <Field label="What can they do?" help={roleChoiceSays(form.roleId, pickable)}>
             <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
               <option value="">— pick a role —</option>
-              {pickable.filter(r => r.id !== w.roleId).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {pickable.filter(r => r.id !== w.roleId).map(r => <option key={r.id} value={r.id}>{roleWords(r.name)}</option>)}
             </Select>
           </Field>
           {/* etyme-market, 2026-09-17. A cross-domain line in
@@ -903,11 +937,15 @@ export default function AccessPage() {
               Paused{p.pausedReason ? `: ${p.pausedReason}` : ''}
             </div>
           )}
+          {/* Past its end date and kept open: why, never "ended". */}
+          {p.keptPastEndDate && p.dateLine && (
+            <div className="text-xs text-etyme-attention mt-0.5 break-words">{p.dateLine}</div>
+          )}
         </div>
         {/* The end day and the sensitivity: under the name on a phone,
             their own fixed columns only from sm up. */}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <div className="text-xs text-etyme-muted sm:w-36 sm:text-right">{until(p.expiresAt)}</div>
+          <div className={`text-xs sm:w-36 sm:text-right ${p.keptPastEndDate ? 'text-etyme-attention' : 'text-etyme-muted'}`}>{p.keptPastEndDate ? KEPT_OPEN_COLUMN : until(p.dateLine)}</div>
           <div className="sm:w-28 sm:text-right">
             <button type="button" onClick={() => setLevelOpen(levelOpen === p.contextId ? null : p.contextId)}
               aria-expanded={levelOpen === p.contextId} aria-label={p.level?.why ?? levelWords(p)}
@@ -940,6 +978,12 @@ export default function AccessPage() {
         </div>
       </div>
 
+      {/* Why this row offers no Pause, Reinstate or End, from the verdict
+          the route gives (fix list D5): never a row with no button and no word. */}
+      {p.acts?.whyNoActs && (
+        <p className="text-xs text-etyme-muted mt-2 break-words">{p.acts.whyNoActs}</p>
+      )}
+
       {levelOpen === p.contextId && p.level?.why && (
         <p className="text-xs text-etyme-muted mt-2 break-words">{p.level.why}</p>
       )}
@@ -952,10 +996,10 @@ export default function AccessPage() {
 
       {granting === p.contextId && (
         <div className="mt-4 pt-4 border-t border-etyme-rule flex flex-col gap-3">
-          <Field label="New role">
+          <Field label="New role" help={roleChoiceSays(form.roleId, pickable)}>
             <Select value={form.roleId} onChange={e => setForm({ ...form, roleId: e.target.value })}>
               <option value="">— pick a role —</option>
-              {pickable.filter(r => r.id !== p.roleId).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {pickable.filter(r => r.id !== p.roleId).map(r => <option key={r.id} value={r.id}>{roleWords(r.name)}</option>)}
             </Select>
           </Field>
           <Field label="Why?" help="Whoever reviews this in six months is probably not you.">
@@ -972,6 +1016,65 @@ export default function AccessPage() {
         </div>
       )}
       {said?.contextId === p.contextId && <RowSaid said={said} />}
+    </div>
+  )
+
+  // A seat whose end date has come (2026-11-15): one line, "Ended on
+  // <date>", and Renew where the reader may change roles. Renew opens the
+  // Change role act with the same role chosen and the reason it was last
+  // given, and posts to the same route; any role may be picked instead.
+  const endedRows: Ended[] = data.ended ?? []
+  const openRenew = (e: Ended) => {
+    const opening = granting !== e.contextId
+    setGranting(opening ? e.contextId : null)
+    setForm(opening ? { roleId: e.roleId ?? '', endsOn: '', reason: e.reason ?? '' } : { roleId: '', endsOn: '', reason: '' })
+    setEndsOnError(null)
+    setActing(null)
+  }
+  const endedRow = (e: Ended) => (
+    <div key={e.contextId} id={personAnchor(e.contextId)} className={`p-4${focus.person === e.contextId ? ` ${FOCUS_RING}` : ''}`}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex-1 min-w-[12rem]">
+          <div className="text-etyme-ink break-words">{e.person.name}{e.consultant ? <span className="text-xs text-etyme-muted">{' · '}{CONSULTANT_NOTE}</span> : null}{e.shared && <SharedChip open={sharedOpen === e.contextId} onToggle={() => setSharedOpen(sharedOpen === e.contextId ? null : e.contextId)} />}</div>
+          {e.shared && sharedOpen === e.contextId && <div className="text-xs text-etyme-muted mt-0.5 break-words">{SHARED_SAYS}</div>}
+          <Address email={e.person.primaryEmail} />
+          <div className="text-xs text-etyme-muted break-words">
+            {e.role ? `${roleWords(e.role)} · ` : ''}{e.dateLine}{e.paused ? ' · Paused' : ''}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {e.renew ? (
+            <button type="button" onClick={() => openRenew(e)}
+              className="px-3 py-1.5 border border-etyme-rule rounded text-[13px] text-etyme-action hover:bg-etyme-action/5">
+              {granting === e.contextId ? 'Cancel' : RENEW_LABEL}
+            </button>
+          ) : (
+            <span className="w-full sm:w-auto sm:max-w-[380px] text-xs text-etyme-muted break-words">{e.whyNoRenew}</span>
+          )}
+        </div>
+      </div>
+      {granting === e.contextId && (
+        <div className="mt-4 pt-4 border-t border-etyme-rule flex flex-col gap-3">
+          <Field label="Role" help={`The role they had is chosen. Pick another to change it as you renew.${choiceHoldsNoRole(form.roleId) ? ` ${NO_ROLE_SEES}` : ''}`}>
+            <Select value={form.roleId} onChange={ev => setForm({ ...form, roleId: ev.target.value })}>
+              <option value="">— pick a role —</option>
+              {pickable.map(r => <option key={r.id} value={r.id}>{roleWords(r.name)}</option>)}
+            </Select>
+          </Field>
+          <Field label="Why?" help="The reason it was last given. Change it if it is no longer true.">
+            <Input value={form.reason} onChange={ev => setForm({ ...form, reason: ev.target.value })}
+              placeholder="Still does this work here" />
+          </Field>
+          <Field label="Ends on" help="Leave it empty for the usual length." error={endsOnError}>
+            <Input value={form.endsOn} onChange={ev => { setForm({ ...form, endsOn: ev.target.value }); setEndsOnError(null) }}
+              type="date" min={tomorrowField()} className="w-48 tabular-nums" />
+          </Field>
+          <SubmitButton type="button" onClick={() => grant(e.contextId)} className="self-start">
+            {form.roleId && form.roleId === e.roleId ? 'Renew access' : 'Change role'}
+          </SubmitButton>
+        </div>
+      )}
+      {said?.contextId === e.contextId && <RowSaid said={said} />}
     </div>
   )
 
@@ -1043,7 +1146,9 @@ export default function AccessPage() {
             error={roleError}>
             <Select value={invite.roleId} onChange={(e) => { setInvite({ ...invite, roleId: e.target.value }); setRoleError(null) }}>
               <option value="">{PICK_A_ROLE}</option>
-              {pickable.map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}
+              {/* The Member role holds nothing: on Invite it is "Decide later", one
+                  choice, never two that do the same (walk l4a, 2026-11-15). */}
+              {pickable.filter((r) => !holdsNoRole(r.name)).map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}
               <option value={DECIDE_LATER}>{DECIDE_LATER_LABEL}</option>
             </Select>
           </Field>
@@ -1114,6 +1219,7 @@ export default function AccessPage() {
       {/* A seat that was ended leaves the register, so its sentence is said here. */}
       {said && !data.people.some((p: Person) => p.contextId === said.contextId)
         && !data.waitingForAccess.some((w: Waiting) => w.contextId === said.contextId)
+        && !endedRows.some((e) => e.contextId === said.contextId)
         && <div className="mb-3"><RowSaid said={said} /></div>}
 
       {ownWaiting.length > 0 && (
@@ -1139,7 +1245,7 @@ export default function AccessPage() {
               }`}>
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="text-etyme-ink min-w-0">
-                    {r.personName} <span className="text-etyme-muted">· {r.roleName}</span>
+                    {r.personName} <span className="text-etyme-muted">· {roleWords(r.roleName)}</span>
                     <Address email={r.personEmail} />
                   </span>
                   <Chip tone={r.finding === 'EXPIRED' || r.finding === 'DORMANT' ? 'attention' : 'passive'}>
@@ -1169,6 +1275,17 @@ export default function AccessPage() {
               <EmptyState compact says="Nobody has access yet." />
             )}
             {ownPeople.map(personRow)}
+          </div>
+        </section>
+      )}
+
+      {/* Seats whose end date has come: in no figure, so not drawn while a
+          figure filters the list. One line each, and Renew. */}
+      {!activeFigure && endedRows.length > 0 && (
+        <section className="mt-8">
+          <h2 className="font-serif text-lg text-etyme-ink mb-3">{ENDED_HEADING}</h2>
+          <div className="bg-etyme-surface border border-etyme-rule rounded-lg divide-y divide-etyme-rule">
+            {endedRows.map(endedRow)}
           </div>
         </section>
       )}

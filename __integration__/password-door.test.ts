@@ -295,18 +295,18 @@ describe('a password door, until the single sign-on keys exist', () => {
     expect(signin.state).toBe('PROVEN')
     expect(signin.says).toContain('through password')
   })
-  it('a colleague on a claimed address is asked only email, name and password, and told which company they join as Member', async () => {
+  it('a colleague on a claimed address is asked only email, name and password, and told which company they join with no role yet', async () => {
     const email = 'ravi@kestrelworks.test'
     const p = await json(await probe(req('GET', `/api/auth/password/signup?email=${encodeURIComponent(email)}`)))
     expect(p.body.data.joins).toEqual({
       address: 'kestrel', company: 'Kestrel Works',
-      says: "kestrel is Kestrel Works' address. You will join it as Member once you confirm your email.",
+      says: "kestrel is Kestrel Works' address. You join it with no role yet once you confirm your email. An Owner or Admin there gives you one.",
     })
     // Nothing about a company: no name, no type, no country, no address.
     const r = await json(await signUp(req('POST', '/api/auth/password/signup', { as: 'company', email, personName: 'Ravi Iyer', password: PASSWORD })))
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     const v = await verifyEmail(lastLink(email, 'verify'))
-    expect(v).toMatchObject({ ok: true, says: 'You are in Kestrel Works as Member. Your owner has been told; you will see more once they give you a role.' })
+    expect(v).toMatchObject({ ok: true, says: 'You are in Kestrel Works with no role yet. You can see your own work now. An Owner or Admin there gives you a role.' })
     const seated = await prisma.person.findUniqueOrThrow({ where: { primaryEmail: email }, include: { contexts: { include: { role: true, company: true } } } })
     expect(seated.name).toBe('Ravi Iyer')
     expect(seated.contexts.map((c) => [c.company?.slug, c.role?.name])).toEqual([['kestrel', 'Member']])

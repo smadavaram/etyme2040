@@ -14,6 +14,8 @@ import {
   hasSignedIn, seatPlace, deskChangedNotice, needsDecisionCount,
   MEMBER_DESK, INVITE_LINK_HOURS, type DeskChange, type InviteLetter,
   inviteSays, invitedAs, mayHoldOutsideSeat,
+  roleWords, holdsNoRole, roleChangeSays, roleChangeSummary, roleOptionText, roleChoiceSays,
+  NO_ROLE_LABEL, NO_ROLE_SEES,
 } from '@/lib/access-grant'
 import { MEMBER_ROLE, rolesFor } from '@/lib/company-defaults'
 import { TEMPLATE_PACKS } from '@/lib/template-packs'
@@ -36,8 +38,12 @@ function change(over: Partial<DeskChange> = {}): DeskChange {
 }
 
 describe('changing a desk', () => {
-  it('a Member row reads "Member · give them a role", and every other desk reads its own name', () => {
-    expect(deskLine('Member')).toBe('Member · give them a role')
+  it('a seat holding the Member role, or none, reads "No role yet · give them a role", the chip’s own words, and every other role reads its own name', async () => {
+    const { NO_ROLE_LABEL, levelOf } = await import('@/lib/access-grant')
+    expect(deskLine('Member')).toBe('No role yet · give them a role')
+    expect(deskLine(null)).toBe('No role yet · give them a role')
+    expect(deskLine('Member').startsWith(NO_ROLE_LABEL)).toBe(true)
+    expect(levelOf('Member', []).label).toBe(NO_ROLE_LABEL)
     expect(deskLine('Recruiter')).toBe('Recruiter')
   })
 
@@ -118,6 +124,14 @@ describe('the invitation email', () => {
     expect(l.lines[0]).toBe('Set your password and you are signed in. You are in Walk Co as HR.')
     expect(l.link).toBe('https://app.example/reset/abc')
     expect(l.lines.join(' ')).toContain('for 3 days')
+  })
+
+  it('a letter for a seat invited as Member, or with no role, says they are in with no role yet and who gives one, never "as Member"', () => {
+    for (const roleName of ['Member', null]) {
+      const l = inviteLetter({ ...base, roleName })
+      expect(l.lines[0]).toBe('Set your password and you are signed in. You are in Walk Co with no role yet. An Owner or Admin there gives you one.')
+      expect(l.lines.join(' ')).not.toContain('as Member')
+    }
   })
 
   it('with only Microsoft or Google on, it says "Sign in with your work account at" the sign-in page', () => {
@@ -238,8 +252,10 @@ describe('sign-up walk, round three: Users & permissions counts and says what is
 
   it('a desk’s end date is printed as a day a person reads, on the page and in the email', () => {
     const page = read('src/app/dashboard/access/page.tsx')
-    // The row says the end day itself (founder, 2026-11-12), never "12 days left".
-    expect(page).toContain('`ends ${formatDay(iso)}`')
+    // The row says the end day itself (founder, 2026-11-12), never "12 days left",
+    // in the words of the one rule (`seatDateLine`, 2026-11-15): "Ends on <date>".
+    expect(read('src/app/api/access/route.ts')).toContain('const dateLineOf = (c: (typeof contexts)[number]) => seatDateLine(byDate.get(c.id)!, c.expiresAt)')
+    expect(page).not.toContain('`ended ${formatDay(iso)}`')
     expect(page).not.toContain('days left')
     expect(page).not.toContain('iso.slice(0, 10)')
     const n = deskChangedNotice({ roleName: 'Recruiter', companyName: 'Walk Co', expiresAt: new Date('2027-07-05T00:00:00Z'), landing: '/dashboard' })
@@ -257,14 +273,19 @@ describe('sign-up walk, round three: Users & permissions counts and says what is
 describe('sign-up walk, round four: the Change role confirmation says a day', () => {
   const route = read('src/app/api/access/route.ts')
 
+  // The words moved into lib/access-grant (`roleChangeSays`, `roleChangeSummary`), fix list layer 4.
+  const lib = read('src/lib/access-grant.ts')
+
   it('the confirmation after changing a desk prints its end date as a day a person reads, never as 2027-01-06', () => {
-    expect(route).toContain('This ends on ${formatDay(expiresAt)} unless renewed.')
-    expect(route).not.toMatch(/This ends on \$\{expiresAt\.toISOString\(\)/)
+    expect(route).toContain('message: roleChangeSays({')
+    expect(lib).toContain('This ends on ${formatDay(c.expiresAt)} unless renewed.')
+    expect(`${route}${lib}`).not.toMatch(/This ends on \$\{(c\.)?expiresAt\.toISOString\(\)/)
   })
 
   it('the automation log line for a desk given until a day prints the day the same way', () => {
-    expect(route).toContain('` until ${formatDay(expiresAt)}`')
-    expect(route).not.toContain('` until ${expiresAt.toISOString().slice(0, 10)}`')
+    expect(route).toContain('summary: roleChangeSummary({')
+    expect(lib).toContain('` until ${formatDay(c.expiresAt)}`')
+    expect(`${route}${lib}`).not.toMatch(/` until \$\{(c\.)?expiresAt\.toISOString\(\)\.slice\(0, 10\)\}`/)
   })
 })
 
@@ -471,9 +492,9 @@ describe('Users & permissions as the founder read it, 2026-11-12', () => {
   // ── Fault 12: withdraw, and the end day ──
 
   it('a waiting row shows its end day, or says no end date', () => {
-    expect(register).toContain('expiresAt: c.expiresAt?.toISOString() ?? null,\n          acts: actsOf(c.id)')
-    expect(page).toContain('{w.said} · {until(w.expiresAt)}')
-    expect(page).toContain("if (!iso) return 'no end date'")
+    expect(register).toContain('expiresAt: c.expiresAt?.toISOString() ?? null,\n          // "Ends on <date>", or null for none (`seatDateLine`).\n          dateLine: dateLineOf(c),\n          acts: actsOf(c.id)')
+    expect(page).toContain('{w.said} · {until(w.dateLine)}')
+    expect(page).toContain('if (!line) return NO_END_DATE')
   })
 
   it('the Ends on field turns a calendar day into the days the route already takes', async () => {
@@ -865,7 +886,7 @@ describe('Users & permissions counts people the way Settings and Team structure 
   // place of the hand-typed sub-lines this sentence used to pin.
   it('each figure on the page says what it counts, in the one function’s words', () => {
     expect(page).toContain('<Stat label={f.label} value={f.value} sub={f.says} href={`?show=${f.key}`}')
-    expect(route).toContain('figures: figuresFor(counts, decisions.size, parts)')
+    expect(route).toContain('figures: figuresFor(counts, decisions.size, parts, invitedMail)')
     expect(page).not.toContain('sub="signed in, not paused"')
   })
 
@@ -923,10 +944,10 @@ describe('Users & permissions says how people join in the one join sentence', ()
     expect(joinSentence(facts())).toBe('People join Tapin by invitation only. An Owner or Admin invites each person from Users & permissions.')
   })
 
-  it('a verified domain set to join at once is said as joining at once as Member, waiting for a role', async () => {
+  it('a verified domain set to join at once is said as joining at once with no role yet', async () => {
     const { joinSentence } = await import('@/lib/join-words')
     const s = joinSentence(facts({ companyName: 'Brightmoor Staffing', domains: [{ domain: 'brightmoor.example', verified: true, joinPolicy: 'AUTO' }] }))
-    expect(s).toContain('on brightmoor.example joins at once as Member and waits for a role')
+    expect(s).toContain('on brightmoor.example joins at once with no role yet, and an Owner or Admin gives them one')
   })
 
   it('a verified domain that asks to join is never said to join at once', async () => {
@@ -1173,6 +1194,37 @@ describe('the figures on Users and permissions say what they count and filter to
     expect(figureWords('paused', 1)!.says).toBe('1 paused, cannot sign in. Reinstate or end the seat.')
     expect(figureWords('waiting-for-role', 2)!.says).toBe('2 signed in with no role. Give each a role.')
     expect(figureWords('with-access', 4)!.says).toBe('4 can sign in and work. Nothing to do.')
+  })
+
+  it('the Invited figure says how many of the invitation emails did not go, and to send them again or copy the invitation', async () => {
+    const { figureWords, figuresFor } = await import('@/lib/access-grant')
+    expect(figureWords('invited', 3, undefined, { notGone: 2, leaves: true })!.says)
+      .toBe('3 invited, never signed in. The emails to 2 of them did not go: send them again, or copy the invitations.')
+    expect(figureWords('invited', 3, undefined, { notGone: 1, leaves: true })!.says)
+      .toBe('3 invited, never signed in. The email to 1 of them did not go: send it again, or copy the invitation.')
+    expect(figureWords('invited', 1, undefined, { notGone: 1, leaves: true })!.says)
+      .toBe('1 invited, never signed in. The email to them did not go: send it again, or copy the invitation.')
+    expect(figureWords('invited', 3, undefined, { notGone: 3, leaves: true })!.says)
+      .toBe('3 invited, never signed in. The emails to all 3 did not go: send them again, or copy the invitations.')
+    expect(figuresFor({ withAccess: 1, invited: 2, waitingForRole: 0, paused: 0 }, 0, NONE, { notGone: 2, leaves: true })[1].says).toContain('all 2 did not go')
+  })
+
+  it('the Invited figure reads as before where every invitation email went', async () => {
+    const { figureWords } = await import('@/lib/access-grant')
+    expect(figureWords('invited', 3, undefined, { notGone: 0, leaves: true })!.says).toBe('3 invited, never signed in. Send the invitation again or withdraw it.')
+  })
+
+  it('where no email can leave this deployment, the Invited figure says so instead of blaming each invitation', async () => {
+    const { figureWords } = await import('@/lib/access-grant')
+    const says = figureWords('invited', 3, undefined, { notGone: 3, leaves: false })!.says
+    expect(says).toBe('3 invited, never signed in. No email can be sent from here yet: copy the invitation and send it yourself, or withdraw it.')
+    expect(says).not.toContain('did not go')
+  })
+
+  it('the Invited figure is told how many invitation emails did not go, from the same email rows each waiting row reads', () => {
+    expect(route).toContain("didNotGo(mails.get(c.id))")
+    expect(route).toContain("figureOf(c.id) === 'invited'")
+    expect(route).toContain('leaves: mailLeaves()')
   })
 
   it('a figure of zero is not drawn, except With access', async () => {
@@ -1428,9 +1480,11 @@ describe('a link from Team structure lands on the row it names', () => {
     const { personAnchor } = await focus()
     expect(personAnchor('ctx_1')).toBe('access-person-ctx_1')
     const src = page()
-    expect(src.match(/id=\{personAnchor\(/g)?.length).toBe(2)
+    // Waiting, with access, and access ended (2026-11-15): each row has one.
+    expect(src.match(/id=\{personAnchor\(/g)?.length).toBe(3)
     expect(src).toMatch(/focus\.person === w\.contextId/)
     expect(src).toMatch(/focus\.person === p\.contextId/)
+    expect(src).toMatch(/focus\.person === e\.contextId/)
     expect(src).toMatch(/scrollIntoView/)
   })
 
@@ -1474,5 +1528,149 @@ describe('pausing somebody on a deployment where no email can leave (walk fdc it
     expect(pg).toContain('pauseReasonHelp(mailLeaves)')
     expect(pg).not.toContain("'They are told this")
     expect(pg).not.toMatch(/from '@\/lib\/notify\/mail-leaves'/)
+  })
+})
+
+/**
+ * Fix list D1, 2026-11-15: Send the invitation again wrote "sent ... again"
+ * to the activity log whatever happened, and an email that did not leave
+ * counted against the hourly limit (founder: "go with your
+ * recommendations", only a try whose email left counts).
+ */
+describe('an invitation email that did not go is said as a try and never counted as a send', () => {
+  it('Send the invitation again is logged as sent again where the email went, and as tried where it did not', async () => {
+    const { sentAgainLogged } = await import('@/lib/access-grant')
+    expect(sentAgainLogged('Dana Reyes', 'kim@northwind-staffing.example', 'SENT')).toBe('Dana Reyes sent the invitation to kim@northwind-staffing.example again')
+    for (const state of ['FAILED', 'NOT_CONFIGURED', 'DEMO_SKIPPED'] as const) {
+      expect(sentAgainLogged('Dana Reyes', 'kim@northwind-staffing.example', state)).toBe('Dana Reyes tried to send the invitation to kim@northwind-staffing.example again; the email did not go')
+    }
+    const resend = read('src/app/api/access/[contextId]/resend/route.ts')
+    expect(resend).toContain('summary: sentAgainLogged(caller.person.name, email, sent.mail.state)')
+    expect(resend).toContain("reason: 'Asked for on the waiting row. The same seat; nothing was duplicated.'")
+  })
+
+  it('an invitation email that did not go does not count against the hourly limit', async () => {
+    const { countsAgainstCap } = await import('@/lib/access-grant')
+    expect(countsAgainstCap({ act: 'INVITED', mail: 'FAILED' })).toBe(false)
+    expect(countsAgainstCap({ act: 'SENT_AGAIN', mail: 'NOT_CONFIGURED' })).toBe(false)
+    expect(countsAgainstCap({ act: 'INVITED', mail: 'DEMO_SKIPPED' })).toBe(false)
+    expect(countsAgainstCap({ act: 'COPIED' })).toBe(false)
+  })
+
+  it('an invitation email that went still counts, and so does a row that cannot say how its email went', async () => {
+    const { countsAgainstCap } = await import('@/lib/access-grant')
+    expect(countsAgainstCap({ act: 'INVITED', mail: 'SENT' })).toBe(true)
+    expect(countsAgainstCap({ act: 'SENT_AGAIN', mail: 'SENT' })).toBe(true)
+    expect(countsAgainstCap({ act: 'INVITED' })).toBe(true)
+    expect(countsAgainstCap(null)).toBe(true)
+  })
+
+  it('both limits count only emails that left, and nothing where no email can leave this deployment', () => {
+    const one = read('src/app/api/access/invite/one.ts')
+    expect(one).toContain('countsAgainstCap(r.payload)')
+    expect(one).toContain('deliveryState: { notIn: [...MAIL_NOT_GONE] }')
+    expect(one.match(/if \(!mailLeaves\(\)\) return \{ count: 0, oldest: null \}/g)?.length).toBe(2)
+    expect(one).toContain('payload: { ...logPayload, mail: sent.mail.state }')
+  })
+})
+
+/**
+ * Fix list layer 4, 2026-11-15, batch four walk. An Owner changed a
+ * colleague to the Member role on Users & permissions. His row read "No
+ * role yet · give them a role", but the answer said "read-only access",
+ * the activity log said he was given Member, his notice said "You now
+ * have the Member role", and every picker on the page offered "Member".
+ * One reader decides the words now (`roleWords`).
+ */
+describe('the Member role reads as No role yet wherever a person is described', () => {
+  const page = read('src/app/dashboard/access/page.tsx')
+
+  it('a seat changed to the Member role is told it has no role yet and what it sees, never read-only access', () => {
+    const says = roleChangeSays({ personName: 'Tobias Ferrand', roleName: 'Member', expiresAt: null, renewing: false })
+    expect(says).toBe(`Tobias Ferrand has no role yet. ${NO_ROLE_SEES}`)
+    expect(says).not.toContain('read-only')
+    expect(says).not.toContain('Member')
+    // The end date is said only where one applies.
+    const dated = roleChangeSays({ personName: 'Tobias Ferrand', roleName: 'Member', expiresAt: new Date('2027-01-05T00:00:00Z'), renewing: false })
+    expect(dated).toBe(`Tobias Ferrand has no role yet. ${NO_ROLE_SEES} The seat ends on Jan 5, 2027 unless renewed.`)
+    const renewed = roleChangeSays({ personName: 'Tobias Ferrand', roleName: 'Member', expiresAt: null, renewing: true })
+    expect(renewed).not.toMatch(/Member|read-only/)
+  })
+
+  it('a role that holds something is still named in the answer, and a read-only one says so', () => {
+    expect(roleChangeSays({ personName: 'Ana Ruiz', roleName: 'Recruiter', expiresAt: new Date('2027-01-05T00:00:00Z'), renewing: false }))
+      .toBe('Ana Ruiz can now work as Recruiter. This ends on Jan 5, 2027 unless renewed.')
+    expect(roleChangeSays({ personName: 'Ana Ruiz', roleName: 'Auditor', expiresAt: null, renewing: false }))
+      .toBe('Ana Ruiz has read-only access as Auditor, with no end date.')
+  })
+
+  it('the activity log never says somebody was given Member', () => {
+    const base = { actorName: 'Jenna Okafor', personName: 'Tobias Ferrand', roleName: 'Member', expiresAt: null, renewing: false }
+    expect(roleChangeSummary({ ...base, fromRoleName: 'Recruiter' })).toBe('Jenna Okafor took Tobias Ferrand’s role away (was Recruiter)')
+    expect(roleChangeSummary({ ...base, fromRoleName: null })).toBe('Jenna Okafor left Tobias Ferrand with no role yet')
+    expect(roleChangeSummary({ ...base, fromRoleName: 'Member' })).toBe('Jenna Okafor left Tobias Ferrand with no role yet')
+    expect(roleChangeSummary({ ...base, fromRoleName: 'Recruiter', renewing: true })).not.toContain('Member')
+    // Given a real role from Member, the line says he had none, never "(was Member)".
+    expect(roleChangeSummary({ ...base, roleName: 'Recruiter', fromRoleName: 'Member' })).toBe('Jenna Okafor gave Tobias Ferrand Recruiter (had no role yet)')
+    expect(roleChangeSummary({ ...base, roleName: 'Admin', fromRoleName: 'Recruiter', expiresAt: new Date('2027-01-05T00:00:00Z') }))
+      .toBe('Jenna Okafor gave Tobias Ferrand Admin (was Recruiter) until Jan 5, 2027')
+    const route = read('src/app/api/access/route.ts')
+    expect(route).toContain('summary: roleChangeSummary({')
+    expect(route).toContain('message: roleChangeSays({')
+    expect(route).not.toContain('has read-only access with no end date')
+  })
+
+  it('a person moved to the Member role is told the role was taken away and what they still see, never "You now have the Member role"', () => {
+    const n = deskChangedNotice({ roleName: 'Member', fromRoleName: 'Recruiter', companyName: 'Northwind Staffing', expiresAt: null, landing: '/dashboard' })
+    expect(n.title).toBe('Your role was taken away')
+    expect(n.body).toBe('Your role at Northwind Staffing was taken away; you have no role yet. You see Ask Etyme and your own pages.')
+    for (const sentence of n.body.split(/(?<=[.;])\s/)) expect(sentence.split(/\s+/).length).toBeLessThanOrEqual(25)
+    const none = deskChangedNotice({ roleName: 'Member', fromRoleName: null, companyName: 'Northwind Staffing', expiresAt: null, landing: '/dashboard' })
+    expect(none.body).toBe('You have no role yet at Northwind Staffing. You see Ask Etyme and your own pages.')
+    expect(`${none.title} ${none.body} ${n.title}`).not.toContain('Member')
+    expect(read('src/app/api/access/route.ts')).toContain('fromRoleName: target.role?.name ?? null,')
+  })
+
+  it('one reader says the role: No role yet for the Member role or none, the name for every other', () => {
+    expect(roleWords('Member')).toBe(NO_ROLE_LABEL)
+    expect(roleWords('member')).toBe(NO_ROLE_LABEL)
+    expect(roleWords(null)).toBe(NO_ROLE_LABEL)
+    expect(roleWords('Recruiter')).toBe('Recruiter')
+    expect(holdsNoRole('AP Clerk')).toBe(false)
+    expect(waitingLine({ invited: true, signedIn: false, days: 0, desk: 'Member' })).toBe('Invited today, not yet signed in')
+    expect(waitingLine({ invited: true, signedIn: false, days: 0, desk: 'Recruiter' })).toBe('Invited today, not yet signed in · will have the Recruiter role')
+  })
+
+  it('every picker on Users & permissions offers and shows the Member role as No role yet', () => {
+    const member = { id: 'm', name: 'Member', blurb: 'Sees their own work.' }
+    expect(roleOptionText(member)).toBe(`${NO_ROLE_LABEL}: ${NO_ROLE_SEES}`)
+    expect(roleChoiceSays('m', [member])).toBe(NO_ROLE_SEES)
+    // "Can they see it?" names the person's role through the one reader.
+    expect(page).toContain('{p.person.name} — {roleWords(p.role)}')
+    // Give them access, Change role and Renew: no option prints a bare role name.
+    expect(page).not.toMatch(/<option key=\{r\.id\} value=\{r\.id\}>\{r\.name\}<\/option>/)
+    expect(page.match(/<option key=\{r\.id\} value=\{r\.id\}>\{roleWords\(r\.name\)\}<\/option>/g)?.length).toBe(3)
+    expect(page).toContain('{pickable.filter((r) => !holdsNoRole(r.name)).map((r) => <option key={r.id} value={r.id}>{roleOptionText(r)}</option>)}')
+    // The chosen role's line is said under Give them access and Change role.
+    expect(page.match(/help=\{roleChoiceSays\(form\.roleId, pickable\)\}/g)?.length).toBe(2)
+    // The ended list and Worth a look describe a person, so they read the same.
+    expect(page).toContain('{e.role ? `${roleWords(e.role)} · ` : \'\'}')
+    expect(page).toContain('· {roleWords(r.roleName)}</span>')
+  })
+
+  it('Settings › Roles still names the role Member', () => {
+    const settings = read('src/app/dashboard/settings/page.tsx')
+    const tab = settings.slice(settings.indexOf('function RolesTab'))
+    expect(tab).toContain('font-medium">{r.name}</span>')
+    expect(tab.slice(0, tab.indexOf('\n}\n'))).not.toContain('roleWords')
+  })
+
+  it('a copied invitation for the Member role reads as one with no role, never "as Member"', () => {
+    const text = copyInvitation({
+      inviterName: 'Jenna Okafor', companyName: 'Northwind Staffing', email: 'tobias@northwind-staffing.example',
+      roleName: 'Member', appUrl: 'https://app.example', mode: 'OPEN', mailLeaves: true,
+    })
+    expect(text).not.toContain('as Member')
+    expect(text.startsWith('Jenna Okafor invited you to Northwind Staffing on Etyme.')).toBe(true)
   })
 })

@@ -12,7 +12,8 @@
  * Pure: no database. The route reads the seats and hands them here; the
  * page posts what `lifecycleBody` builds.
  */
-import { ownerVerdict, rowActs, stateOf, type AccessRow, type Actor, type AccessState, type Verdict } from '@/lib/account-lifecycle'
+import { ownerVerdict, rowActs, stateOf, seatByDate, type AccessRow, type Actor, type AccessState, type Verdict, type DatedSeat } from '@/lib/account-lifecycle'
+import { hasPermission } from '@/lib/permissions'
 
 export type LifecycleAction = 'suspend' | 'reinstate' | 'revoke'
 
@@ -49,6 +50,13 @@ export interface RowOffer {
   rename?: boolean
   /** Change role, where the grant route would take it (`mayChangeRole`); added by the register. */
   changeRole?: boolean
+  /**
+   * Why a person row offers none of Pause, Reinstate and End, in one
+   * sentence drawn muted on the row (fix list D5, 2026-11-15: the row
+   * showed no button and no word). Null where one of them is offered, and
+   * on a waiting row, which says why already.
+   */
+  whyNoActs: string | null
 }
 
 /**
@@ -61,8 +69,47 @@ export function mayChangeRole(f: { mayGrant: boolean; targetIsOwner: boolean; ac
 }
 
 const NOTHING = (state: AccessState): RowOffer => ({
-  pause: false, reinstate: false, end: false, withdraw: false, endInstead: false, resend: false, copy: false, state, pauseSays: [], endSays: [], withdrawSays: [],
+  pause: false, reinstate: false, end: false, withdraw: false, endInstead: false, resend: false, copy: false, state, pauseSays: [], endSays: [], withdrawSays: [], whyNoActs: null,
 })
+
+/** Said on the last Owner's row: never paused or removed while the last. */
+export const LAST_OWNER_SAYS = 'The only Owner here, so never paused or removed while they are the last. They can pass ownership in Settings → Owners.'
+/** Said on an Owner's row to a reader who is not an Owner. */
+export const OWNER_ONLY_SAYS = 'Only an Owner pauses an Owner, and removing one needs another Owner’s yes in Settings → Owners.'
+/** Said on a paused Owner's row to a reader who is not an Owner. */
+export const OWNER_PAUSE_ONLY_SAYS = 'Only an Owner lifts an Owner’s pause, and removing one needs another Owner’s yes in Settings → Owners.'
+/** Said on the row of the one live seat that may manage access. */
+export const ONLY_MANAGER_SAYS = 'The only person here who can manage access, so never paused or ended. Give somebody else a role that can, first.'
+/** What a pause or an end is called in the sentence for a reader who may not do either. */
+export const PAUSE_OR_END_DOING = 'Pausing or ending somebody’s access'
+/** The fallback for that sentence, where the route has not named who here may. */
+export const NOT_MANAGER_SAYS = `${PAUSE_OR_END_DOING} is for an Owner or Admin here. Ask one of them.`
+
+/** Whether this row is the last live Owner: an Owner, signed in, and no other such Owner. */
+function lastOwner(row: AccessRow, all: AccessRow[]): boolean {
+  if (!row.isOwner || stateOf(row) !== 'ACTIVE') return false
+  return !all.some((r) => r.isOwner && r.contextId !== row.contextId && !r.revokedAt && !r.suspendedAt && r.hasSignedIn)
+}
+
+/** Whether this row is the one live, signed-in seat that may manage access: the lockout rule's own reading. */
+function onlyManager(row: AccessRow, all: AccessRow[]): boolean {
+  if (!hasPermission(row.rolePermissions, 'team.manage')) return false
+  return !all.some((r) => r.contextId !== row.contextId && !r.revokedAt && !r.suspendedAt && r.hasSignedIn && hasPermission(r.rolePermissions, 'team.manage'))
+}
+
+/**
+ * Why a signed-in or paused row offers this reader none of Pause,
+ * Reinstate and End, read from the verdicts the route gives. Pure.
+ */
+function whyNothingSays(row: AccessRow, all: AccessRow[], actor: Actor, v: { pause: Verdict; reinstate: Verdict; end: Verdict }): string {
+  if (lastOwner(row, all)) return LAST_OWNER_SAYS
+  const state = stateOf(row)
+  if (row.isOwner && !actor.isOwner) return state === 'SUSPENDED' ? OWNER_PAUSE_ONLY_SAYS : OWNER_ONLY_SAYS
+  // The lockout rule (lib/account-lifecycle): the verdict's own sentence
+  // names a permission key, so the row says it in words.
+  if (onlyManager(row, all)) return ONLY_MANAGER_SAYS
+  return state === 'SUSPENDED' ? v.reinstate.reason : v.pause.reason
+}
 
 /** Who is withdrawing: the Owner rule needs whether they are an Owner, and the self rule who they are. */
 export interface Withdrawer extends Actor {
@@ -75,10 +122,44 @@ export interface Withdrawer extends Actor {
  * listed: 4 consultants on your books, …" (walk, 2026-11-14: the two ran
  * together with no stop). Pure.
  */
-export function peopleHeadline(headline: string, consultantsListed: number): string {
-  if (!consultantsListed) return headline
-  const ended = /[.!?]$/.test(headline) ? headline : `${headline}.`
-  return `${ended} Also listed: ${consultantsListed} ${consultantsListed === 1 ? 'consultant' : 'consultants'} on your books, not counted among your people.`
+export function peopleHeadline(headline: string, consultantsListed: number, endedListed: number = 0): string {
+  if (!consultantsListed && !endedListed) return headline
+  const stop = /[.!?]$/.test(headline) ? headline : `${headline}.`
+  const consultants = `${consultantsListed} ${consultantsListed === 1 ? 'consultant' : 'consultants'} on your books`
+  // A seat past its end date is in no figure (2026-11-15), so the list
+  // under "Access ended" is said here, and the headline and the list agree.
+  const ended = `${endedListed} ${endedListed === 1 ? 'person' : 'people'} whose access ended`
+  if (!endedListed) return `${stop} Also listed: ${consultants}, not counted among your people.`
+  if (!consultantsListed) return `${stop} Also listed: ${ended}, not counted.`
+  return `${stop} Also listed: ${consultants} and ${ended}, none counted among your people.`
+}
+
+/**
+ * The company's seats as the lockout rules should read them on a date
+ * (2026-11-15): a seat whose end date has come and that `seatByDate` does
+ * not keep open is read as ended, so it never counts as somebody who can
+ * still let people in, and is never named as one to ask. In memory only:
+ * no row is rewritten when a date passes. The seat named by `keep` is
+ * left as it is, so an act on it reads its own state. Pure.
+ */
+export function readOnTheirDates<R extends AccessRow & { expiresAt: Date | null }>(rows: readonly R[], now: Date = new Date(), keep?: string): R[] {
+  const dated = (r: R): DatedSeat => ({
+    contextId: r.contextId,
+    // Every row is the one company's.
+    companyId: 'this company',
+    expiresAt: r.expiresAt,
+    isOwner: r.isOwner === true,
+    rolePermissions: r.rolePermissions,
+    revokedAt: r.revokedAt,
+    suspendedAt: r.suspendedAt,
+    hasSignedIn: r.hasSignedIn,
+  })
+  const all = rows.map(dated)
+  return rows.map((r) => {
+    if (r.revokedAt || r.contextId === keep) return r
+    const v = seatByDate(dated(r), all, now)
+    return v.open ? r : { ...r, revokedAt: v.endedOn }
+  })
 }
 
 /**
@@ -180,11 +261,17 @@ export function resendVerdict(target: AccessRow & { invited?: boolean }, actor: 
  * (no `team.manage`, which the route asks for) is offered nothing on any
  * row; the route would refuse each press.
  */
-export function offersFor(all: (AccessRow & { invited?: boolean })[], actor: Withdrawer, mayManage: boolean): Map<string, RowOffer> {
+export function offersFor(
+  all: (AccessRow & { invited?: boolean })[],
+  actor: Withdrawer,
+  mayManage: boolean,
+  /** Who here may pause or end access, for a reader who may not; the route names the seats the firm has filled. */
+  notManagerSays: string = NOT_MANAGER_SAYS,
+): Map<string, RowOffer> {
   const out = new Map<string, RowOffer>()
   for (const row of all) {
     const state = stateOf(row)
-    if (!mayManage) { out.set(row.contextId, NOTHING(state)); continue }
+    if (!mayManage) { out.set(row.contextId, { ...NOTHING(state), whyNoActs: state === 'INVITED' ? null : notManagerSays }); continue }
     const v = rowActs(row, all, actor)
     // A waiting row: Withdraw invitation in place of Pause and End, with
     // End kept back for the one case the withdraw route refuses on history.
@@ -202,6 +289,7 @@ export function offersFor(all: (AccessRow & { invited?: boolean })[], actor: Wit
       })
       continue
     }
+    const none = !v.pause.allowed && !v.reinstate.allowed && !v.end.allowed
     out.set(row.contextId, {
       ...NOTHING(state),
       pause: v.pause.allowed,
@@ -209,6 +297,7 @@ export function offersFor(all: (AccessRow & { invited?: boolean })[], actor: Wit
       end: v.end.allowed,
       pauseSays: v.pause.allowed ? v.pause.consequences : [],
       endSays: v.end.allowed ? v.end.consequences : [],
+      whyNoActs: none ? whyNothingSays(row, all, actor, v) : null,
     })
   }
   return out
