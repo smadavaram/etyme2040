@@ -24,7 +24,7 @@ import { weekTurn, weekTurns, ladderAbove } from './ladder'
 import { firmsAcceptingOnlyFor, withoutOwnFirmAcceptance } from '@/lib/money/own-firm-acceptance'
 import { topDown } from './chain-turn'
 import { approvalWordsReadLog } from './approval-by-email'
-import { approvalWordsFor } from '@/lib/week-approval'
+import { approvalWordsFor, readWeekChains, recordedContactsFor } from '@/lib/week-approval'
 import { rungsToFile, openWeeks } from '@/lib/consultant-portfolio'
 import { maySign, type Sheet } from '@/lib/timesheet-signatures'
 import { weekActOf } from '@/lib/notify/week-words'
@@ -36,6 +36,13 @@ import type { Carried } from '@/lib/money/client-overtime'
 import { clientDecidedFor, clientDecidedSentence } from './client-decided'
 import { topLegsOver } from '@/lib/money/client-overtime-read'
 import { acceptedWorth, acceptedRowSays, type WeekWorth } from './accepted-worth'
+import { emptyWhy, firmFilingSays, clientApprovalSays, clientApprovalLink, CONTACTS_HREF, CANDIDATES_HREF, lineStarted, type EmptyWhy, type EmptyPerson, type NoApproverAt } from './empty-why'
+import { hasPermission, desksHolding } from '@/lib/permissions'
+import { seatedWhoMay, notYourButton } from '@/lib/refusal-words'
+import { seatedRoles } from '@/app/api/contracts/[id]/activate/gate'
+import { getNavForKind } from '@/lib/nav-table'
+import { weekDueFor } from '@/lib/days-off'
+import { ADDS_CONSULTANTS } from '@/lib/consultant-portfolio/who-adds'
 
 /**
  * GET /api/timesheets
@@ -413,6 +420,48 @@ export async function GET(request: NextRequest) {
     timesheets
   )
 
+  // ── Filed, and the client's approval not on it yet ────────────────
+  //
+  // Fix list E1, item 2. For a firm below the client, a week that waits on
+  // the client is not waiting on this reader, and nothing said so in a
+  // count. The same reading as the reader's own week above: the client's
+  // signature is still among the missing (`weekTurns`).
+  const clientUnsigned = new Set<string>()
+  if (!asClient && !onBench && turnFirm) {
+    const filed = timesheets.filter((t) => t.status === 'SUBMITTED')
+    if (filed.length > 0) {
+      const reads = await weekTurns(filed, turnFirm)
+      for (const t of filed) {
+        if (reads.get(t.id)?.unsigned.some((u) => u.role === 'CLIENT_APPROVAL')) clientUnsigned.add(t.id)
+      }
+    }
+  }
+  const attachWho = clientUnsigned.size > 0 && !hasPermission(acting.permissions, 'timesheets.approve') && caller.company
+    ? notYourButton(
+        'attaching the client’s approval',
+        seatedWhoMay(desksHolding('timesheets.approve', caller.company.kind), (await seatedRoles(caller.company.id)) ?? [])
+      )
+    : null
+  // A client not on Etyme with nobody there recorded who approves hours:
+  // the week page refuses the attach until somebody is, so the panel says
+  // that first step before the link to the week (`clientApprovalSays`).
+  const noApprover = clientUnsigned.size > 0 && caller.company
+    ? await clientsWithNoApprover(caller, [...clientUnsigned])
+    : []
+
+  // ── Why the list is empty, where nothing narrowed it ──────────────
+  //
+  // Fix list E1, item 1: "No timesheets yet." whatever the cause. Read
+  // only where the reader sees a book (not their own weeks alone) and
+  // asked for no tab, week, line or person: otherwise the list is empty
+  // because of the question, and says that instead (`./empty-why`).
+  const empty =
+    total === 0 && !status && !sellContractId && !onlyId && !whose.personId && !onBench && !ownOnly && !deskless
+      ? await whyEmpty(caller, {
+          rowScope, asClient, seatedFor: desk?.seat ? desk.companyName ?? null : null, seated: !!desk?.seat,
+        })
+      : null
+
   return NextResponse.json({
     data: {
       timesheets: timesheets.map((t) => {
@@ -574,6 +623,9 @@ export async function GET(request: NextRequest) {
           days: (t.days as Record<string, number>) ?? {},
           leaveDays: (t.leaveDays as Record<string, number>) ?? {},
           hoursPerWeek: t.sellContract.requirement?.hoursPerWeek ?? null,
+          // Filed, and the client's approval is not on it yet: for a firm
+          // below the client, the week waits on the client, not on it.
+          waitsOnClient: clientUnsigned.has(t.id),
           overtime,
           // Where the payer on this row's line accepted a number other than
           // every hour filed: the hours the row reads, beside the hours
@@ -595,6 +647,20 @@ export async function GET(request: NextRequest) {
         }
       }),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      // Why nothing is listed, and the step that is missing; null where
+      // something is listed or the reader narrowed the list (`./empty-why`).
+      empty,
+      // The weeks on this page that wait for the client's approval, said
+      // once, and whether this seat attaches it from the week's page.
+      clientApproval: {
+        count: clientUnsigned.size,
+        says: clientApprovalSays(clientUnsigned.size, {
+          may: hasPermission(acting.permissions, 'timesheets.approve'),
+          whoSays: attachWho,
+        }, noApprover),
+        // Contacts, where that person is added; only for a seat that may.
+        link: clientApprovalLink(noApprover),
+      },
       // ── Whether this reader files a week at all ─────────────────
       //
       // A button the route will refuse is a button that lies — the nav
@@ -637,11 +703,159 @@ export async function GET(request: NextRequest) {
               : asClient
               ? `Hours are filed by the person who worked them, from their own page. ` +
                 `${desk?.companyName ?? caller.company?.name ?? 'This company'} buys the work and signs for it.`
-              : `Hours are filed by the person who worked them, from their own page. ` +
-                `${caller.company?.name ?? 'Your firm'} accepts them once the client has signed.`,
+              // Who does what, and no order: an employer may accept before
+              // the client approves, and one payroll person may attach the
+              // client's approval and accept the same week (founder,
+              // 2026-11-14; fix list E1, item 3).
+              : firmFilingSays(caller.company?.name ?? null),
       },
     },
   })
+}
+
+/** Whether this seat's own menu holds a page at this address (`getNavForKind`, the rule the sidebar draws by). */
+function menuOpens(
+  caller: NonNullable<Awaited<ReturnType<typeof getCallerContext>>['caller']>,
+  path: string
+): boolean {
+  const kind = caller.company?.kind ?? null
+  if (!kind) return false
+  return getNavForKind(kind as any, false, { permissions: caller.permissions })
+    .some((s) => s.items.some((i) => i.href.split('?')[0] === path))
+}
+
+/**
+ * The clients of these weeks that are not on Etyme and at which nobody who
+ * approves hours is recorded, read exactly as the week page's attach reads
+ * them (`clientOfRecord` in lib/week-approval): unclaimed, and no address
+ * recorded by the firm that listed it, the worker's own left out. Where
+ * the reader may add a contact (Contacts on its menu), it is linked; where
+ * not, it is told which role does.
+ */
+async function clientsWithNoApprover(
+  caller: NonNullable<Awaited<ReturnType<typeof getCallerContext>>['caller']>,
+  weekIds: readonly string[]
+): Promise<NoApproverAt[]> {
+  const chains = await readWeekChains(weekIds)
+  const byClient = new Map<string, { name: string; workerEmails: string[] }>()
+  for (const c of chains.values()) {
+    const seen = byClient.get(c.clientId) ?? { name: c.clientName, workerEmails: [] }
+    if (c.week.personEmail) seen.workerEmails.push(c.week.personEmail)
+    byClient.set(c.clientId, seen)
+  }
+  if (byClient.size === 0) return []
+  const companies = await prisma.company.findMany({
+    where: { id: { in: [...byClient.keys()] } },
+    select: { id: true, claimedAt: true, listedById: true },
+  })
+  const none: { name: string }[] = []
+  for (const co of companies) {
+    if (co.claimedAt != null) continue
+    const at = byClient.get(co.id)!
+    // Per week the worker's own address is left out, as the attach does;
+    // a client is clear only where some address stands for every week.
+    const recorded = co.listedById
+      ? await Promise.all([...new Set(at.workerEmails.length ? at.workerEmails : [''])].map((e) =>
+          recordedContactsFor(co.id, co.listedById!, { excludeEmails: [e] })))
+      : [[]]
+    if (recorded.some((r) => r.length === 0)) none.push({ name: at.name })
+  }
+  if (none.length === 0) return []
+  const may = !isConsultantSeat(caller) && menuOpens(caller, CONTACTS_HREF)
+  const firm = caller.company
+  const who = may || !firm
+    ? []
+    : seatedWhoMay(desksHolding('timesheets.approve', firm.kind), (await seatedRoles(firm.id)) ?? [])
+  return none.map((n) => ({
+    clientName: n.name,
+    may,
+    whoSays: may || !firm ? null : notYourButton(`adding the person at ${n.name} who approves hours`, who),
+  }))
+}
+
+/**
+ * Why a book with no weeks in it is empty (`./empty-why`): the reader's
+ * lines, the people on the open ones, whether each has signed in, and
+ * what this seat may do about it. Every person named is a read of their
+ * record, and is logged.
+ */
+async function whyEmpty(
+  caller: NonNullable<Awaited<ReturnType<typeof getCallerContext>>['caller']>,
+  at: { rowScope: Record<string, unknown>; asClient: boolean; seatedFor: string | null; seated: boolean }
+): Promise<EmptyWhy> {
+  const lines = await prisma.sellContract.findMany({
+    where: at.rowScope,
+    select: {
+      personId: true,
+      state: true,
+      person: { select: { name: true, _count: { select: { credentials: true } } } },
+    },
+  })
+  const placed = new Map<string, EmptyPerson>()
+  for (const l of lines) {
+    if (l.state === 'ENDED' || l.state === 'CANCELLED') continue
+    // One person on two open lines has started where either has: a
+    // recorded placement not started yet cannot take a week, and that,
+    // not her sign-in, is what the page must say (`lineStarted`).
+    const seen = placed.get(l.personId)
+    if (seen) {
+      if (lineStarted(l.state)) seen.started = true
+      continue
+    }
+    placed.set(l.personId, {
+      personId: l.personId,
+      name: l.person.name,
+      signedIn: l.person._count.credentials > 0,
+      isReader: l.personId === caller.person.id,
+      started: lineStarted(l.state),
+    })
+  }
+
+  const firm = caller.company
+  const mayRecord = !at.asClient && !at.seated && !!firm
+    && hasPermission(caller.permissions, 'assignments.write') && menuOpens(caller, '/dashboard/contracts')
+  // The contracts route's own sentence, for a seat not offered the button.
+  const recordSays = !at.asClient && !mayRecord && firm
+    ? notYourButton(
+        'recording a placement',
+        seatedWhoMay(desksHolding('assignments.write', firm.kind), (await seatedRoles(firm.id)) ?? [])
+      )
+    : null
+  // Candidates is where an invitation is sent again, by the seat that adds people.
+  const mayInvite = !at.asClient && !at.seated
+    && hasPermission(caller.permissions, ADDS_CONSULTANTS) && menuOpens(caller, CANDIDATES_HREF)
+  const hoursDueWeekday = !at.asClient && firm ? (await weekDueFor(firm.id)).hoursDueWeekday : null
+
+  const why = emptyWhy({
+    asClient: at.asClient,
+    seatedFor: at.seatedFor,
+    onePerson: firm?.kind === 'CONSULTANT_CORP',
+    anyLines: lines.length,
+    placed: [...placed.values()],
+    mayRecord,
+    recordSays,
+    mayOpenCandidates: mayInvite,
+    inviteSays: !mayInvite && !at.asClient && firm && [...placed.values()].some((p) => p.started && !p.signedIn && !p.isReader)
+      ? notYourButton(
+          'sending the invitation again',
+          seatedWhoMay(desksHolding(ADDS_CONSULTANTS, firm.kind), (await seatedRoles(firm.id)) ?? [])
+        )
+      : null,
+    hoursDueWeekday,
+  })
+
+  // The people the sentence names are read about; the rest are not.
+  const named = [...placed.values()]
+    .filter((p) => !p.isReader && why.people.some((x) => x.personId === p.personId))
+    .map((p) => p.personId)
+  if (named.length > 0) {
+    await recordAccess(named, {
+      actorPersonId: caller.person.id,
+      actorCompanyId: caller.company?.id ?? undefined,
+      action: 'TIMESHEET_VIEW',
+    }).catch((err) => reportError('access-log', err, { personId: caller.person.id, companyId: caller.company?.id ?? null }))
+  }
+  return why
 }
 
 /**

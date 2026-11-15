@@ -63,7 +63,7 @@ describe('Asks to link that she made', () => {
 describe('Adding by name a firm that is on Etyme', () => {
   it('says what to ask them for in plain words, and the rule is unchanged: no id and no button from a name alone', () => {
     expect(companiesRoute).toContain('ask them for their web domain, ')
-    expect(companiesRoute).toContain('or the address their Etyme page opens at, and type it below.')
+    expect(companiesRoute).toContain('or the address their Etyme page opens at, and type it in the Domain box or the Etyme address box.')
     expect(companiesRoute).not.toContain('give their domain or their ` +')
     expect(companiesRoute).toContain("return NextResponse.json({ error: { code: 'SAME_NAME', field: 'domain', message: says } }, { status: 409 })")
   })
@@ -88,7 +88,10 @@ describe('Add a company', () => {
 
 describe('The Companies list', () => {
   it('each tile filters the list as its chip does, and says which one is chosen', () => {
-    expect(companies).toContain('onClick={() => setPositionFilter(t.key)}')
+    // One function sets the filter for a tile and for a chip; it also clears
+    // the sentence a press left on a row (2026-11-15).
+    expect(companies).toContain('onClick={() => chooseFilter(t.key)}')
+    expect(companies).toContain('const chooseFilter = (f: PositionFilter) => { setPressed({}); setPositionFilter(f) }')
     expect(companies).toContain('aria-pressed={positionFilter === t.key}')
     expect(companies).toContain('{companyTilesShown(tiles).map((t) => (')
     // Every tile's filter is one a chip also offers.
@@ -138,7 +141,7 @@ describe('Adding the same person twice', () => {
 
   it('the same name at the same company with a phone where the first had an email is asked about before it is saved', () => {
     const asked = sameNameOnFile({ name: '  dorian   VALE ', atCompanyId: 'bw' }, existing)
-    expect(asked?.says).toBe('A Dorian Vale is already on file at this company. Is this the same person?')
+    expect(asked?.says).toBe('Somebody named Dorian Vale is already in your Contacts at this company. Is this the same person?')
     expect(sameNameOnFile({ name: 'Dorian Vale', atCompanyId: 'elsewhere' }, existing)).toBeNull()
     expect(sameNameOnFile({ name: 'Dora Vale', atCompanyId: 'bw' }, existing)).toBeNull()
   })

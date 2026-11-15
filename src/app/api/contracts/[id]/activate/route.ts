@@ -7,8 +7,10 @@ import { contractSide } from '@/lib/resolve-client-company'
 import { notify } from '@/lib/notify'
 import { termsGate } from '@/lib/award/terms-on-record'
 import { siteSay, startSays } from './words'
-import { startPapers } from './papers'
-import { gateRefusal, whoMay, seatedRoles, TRANSITIONS, VALID_ACTIONS, type Action } from './gate'
+import { startPapers, i9DoorAtStart } from './papers'
+import { hasPermission } from '@/lib/permissions'
+import { gateRefusal, whoMay, seatedRoles, TRANSITIONS, VALID_ACTIONS, DOING, NEEDS, type Action, type GateRefusal } from './gate'
+import { whoHereMaySays } from '@/lib/money/who-raises-bills'
 import { startWarningVerdict, startIdentityWarning, type StartWarning } from '@/lib/money/start-warnings'
 import { logAccess, recordRefusal, accessActor } from '@/lib/access-log'
 
@@ -42,6 +44,17 @@ const TOLD: Record<Action, string> = {
 }
 
 // Human-readable descriptions for the automation log
+/**
+ * A seat whose role does not do this act reads who at its own firm does,
+ * from the seats the firm has filled (layer 2 press, 2026-11-15: the
+ * Account Manager and AP & Payroll read "Resource Manager or Contract
+ * Manager" at a firm seating neither). Who may do it is not changed.
+ */
+async function seatedRefusal(caller: Parameters<typeof whoHereMaySays>[0], refused: GateRefusal, action: Action): Promise<GateRefusal> {
+  if (refused.error.code !== 'FORBIDDEN') return refused
+  return { ...refused, error: { ...refused.error, message: await whoHereMaySays(caller, { doing: DOING[action], needs: NEEDS[action] }) } }
+}
+
 const ACTION_SUMMARIES: Record<Action, string> = {
   verify:   'submitted for verification',
   activate: 'activated — work may begin',
@@ -85,7 +98,8 @@ export async function GET(
     return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Contract not found' } }, { status: 404 })
   }
 
-  const refused = gateRefusal(caller, contract, 'activate')
+  const gated = gateRefusal(caller, contract, 'activate')
+  const refused = gated && (await seatedRefusal(caller, gated, 'activate'))
   if (refused?.error.code === 'NOT_A_PARTY') {
     await recordRefusal([contract.personId], {
       ...accessActor(caller), action: 'COMPLIANCE_CHECK', reason: 'Asked whether a placement may start, at a firm not party to it.',
@@ -108,6 +122,14 @@ export async function GET(
     subjectId: contract.personId, ...accessActor(caller), action: 'COMPLIANCE_CHECK',
     reason: 'Read the papers a start needs, to draw the Activate button.',
   })
+  // A missing I-9 names where it is recorded: the link for a seat that may
+  // record it, who does for any other (`i9DoorAtStart`).
+  const i9 = papers.outcome === 'BLOCK' && caller.company
+    ? await i9DoorAtStart(
+        { companyId: caller.company.id, companyName: caller.company.name, kind: caller.company.kind, holds: (p) => hasPermission(caller.permissions, p as never) },
+        contract, papers.blocking,
+      )
+    : null
   return NextResponse.json({
     data: {
       id,
@@ -117,7 +139,7 @@ export async function GET(
       says: null,
       who,
       terms: terms.blocks ? { blocks: true, says: terms.says } : null,
-      papers: { outcome: papers.outcome, says: papers.says, fix: papers.fix },
+      papers: { outcome: papers.outcome, says: papers.says, fix: papers.fix, door: i9?.door ?? null, whoRecords: i9?.whoRecords ?? null },
     },
   })
 }
@@ -178,8 +200,11 @@ export async function POST(
   // A stranger is told so in words. A party without the permission is
   // told which one, because "forbidden" on a button that is on their own
   // screen reads as a fault.
-  const refused = gateRefusal(caller, contract, action as Action)
-  if (refused) return NextResponse.json({ error: refused.error }, { status: refused.status })
+  const gated = gateRefusal(caller, contract, action as Action)
+  if (gated) {
+    const refused = await seatedRefusal(caller, gated, action as Action)
+    return NextResponse.json({ error: refused.error }, { status: refused.status })
+  }
   const side = contractSide(caller, contract)!
   const transition = TRANSITIONS[action as Action]
 

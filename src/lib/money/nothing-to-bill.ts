@@ -166,3 +166,195 @@ export function alreadyBilledSays(weeks: WeekNotBillable[]): string | null {
     `${numbers.length === 1 ? `bill ${numbers[0]}` : `bills ${list(numbers)}`}.`
   )
 }
+
+// ── Which step a firm's bill waits on (Area E, 2026-11-14) ─────────────
+//
+// The tester opened Bills at a supplier with nothing to bill and read one
+// condition on the page ("a bill is made from the weeks your client has
+// approved") and another in the dialog ("no engagement it can bill"). The
+// route now decides the one missing step, in order, and the page and the
+// dialog both print its answer, so they cannot disagree.
+
+/** The words of the act that makes a bill, on the dialog and every sentence here. */
+export const RAISE_A_BILL = 'Raise a bill'
+
+/** Where Record a placement opens its dialog. */
+export const RECORD_A_PLACEMENT_HREF = '/dashboard/contracts?new=1'
+
+export interface BillStepLink {
+  href: string
+  label: string
+}
+
+export interface BillWaitsOn {
+  /** Something can be billed now: the button is drawn and the dialog lists it. */
+  canBill: boolean
+  /** The missing step, where nothing can be billed. */
+  says: string | null
+  /** The act that unblocks it, for a seat that may open the page and do the act. */
+  link: BillStepLink | null
+}
+
+export interface BillWaitsInput {
+  companyName: string
+  /** False for a firm that bills no placement of its own: a client, or an MSP. */
+  billsPlacements: boolean
+  /** Names on the firm's own placements, not cancelled, in a stable order. */
+  placed: ReadonlyArray<{ personName: string; started: boolean; paused?: boolean }>
+  /** The firm runs a client's program (an MSP) and supplies nobody itself. */
+  runsPrograms?: boolean
+  /**
+   * Each engagement the firm may bill under, with what a dry run of the
+   * one generator found: `noHours` where it found no hours to bill at all,
+   * null where something can be billed or the dialog has its own sentence.
+   */
+  engagements: ReadonlyArray<{
+    people: readonly string[]
+    noHours: {
+      weeks: WeekNotBillable[]
+      /**
+       * `noApproverAt` is the client's name where it is not on Etyme and
+       * nobody there who approves hours is recorded yet, so the attach on
+       * the week would be refused until somebody is added under Contacts.
+       */
+      waitingWeek: { id: string; clientOnEtyme: boolean; noApproverAt?: string | null } | null
+    } | null
+  }>
+  /** The seat may record a placement; else `whoRecords` names who does. */
+  mayRecord: boolean
+  whoRecords: string | null
+  /** The seat may attach a client's approval on a week; else `whoAttaches` names who does. */
+  mayAttach: boolean
+  whoAttaches: string | null
+  /** The seat may add a contact under Contacts. */
+  mayAddContact?: boolean
+}
+
+/** Kept as the last word, for every case the steps below have no words for. */
+export function noEngagementSays(companyName: string): string {
+  return (
+    `${companyName} has no engagement it can bill right now. A bill is ` +
+    'raised by the firm that supplied the people, against its own live placements — ' +
+    'so there is nothing here until this firm has one.'
+  )
+}
+
+/**
+ * An MSP runs a client's program and places nobody, so it is the supplier
+ * on no placement. Etyme raises no bill for its own program fee.
+ */
+export function runsProgramsSays(companyName: string): string {
+  return (
+    `${companyName} is not the supplier on any placement, so it has nothing to bill. ` +
+    'Etyme does not raise a bill for an MSP’s own fee.'
+  )
+}
+
+/** Where a contact at a client is added. */
+export const CONTACTS_HREF = '/dashboard/contacts'
+
+/**
+ * The fact, in the week page's own words (its refusal of the attach,
+ * `approverIsKnownAtClient`), so the Bills page says it before the first press.
+ */
+export function noApproverRecordedSays(clientName: string): string {
+  return `${clientName} is not on Etyme, and nobody there who approves hours is recorded yet.`
+}
+
+/** The first step where nobody at a client off Etyme who approves hours is recorded. */
+export function addTheApproverSays(clientName: string): string {
+  return `Add the person at ${clientName} who approves hours, under Contacts.`
+}
+
+/** The second step, once that person is recorded. */
+export const THEN_ATTACH_SAYS = 'Then attach the client’s approval on the week.'
+
+const ready: BillWaitsOn = { canBill: true, says: null, link: null }
+
+/** "Priya Rao has" / "Priya Rao and Omar Haddad have" */
+function haveOrHas(names: string[]): string {
+  return `${list(names)} ${names.length === 1 ? 'has' : 'have'}`
+}
+
+function unique(names: Iterable<string>): string[] {
+  return [...new Set([...names].filter(Boolean))]
+}
+
+/**
+ * The one step a firm's next bill waits on, in order: somebody placed,
+ * the placement started, the week filed, the client's approval on it, and
+ * the week not already on a bill. Pure: the route reads the facts.
+ */
+export function waitsOnSays(a: BillWaitsInput): BillWaitsOn {
+  if (a.engagements.some((e) => e.noHours === null)) return ready
+
+  if (a.engagements.length === 0) {
+    if (!a.billsPlacements) {
+      return { canBill: false, says: a.runsPrograms ? runsProgramsSays(a.companyName) : noEngagementSays(a.companyName), link: null }
+    }
+    if (a.placed.length === 0) {
+      const head = 'Nobody is placed yet, so there is nothing to bill. A bill is made from the weeks a client approved.'
+      return a.mayRecord
+        ? { canBill: false, says: head, link: { href: RECORD_A_PLACEMENT_HREF, label: 'Record a placement' } }
+        : { canBill: false, says: a.whoRecords ? `${head} ${a.whoRecords}` : head, link: null }
+    }
+    const waiting = unique(a.placed.filter((p) => !p.started).map((p) => p.personName))
+    // A paused placement is one the firm has: say it is paused and where it
+    // is resumed, never that the firm has no engagement.
+    const paused = unique(a.placed.filter((p) => p.started && p.paused).map((p) => p.personName))
+    if (waiting.length > 0 || paused.length > 0) {
+      const steps: string[] = []
+      if (waiting.length > 0) {
+        steps.push(
+          `${list(waiting.map((n) => `${n}’s placement`))} ${waiting.length === 1 ? 'has' : 'have'} not started yet, ` +
+            'so no week can be filed or billed. A placement starts from Contracts.'
+        )
+      }
+      if (paused.length > 0) {
+        steps.push(
+          `${list(paused.map((n) => `${n}’s placement`))} ${paused.length === 1 ? 'is' : 'are'} paused, ` +
+            'so no week can be filed or billed. A paused placement is resumed from Contracts.'
+        )
+      }
+      const head = steps.join(' ')
+      return a.mayRecord
+        ? { canBill: false, says: head, link: { href: '/dashboard/contracts', label: 'Open Contracts' } }
+        : { canBill: false, says: a.whoRecords ? `${head} ${a.whoRecords}` : head, link: null }
+    }
+    return { canBill: false, says: noEngagementSays(a.companyName), link: null }
+  }
+
+  // Every engagement read, and none holds hours to bill.
+  const notFiled = unique(a.engagements.filter((e) => e.noHours!.weeks.length === 0).flatMap((e) => e.people))
+  const weeks = a.engagements.flatMap((e) => e.noHours!.weeks)
+  const parts: string[] = []
+  if (weeks.length > 0) parts.push(nothingToBillSays(weeks))
+  if (notFiled.length > 0) {
+    parts.push(
+      `${haveOrHas(notFiled)} not filed a week yet${weeks.length === 0 ? ', so there is nothing to bill' : ''}. ` +
+        'Only the person who worked files hours, from their own page.'
+    )
+  }
+  if (parts.length === 0) return { canBill: false, says: noEngagementSays(a.companyName), link: null }
+
+  // The week to open, where its approval is attached by hand: a client on
+  // Etyme signs in Etyme, and the sentence already names it.
+  const week = a.engagements.map((e) => e.noHours!.waitingWeek).find((w) => w && !w.clientOnEtyme) ?? null
+  // Nobody at that client who approves hours is recorded, so the attach
+  // would be refused: the first step is adding that person, then the week.
+  if (week && week.noApproverAt) {
+    parts.push(noApproverRecordedSays(week.noApproverAt), addTheApproverSays(week.noApproverAt))
+    if (a.mayAttach) parts.push(THEN_ATTACH_SAYS)
+    else if (a.whoAttaches) parts.push(a.whoAttaches)
+    return {
+      canBill: false,
+      says: parts.join(' '),
+      link: a.mayAddContact ? { href: CONTACTS_HREF, label: 'Open Contacts' } : null,
+    }
+  }
+  if (week && a.mayAttach) {
+    return { canBill: false, says: parts.join(' '), link: { href: `/dashboard/weeks/${week.id}`, label: 'Attach the client’s approval' } }
+  }
+  if (week && a.whoAttaches) parts.push(a.whoAttaches)
+  return { canBill: false, says: parts.join(' '), link: null }
+}

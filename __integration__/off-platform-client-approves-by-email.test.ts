@@ -78,7 +78,7 @@ describe('a supplier whose client is not on Etyme gets its weeks approved by ema
     const r = await send(it_.week1, 'Dana Whitfield', DANA)
     expect(r.status).toBe(422)
     expect(r.body.error.code).toBe('APPROVER_NOT_AT_CLIENT')
-    expect(r.body.error.message).toBe('Larkspur Freight is not on Etyme, and nobody there who approves hours is recorded yet. Add that person under Contacts, working at Larkspur Freight, and try again.')
+    expect(r.body.error.message).toBe('Larkspur Freight is not on Etyme, and nobody there who approves hours is recorded yet. Add the person at Larkspur Freight who approves hours, under Contacts. Then try again.')
   })
 
   it('a worker attaching her client’s approval, where the client is not on Etyme and no contact is on record, is told to ask her firm to add the approver under Contacts', async () => {
@@ -192,7 +192,8 @@ describe('a supplier whose client is not on Etyme gets its weeks approved by ema
     const { NextRequest } = await import('next/server')
     const r = await json(await sendOrAttach(new NextRequest('http://localhost:3000/api/week-approvals', { method: 'POST', body: fd })))
     expect(r.body?.error, JSON.stringify(r.body)).toBeUndefined()
-    expect(r.body.data.words).toBe(`Approved by email: Raj Patel, ${COLLEAGUE} — Larkspur Freight was not on Etyme`)
+    // An attached file says the record's words, then that the client was not on Etyme (2026-11-15).
+    expect(r.body.data.words).toMatch(/^Approved by email: Raj Patel, .+ — evidence attached — Larkspur Freight was not on Etyme$/)
   })
 
   it('once the client claims its record, its own domain and seats decide, as before, and the approvals it gave off the platform still say so', async () => {

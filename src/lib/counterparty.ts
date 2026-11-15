@@ -255,7 +255,7 @@ export function mayAddCompany(ask: AddAsk): AddVerdict {
       ok: false,
       ownsIt: false,
       says:
-        `Adding a firm to ${ask.seatedAt.name}'s register is for whoever manages who you ` +
+        `Adding a firm to ${ask.seatedAt.name}'s Companies list is for whoever manages who you ` +
         `trade with. Ask whoever runs your suppliers and clients to add it, or ask them for ` +
         `that access.`,
     }
@@ -277,7 +277,7 @@ export function mayAddCompany(ask: AddAsk): AddVerdict {
     ok: true,
     ownsIt: false,
     says:
-      `Recorded on ${ask.seatedAt.name}'s register as a ${RELATIONSHIPS[relationship as Relationship].label.toLowerCase()}. ` +
+      `Recorded on ${ask.seatedAt.name}'s Companies list as a ${RELATIONSHIPS[relationship as Relationship].label.toLowerCase()}. ` +
       `You are not seated there: a firm you trade with is not a firm you own.`,
   }
 }
@@ -750,6 +750,29 @@ export function noPositionTile(row: TileRow): 'NOT_CLASSIFIED' | 'NOT_LINKED' | 
   return 'WORKS_WITH_YOU'
 }
 
+/**
+ * The rows a filtered Companies list draws, and how many of them the
+ * filter itself holds (the press of 2026-11-15: under "Not classified",
+ * Extend moved the row out of the filter, and its sentence and Undo went
+ * with it, leaving no word anywhere). A row that carries the sentence a
+ * press left on it stays where it was until that sentence is closed or
+ * the filter is changed; it is drawn, never counted. Order is the list's
+ * own. Pure.
+ */
+export function rowsUnderFilter<R extends { id: string }>(
+  rows: readonly R[],
+  holds: (row: R) => boolean,
+  pressedIds: ReadonlySet<string>,
+): { rows: R[]; matching: number } {
+  let matching = 0
+  const drawn = rows.filter((r) => {
+    const h = holds(r)
+    if (h) matching++
+    return h || pressedIds.has(r.id)
+  })
+  return { rows: drawn, matching }
+}
+
 /** The tiles over the Companies list. Every row is in at least one. Pure. */
 export function companyTiles(rows: readonly TileRow[]): Tiles {
   const t: Tiles = { total: rows.length, customers: 0, suppliers: 0, primes: 0, msps: 0, notClassified: 0, worksWithYou: 0, notLinked: 0, countedTwice: 0 }
@@ -782,13 +805,19 @@ export function domainCell(row: { domain: string | null; notedDomain?: string | 
   return { domain: null, note: 'No domain yet' }
 }
 
+/** The Etyme address column for a firm on Etyme with no page of its own. */
+export const ON_ETYME_NO_PAGE = 'On Etyme, no page'
+
 /**
  * What the Etyme address column says. "Not on Etyme" for a company nobody
  * there has joined: no seat and no claim (a seat with no claim is on
  * Etyme). Never a bare dash. Pure.
  */
-export function addressCell(row: { slug: string; onEtyme: boolean; notLinked?: boolean }): { slug: string | null; note: string | null } {
+export function addressCell(row: { slug: string; onEtyme: boolean; notLinked?: boolean; hasPage?: boolean }): { slug: string | null; note: string | null } {
   if (row.notLinked) return { slug: null, note: 'Not linked yet' }
+  // A firm on Etyme with no page has no address to show: its slug is a
+  // machine name (the press walk l2b, 2026-11-15, read "world-nike").
+  if (row.onEtyme && row.hasPage === false) return { slug: null, note: ON_ETYME_NO_PAGE }
   if (row.onEtyme) return { slug: row.slug, note: null }
   return { slug: null, note: 'Not on Etyme' }
 }
@@ -877,7 +906,7 @@ export function mayExtend(ask: {
 function alreadyOnEtymeSays(them: { name: string }, as: string): string {
   return (
     `${them.name} is already on Etyme, so no copy of them was made. ` +
-    `Ask them to link, as your ${as}: once they say yes, each of you has the other on your companies.`
+    `Ask them to link, as your ${as}: once they say yes, each of you has the other on your Companies list.`
   )
 }
 
@@ -966,6 +995,61 @@ export function mayRemovePosition(ask: {
       `${ask.other.name} is no longer your ${word}. What kind of company it is did not change.` +
       (left.length === 0 ? ` It stays on your Companies list, not classified.` : ` It is still your ${left.map((p) => POSITION_WORDS[p].toLowerCase()).join(' and ')}.`),
   }
+}
+
+/**
+ * Where the work that keeps a position is ended, as a link beside the
+ * refusal (the press walk l2b, 2026-11-15: "End or move that work first"
+ * linked nowhere). An open job invitation is ended by cancelling the job
+ * on Jobs (PATCH /api/requisitions/:id, action cancel), which stands every
+ * supplier asked down. Drawn only for a seat that may cancel a job, and
+ * only where invitations are what hangs; other work has no one page. Pure.
+ */
+export const END_INVITATIONS_HREF = '/dashboard/requisitions'
+export const END_INVITATIONS_WORDS = 'Open Jobs to cancel the job you sent them'
+
+export function workEndsAt(work: PositionWork, permissions: readonly string[]): { href: string; words: string } | null {
+  if (!work.openInvitations) return null
+  if (!hasPermission(permissions, 'requirements.write')) return null
+  return { href: END_INVITATIONS_HREF, words: END_INVITATIONS_WORDS }
+}
+
+/** What a history row says about taking it back, read now. */
+export const CAN_BE_UNDONE = 'Can be undone'
+export const CANNOT_BE_UNDONE_NOW = 'Cannot be undone while work hangs off it'
+export const CANNOT_BE_UNDONE = 'Cannot be undone'
+
+/**
+ * Whether each row of a company's history can still be taken back, read
+ * now and never from the flag stored when the row was written (fix list
+ * of 2026-11-14, E3: every row said "Can be undone" for good). Pure.
+ *
+ * Only an extension is ever said to be undoable: the newest row for its
+ * position, while the position is held and Remove would be taken. An
+ * extension with work hanging off it says so, and one an agreement holds
+ * cannot be undone at all. Where the reader may not remove positions, the
+ * row says nothing: somebody else may. Every other row says nothing: no
+ * control deletes a recorded company, puts a withdrawn invitation back, or
+ * undoes a correction. Rows are newest first.
+ */
+export function historyUndoSays(
+  rows: readonly { action: string; position: Position | null }[],
+  now: { positions: readonly Position[]; removable: Partial<Record<ExtendAs, { ok: boolean; code?: string }>> },
+): (string | null)[] {
+  const seen = new Set<string>()
+  return rows.map((r) => {
+    if (r.action !== 'COMPANY_EXTENDED' && r.action !== 'COMPANY_POSITION_REMOVED') return null
+    if (r.position !== 'SUPPLIER' && r.position !== 'CUSTOMER') return null
+    const newest = !seen.has(r.position)
+    seen.add(r.position)
+    if (!newest || r.action !== 'COMPANY_EXTENDED' || !now.positions.includes(r.position)) return null
+    const v = now.removable[r.position]
+    if (!v) return null
+    if (v.ok) return CAN_BE_UNDONE
+    if (v.code === 'STILL_IN_USE') return CANNOT_BE_UNDONE_NOW
+    if (v.code === 'HELD_BY_AGREEMENT') return CANNOT_BE_UNDONE
+    return null
+  })
 }
 
 /** The Kinds a person may set on a company they recorded. */

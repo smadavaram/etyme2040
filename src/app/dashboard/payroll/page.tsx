@@ -15,6 +15,7 @@ import { payFileHref } from '@/lib/money/payroll-rows'
 import { hasPermission } from '@/lib/permissions'
 import { EXEMPTION_CHOICES, exemptBody, exemptSavedSays, type ExemptChoice } from '@/lib/money/exempt-form'
 import { formatMonth } from '@/lib/format-date'
+import { payrollRunSays, postedInMoreThanOneCurrency } from '@/lib/money/payroll-run-says'
 
 /**
  * Payroll working surface — what the buy lines pay out.
@@ -287,8 +288,12 @@ export default function PayrollPage() {
   const [summary, setSummary] = useState<PayrollSummary | null>(null)
   // The pay period the company set, in the route's one sentence.
   const [periodSays, setPeriodSays] = useState<string | null>(null)
+  /** The way to the first-Sunday box, where the route said this seat may open it. */
+  const [firstDayLink, setFirstDayLink] = useState<{ href: string; label: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** What the last Calculate or Process did, in the route's own figures. */
+  const [runSaid, setRunSaid] = useState<string | null>(null)
   /** What the route said when it refused the read; null where it did not. */
   const [refusedSaid, setRefusedSaid] = useState<string | null>(null)
   const { company, loading: sessionLoading, permissions } = useSession()
@@ -363,6 +368,7 @@ export default function PayrollPage() {
       setPaidElsewhere(body.data?.paidElsewhere ?? [])
       setSummary(body.data?.summary ?? null)
       setPeriodSays(body.data?.periodSays ?? null)
+      setFirstDayLink(body.data?.firstDayLink ?? null)
       const periods: PayPeriods | null = body.data?.payPeriods ?? null
       setPayPeriods(periods)
       setRunsHere(body.data?.runsHere !== false)
@@ -401,6 +407,7 @@ export default function PayrollPage() {
 
     if (eligible.length === 0) return
 
+    setRunSaid(null)
     setProcessing(true)
     try {
       const res = await fetch('/api/payroll/run', {
@@ -417,10 +424,11 @@ export default function PayrollPage() {
         }),
       })
 
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
         throw new Error(body.error?.message ?? `HTTP ${res.status}`)
       }
+      setRunSaid(payrollRunSays(action, body.data ?? {}))
 
       // Refresh
       fetchPayroll()
@@ -820,7 +828,19 @@ export default function PayrollPage() {
         </>}
       />
 
-      {periodSays && <p className="mb-2 text-[12.5px] text-etyme-muted">{periodSays}</p>}
+      {periodSays && (
+        <p className="mb-2 text-[12.5px] text-etyme-muted">
+          {periodSays}
+          {/* The act that ends the calendar month, for a seat that may do it
+              (Area E, 2026-11-14); any other seat's sentence names who to ask. */}
+          {firstDayLink && (
+            <>
+              {' '}
+              <a href={firstDayLink.href} className="text-etyme-action hover:underline">{firstDayLink.label}</a>
+            </>
+          )}
+        </p>
+      )}
       {/* Beside the company's pay periods and their pay days: an empty
           holiday calendar moves no pay day off a public holiday. */}
       {payPeriods && noHolidays && <p className="mb-2 text-[12.5px] text-etyme-attention">{noHolidays}</p>}
@@ -831,6 +851,7 @@ export default function PayrollPage() {
       {/* A held week is found before the run, not after it: who has one,
           and that the answer is recorded on the row. */}
       {heldSays && <p className="mb-2 text-[12.5px] text-etyme-attention">{heldSays}</p>}
+      {runSaid && <p role="status" className="mb-2 text-[12.5px] text-etyme-verified">{runSaid}</p>}
 
       {/* Stats row — prototype Stat component pattern */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1105,7 +1126,7 @@ function Statutory() {
               ? formatCents(data.pack.totalReportableCents, data.pack.currency)
               : '—'}
           </p>
-          {!data.pack.currency && (
+          {!data.pack.currency && postedInMoreThanOneCurrency(summaries) && (
             <p className="mt-0.5 max-w-[30ch] text-[11px] text-etyme-faint">
               More than one currency in the year, so there is no single total to give.
             </p>
