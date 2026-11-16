@@ -451,11 +451,14 @@ Full text → 40, 11, 56, 68, 72.
   bench by skills and availability only; board trading is for the known
   network; nothing is submitted before her consent. Its own batch and
   deploy; it never destabilizes the stabilization track.
+- **Layer 9 moves ahead of the rest of Layer 7's money work** (→ 87):
+  clients pay in their own systems, so coded bill lines go out and the
+  paid or rejected answer comes back first.
 - **Layers 7 to 10 make the integrations work** (→ 80): security and
   sign-in, outreach doors, an accounting feed any system reads, and
   operations tools on the record. Each fails visibly and writes to the
   record. Eight questions in 80 wait on the founder before each layer.
-  The bar is "SAP-like stability": every message has a status on the
+  The bar is enterprise-ERP stability: every message has a status on the
   record, nothing is lost silently, a failure can be reprocessed, a
   duplicate is never posted twice, and anything short of that is labeled
   as what it is, never "connected". Signing goes through the client's own
@@ -639,6 +642,17 @@ Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64, 70, 71, 74.
   the bank where no Finance seat exists. The 0.5% hours tolerance decides
   what is raised, not what is paid. A paid date that has not happened is
   refused.
+- **One account pays, and only once it is checked** (2026-11-16 → 85).
+  The gate, the run file and every bill read one row (`payToRow`,
+  `payToOnBill`); an unchecked row holds payment and prints no account.
+  Payroll and payment runs wait for a verified Owner.
+- **Bank details are sensitive data, confirmed by the payer** (founder,
+  2026-11-16 → 86: "do what [an enterprise ERP] would do"). The supplier
+  enters a change; each paying client confirms it for itself, with a
+  recorded call back; payment to that supplier is blocked until then and
+  for three days after. An Admin neither enters nor confirms one. Each
+  release of money asks for its own fresh check inside Etyme; marking a
+  run paid from the bank's file is reconciliation, logged.
 - **Etyme never moves money.** A payment run is a list. It leaves as a
   file for the client's own system; the confirmation marks receipts
   paid; the supplier is told the day it is paid.
@@ -978,9 +992,11 @@ Full text → 28, 22, 23, 68, 69, 71.
 - **One payroll person may attach the client's approval and accept the
   same week** (founder, 2026-11-14).
 - **Tapin's first people are W2, paid every two weeks through an
-  outside payroll provider** (founder, 2026-11-14). The provider holds
-  each person's W-4, bank details and tax number; Etyme gives it hours
-  and gross pay as a file and holds none of the three.
+  outside payroll provider** (founder, 2026-11-14). Etyme gives it hours
+  and gross pay as a file. Since 2026-11-16 (→ 87) Etyme collects the
+  W-4 or W-9 and a voided check as sealed papers, verified and passed on
+  to the provider; bank details show masked, and in full only to a
+  permitted seat after a fresh second check, each showing logged.
 - **Tapin is the way to market: a bench in data engineering** (founder,
   2026-11-14). Nothing a client reads says Tapin trains, places or is
   the founder's, and no page claims the opposite: none says Etyme runs
