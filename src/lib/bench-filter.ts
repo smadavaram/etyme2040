@@ -411,6 +411,19 @@ export interface BenchRow {
   companyName: string
   /** On a partner's bench, why this person is already the reader's (`alreadyOursSays`). Null otherwise. */
   oursSays: string | null
+  /**
+   * Whether the one bench list (`benchAt`) names them today, as the route
+   * sent it; null where the route did not read it (a partner's bench, a
+   * person's own listings). The tile counts that list, so the row reads it
+   * too (`freeOnTheBench`).
+   */
+  onBenchToday: boolean | null
+  /**
+   * Whether the address on her record is one no email can reach (a
+   * sample person), as the route read it (`demoEmail`). Such a row offers
+   * no Resend and no Copy link: there is nobody to send it to.
+   */
+  sample: boolean
 }
 
 export type BenchReading =
@@ -518,7 +531,9 @@ export function benchStanding(o: { onBench: boolean | null; listingState: string
 /** The words a row reads for its standing. */
 export const STANDING_WORD: Record<BenchStanding, string> = {
   ON_BENCH: 'On the bench',
-  ON_A_PROJECT: 'On a project',
+  // The Bench page's words for the same state ("On a placement until …",
+  // `whenFree`), so one person reads one phrase on both pages (batch five walk).
+  ON_A_PROJECT: 'On a placement',
   ASKED: 'Asked, not answered',
   SAID_NO: 'Said no',
   EMPLOYED: 'Employed here',
@@ -650,7 +665,7 @@ function benchRowOf(l: any, tier: 'RETAINED' | 'MARKETING'): BenchRow | null {
     availableFrom: l.consultant.availableFrom ?? null,
     free:
       l.free && typeof l.free === 'object' && typeof l.free.state === 'string' && typeof l.free.says === 'string'
-        ? { state: l.free.state, on: typeof l.free.on === 'string' ? l.free.on : null, says: l.free.says }
+        ? { state: l.free.state, on: typeof l.free.on === 'string' ? l.free.on : null, says: l.free.says, startsOn: typeof l.free.startsOn === 'string' ? l.free.startsOn : null }
         : null,
     stay: typeof l.stay === 'string' ? l.stay : null,
     visibility: typeof l.consultant.visibility === 'string' ? l.consultant.visibility : 'INTERNAL',
@@ -658,8 +673,47 @@ function benchRowOf(l: any, tier: 'RETAINED' | 'MARKETING'): BenchRow | null {
     companyId: String(l.company?.id ?? ''),
     companyName: String(l.company?.name ?? ''),
     oursSays: typeof l.oursSays === 'string' ? l.oursSays : null,
+    onBenchToday: typeof l.onBenchToday === 'boolean' ? l.onBenchToday : null,
+    sample: l.sample === true,
   }
 }
+
+/**
+ * When a row on the firm's own bench is free, read against the one bench
+ * list the tile counts (fix list, layer five, e). The tile counted
+ * `benchAt` while each row read `whenFree` alone, so somebody placed
+ * today read "Free now" under a tile that did not count them.
+ *
+ *  - Named by `benchAt`, with a placement papered to start: both, in one
+ *    line.
+ *  - Not named by `benchAt`, and `whenFree` reads a placement running
+ *    today (at any firm): the placement words `whenFree` wrote.
+ *  - Not named by `benchAt` for any other reason: what `whenFree` read,
+ *    and that the tile does not count her today. Never "On a placement"
+ *    over somebody with no placement (the reader of a626b0b18, item 2).
+ *  - Otherwise what `whenFree` read. Pure.
+ */
+export function freeOnTheBench(free: Free | null, onBenchToday: boolean | null): Free | null {
+  // On the bench today with a placement papered to start: both, in one
+  // line (layer five, 13), never "Starts a placement" alone over somebody
+  // the tile counts as on the bench.
+  if (onBenchToday === true && free && free.state === 'PLACED' && free.startsOn) {
+    return { ...free, says: `On the bench · ${free.says.charAt(0).toLowerCase()}${free.says.slice(1)}` }
+  }
+  if (onBenchToday !== false) return free
+  // A placement running today: `whenFree`'s own words.
+  if (free && placedToday(free)) return free
+  if (!free) return { state: 'UNKNOWN', on: null, says: NOT_COUNTED_TODAY }
+  return { ...free, says: `${free.says} · ${NOT_COUNTED_TODAY.charAt(0).toLowerCase()}${NOT_COUNTED_TODAY.slice(1)}` }
+}
+
+/** Whether `whenFree` read a placement running today: placed, and not one still to start. Pure. */
+export function placedToday(free: Free): boolean {
+  return free.state === 'PLACED' && !free.startsOn
+}
+
+/** The row's words where `benchAt` leaves out somebody `whenFree` reads no placement for today. */
+export const NOT_COUNTED_TODAY = 'Not counted on the bench today'
 
 /**
  * Where the bench's Submit takes the reader, for the people chosen.
@@ -811,6 +865,8 @@ export interface Free {
   on: string | null
   /** The word for the row: "Free now", "Free from Nov 15, 2026", "On a placement until Oct 26, 2026". */
   says: string
+  /** Where a papered line has not begun: its first day, YYYY-MM-DD. Absent otherwise. */
+  startsOn?: string | null
 }
 
 /** The states of a line that is papered or running — the ones that make somebody not free. */
@@ -876,7 +932,7 @@ export function whenFree(input: {
     .filter((l) => papered(l) && l.startsOn != null && midnight(l.startsOn) > today)
     .sort((a, b) => a.startsOn!.getTime() - b.startsOn!.getTime())[0]
   if (next) {
-    return { state: 'PLACED', on: null, says: `Starts a placement on ${shortDay(next.startsOn!)}` }
+    return { state: 'PLACED', on: null, says: `Starts a placement on ${shortDay(next.startsOn!)}`, startsOn: isoOf(next.startsOn!) }
   }
 
   const candidates: Date[] = []
@@ -1632,4 +1688,107 @@ export function readOwnSkills(raw: unknown): { ok: true; skills: string[] } | { 
  */
 export function rateEnd(minor: number | null, currency: string = 'USD'): string {
   return minor == null ? 'open' : compact(minor, currency)
+}
+
+// ── Layer five of the fix list: the bench (2026-11-15) ──────────────────
+
+/**
+ * The label over one end of a rate band typed on Add consultant or Add to
+ * bench. It read "$/hr" at every firm, while the rate is read in the
+ * firm's own currency (`useFirmCurrency`), so a rupee firm typed rupees
+ * under a dollar sign. The currency code says which. Pure.
+ */
+export function rateBoxLabel(end: 'LOW' | 'HIGH', currency: string | null | undefined): string {
+  const code = currency?.trim().toUpperCase() || 'USD'
+  return `${end === 'LOW' ? 'Lowest' : 'Highest'} rate per hour (${code}, optional)`
+}
+
+/**
+ * Whether a firm's tier is shown for somebody: only on her yes, or where
+ * there is no listing to answer. Before it the tier markets nobody, so
+ * the table and the drawer on Candidates read this one rule. Pure.
+ */
+export function tierShown(consent: string | null | undefined): boolean {
+  return consent == null || consent === 'GRANTED'
+}
+
+/** What the drawer says in place of the tier before her yes. */
+export const TIER_BEFORE_YES = 'Not shown until they say yes'
+
+/**
+ * Add to bench's line under somebody the firm already asked, in the
+ * search list (ROW) and once chosen (CHOSEN). It read "Already on your
+ * bench" over somebody who had not answered. Only a yes puts her on it.
+ * Pure.
+ */
+export function alreadyAskedSays(consent: string | null | undefined, where: 'ROW' | 'CHOSEN'): string {
+  const lead =
+    consent === 'INVITED' ? 'Asked, not answered yet.'
+      : consent === 'DECLINED' ? 'Said no to your bench.'
+        : 'Already on your bench.'
+  return where === 'ROW' ? `${lead} You can set their rate here.` : `${lead} The rate below is saved on that listing.`
+}
+
+/**
+ * Why Add to bench draws no "Who sees them" box for somebody already
+ * asked: the listing's tier moves from its own row, and only once there
+ * is a yes to market. Pure.
+ */
+export function tierBoxHiddenSays(consent: string | null | undefined): string {
+  if (consent === 'INVITED') return 'Who sees them is changed from their row on Bench once they say yes.'
+  if (consent === 'DECLINED') return 'They said no, so nobody sees them.'
+  return 'Who sees them is changed from their row on Bench.'
+}
+
+/**
+ * The line under Add to bench's search box where a search of two or more
+ * characters finds nobody. The search reads only the firm's own
+ * Candidates; somebody new is added there, which also asks her onto the
+ * bench. The link is drawn by the page, only for a seat that may add.
+ */
+export const NOBODY_FOUND_SAYS =
+  'Nobody by that name is on your Candidates. Add consultant adds them and asks them to join your bench.'
+
+/** Whether Add to bench says that nobody was found: a finished search of two or more characters, empty. Pure. */
+export function saysNobodyFound(o: { query: string; searching: boolean; searched: boolean; results: number }): boolean {
+  return o.query.trim().length >= 2 && !o.searching && o.searched && o.results === 0
+}
+
+/**
+ * The sentence after a firm asks somebody onto its bench, in the founder's
+ * words the rolloff and bench share doors already use. The name is the one
+ * the firm typed or was shown, never her own record's before her yes.
+ */
+export function askedOntoBenchSays(name: string): string {
+  return `Asked ${name.trim() || 'them'} to agree to be on your bench. Nobody can put them forward until they say yes.`
+}
+
+/**
+ * Add to bench's button stays pressable before anybody is chosen, and
+ * says why it will not save (batch five walk, 2026-11-16). It was greyed
+ * with only "Consultant *" as the clue. The line beside it says what to
+ * do first; pressing anyway says it again, at the top of the dialog.
+ */
+export const CHOOSE_FIRST_SAYS = 'Choose somebody first.'
+export const CHOOSE_FROM_RESULTS_SAYS = 'Choose the person from the search results.'
+
+/**
+ * Whether a row offers Resend, Ask to renew and Copy link: only somebody
+ * an email can reach (batch five walk, 2026-11-16). A sample person read
+ * "there is nothing to send" with both buttons under it, and Resend then
+ * said to copy the link. Pure.
+ */
+export function offersSend(row: { sample?: boolean | null }): boolean {
+  return row.sample !== true
+}
+
+/**
+ * The line on a sample person's row, where nothing can be sent. The same
+ * words the sign-in line says for her (`sampleSays` in
+ * lib/notify/sign-in-link), without the address: before her yes a firm
+ * reads only what it typed. Pure.
+ */
+export function sampleRowSays(name: string): string {
+  const first = name.trim().split(/\s+/)[0] || 'This person'
+  return `${first} is a sample person. No email can reach them, so there is nothing to send.`
 }

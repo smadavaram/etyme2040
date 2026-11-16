@@ -29,7 +29,11 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/alerts', () => ({ reportError: vi.fn() }))
 vi.mock('@/app/api/consultants/ask-by-email', () => ({ askByEmail: vi.fn(async () => 'EMAILED') }))
-vi.mock('@/app/api/today/reads', () => ({ benchAt: vi.fn(async () => h.bench) }))
+vi.mock('@/app/api/today/reads', () => ({
+  benchAt: vi.fn(async () => h.bench),
+  // Today's own count of who was asked and has not answered (layer five, 14).
+  askedAt: vi.fn(async () => (h.profiles ?? []).filter((p: Row) => p.listings?.[0]?.state === 'INVITED').length),
+}))
 vi.mock('@/lib/api-context', () => ({
   getCallerContext: vi.fn(async () => ({ caller: h.caller, error: null })),
 }))
@@ -125,7 +129,7 @@ beforeEach(() => {
 describe('Consultants, Today and Ask Etyme count the bench from one list', () => {
   it('Consultants, Today and Ask Etyme all read who is on the bench from benchAt, and Consultants counts nothing of its own', () => {
     const consultants = read('src/app/api/consultants/route.ts')
-    expect(consultants).toContain("import { benchAt } from '@/app/api/today/reads'")
+    expect(consultants).toContain("import { benchAt, askedAt } from '@/app/api/today/reads'")
     expect(consultants).toContain('bench: bench ? { count: bench.length, invited: invited ?? 0 } : null')
     expect(read('src/app/api/today/route.ts')).toContain('benchAt(company.id, now)')
     expect(read('src/app/api/conversations/twin/read.ts')).toContain('benchAt(company.id, now)')
@@ -196,12 +200,12 @@ describe('Consultants, Today and Ask Etyme count the bench from one list', () =>
     expect(STANDING_WORD.SAID_NO).toBe('Said no')
   })
 
-  it('somebody who said yes and is on a project here today reads On a project, never On the bench', () => {
+  it('somebody who said yes and is on a placement here today reads On a placement, the Bench page’s words, never On the bench', () => {
     expect(benchStanding({ onBench: false, listingState: 'GRANTED' })).toBe('ON_A_PROJECT')
-    expect(STANDING_WORD.ON_A_PROJECT).toBe('On a project')
+    expect(STANDING_WORD.ON_A_PROJECT).toBe('On a placement')
   })
 
-  it('where the seat does not read the bench, no row guesses On a project or On the bench', () => {
+  it('where the seat does not read the bench, no row guesses On a placement or On the bench', () => {
     expect(benchStanding({ onBench: null, listingState: 'GRANTED' })).toBeNull()
     expect(benchStanding({ onBench: null, listingState: null })).toBeNull()
     // An unanswered ask is still said: it is on the row's own listing.
@@ -219,7 +223,8 @@ describe('Consultants, Today and Ask Etyme count the bench from one list', () =>
 
   it('a tier is shown on a row only once the person said yes', () => {
     const page = read('src/app/dashboard/consultants/page.tsx')
-    expect(page).toContain("row.tier && (row.consent == null || row.consent === 'GRANTED')")
+    // One rule for the table and the drawer (`tierShown`, layer five, f).
+    expect(page).toContain('row.tier && tierShown(row.consent)')
   })
 })
 

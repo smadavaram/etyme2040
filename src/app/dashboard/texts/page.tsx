@@ -12,8 +12,10 @@ import { useEffect, useState } from 'react'
  *
  * The screen behind the data integrity layer. Everything clever in this
  * product sits on a bench record, and the bench record rots — somebody
- * free at $78 three weeks ago took a contract on Tuesday and nobody
- * updated it, because updating records is nobody's job.
+ * free three weeks ago took a contract on Tuesday and nobody updated it,
+ * because updating records is nobody's job. The page says it with no
+ * figure: a rate on it was read as a fact about a real person (fix
+ * list, layer five, F3).
  *
  * The number at the top is the one that matters: how much of this bench
  * nobody has heard from. It is the number the whole loop exists to move.
@@ -27,9 +29,17 @@ interface Message {
   person: { id: string; name: string }
   kind: string
   direction: 'OUT' | 'IN'
-  body: string
+  /** Null before her yes, where the firm reads only what it typed (`checkInShown`). */
+  body: string | null
+  /** The line drawn in its place, or null. */
+  bodyWaits: string | null
+  /** What this letter was, from the route (`lib/notify/check-in-rows`): never "reply" for one the firm sent. */
+  what: string
   status: string
-  statusNote: string
+  /** The chip on a try that did not go, or null. */
+  notSent: string | null
+  /** Why it did not go, in the words every screen uses for an email that did not go. */
+  whyNotSent: string | null
   read: string | null
   at: string
 }
@@ -48,14 +58,6 @@ function when(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-const KIND: Record<string, string> = {
-  FRESHNESS: 'still looking?',
-  CONSENT: 'ok to submit?',
-  OUTCOME: 'what happened',
-  PLACED: 'you got it',
-  LINK: 'reply',
-}
-
 export default function TextsPage() {
   // Read off the menu this reader is actually shown, never the company's
   // whole one: a seat with no desk was headed "Supply" over a page its
@@ -66,7 +68,7 @@ export default function TextsPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   // A refusal is the page: its sentence alone. The heading and the line
-  // about a record saying somebody is free at a rate are for the desks
+  // about a bench record going out of date are for the seats
   // that read check-ins, and a reader who may not open the page is not
   // shown either (round seven, problem 6).
   const [refused, setRefused] = useState<string | null>(null)
@@ -104,9 +106,9 @@ export default function TextsPage() {
         title="Bench check-ins"
         subtitle={f && (
           <>
-            A record that says somebody is free at $78 was true three weeks
-            ago. Everything else here sits on top of it, so we ask — one
-            question, one tap, in your name.
+            A bench record goes out of date fast. Somebody free three weeks
+            ago may have started a contract since. So each person is asked
+            one question, answered in one tap, in your name.
           </>
         )}
       />
@@ -159,22 +161,26 @@ export default function TextsPage() {
                 <span className="font-medium text-etyme-ink">{m.person.name}</span>
                 <span className="text-etyme-faint">
                   {' '}
-                  · {m.direction === 'IN' ? 'replied' : KIND[m.kind] ?? m.kind.toLowerCase()} ·{' '}
+                  · {m.what} ·{' '}
                   {when(m.at)}
                 </span>
               </span>
               <span className="flex items-center gap-2">
                 {m.read && <Chip tone="action">{m.read.toLowerCase()}</Chip>}
-                {m.direction === 'OUT' && m.status !== 'SENT' && (
-                  <Chip tone={m.status === 'FAILED' ? 'danger' : 'passive'} title={m.statusNote}>
-                    {m.status === 'NOT_CONFIGURED' ? 'not sent' : m.status.toLowerCase()}
-                  </Chip>
+                {m.notSent && (
+                  <Chip tone={m.status === 'FAILED' ? 'danger' : 'passive'}>{m.notSent}</Chip>
                 )}
               </span>
             </div>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-etyme-ink">
-              {m.body}
-            </p>
+            {m.body != null ? (
+              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-etyme-ink">
+                {m.body}
+              </p>
+            ) : (
+              m.bodyWaits && <p className="text-[13px] leading-relaxed text-etyme-muted">{m.bodyWaits}</p>
+            )}
+            {/* Why a try did not go, on the row and not in a tooltip a phone cannot open. */}
+            {m.whyNotSent && <p className="mt-1 text-[12px] text-etyme-muted">{m.whyNotSent}</p>}
           </div>
         ))}
       </div>
