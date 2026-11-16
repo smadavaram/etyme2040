@@ -13,6 +13,7 @@
  * (lib/notify/account-mail): never in a reply, a log, a copied message.
  */
 import { prisma } from '@/lib/db'
+import { signedInHere } from '@/lib/access-log'
 import { hasPermission, inWords } from '@/lib/permissions'
 import { emit } from '@/lib/events'
 import { checkInvite } from '@/lib/account-lifecycle'
@@ -20,6 +21,7 @@ import { doorOpen, issueSetPassword } from '@/lib/password-door'
 import { baseUrl } from '@/lib/signed-link'
 import { appUrl } from '@/lib/app-url'
 import { recordedBody } from '@/lib/notify/account-mail'
+import { hasEverCameIn } from '@/lib/notify/came-in'
 import { sendEmailNow } from '@/lib/notify/send-now'
 import { failureFromNote, mailFailureSays } from '@/lib/notify/mail-failure'
 import { mailLeaves } from '@/lib/notify/mail-leaves'
@@ -28,7 +30,7 @@ import { recordIdentityEvent } from '@/lib/identity/ledger'
 import { reportError } from '@/lib/alerts'
 import type { EffectiveMode } from '@/lib/identity/policy'
 import {
-  alreadyInvitedSays, copyInvitation, hasSignedIn, invitedAs, inviteLetter, inviteSays, INVITE_LINK_HOURS, OWNER_DESK,
+  alreadyInvitedSays, copyInvitation, seatHasSignedIn, invitedAs, inviteLetter, inviteSays, INVITE_LINK_HOURS, OWNER_DESK,
   type InviteDoor, type InviteMail, type InviteMailState,
   countsAgainstCap, MAIL_NOT_GONE,
 } from '@/lib/access-grant'
@@ -49,12 +51,21 @@ export function workAccountOn(): boolean {
 export const INVITE_TITLE_MARK = ' invited you to '
 export const inviteTitle = (inviterName: string, companyName: string) => `${inviterName}${INVITE_TITLE_MARK}${companyName}`
 
-/** Which way in the email offers, from the company's mode and the person. */
-export function doorFor(a: { mode: EffectiveMode; hasPassword: boolean; login: string }): InviteDoor {
+/**
+ * Which way in the email offers, from the company's mode and the person.
+ * `cameIn` is whether anybody has ever used her record, by any door
+ * (`hasEverCameIn` in lib/notify/came-in, 2026-11-16): the one predicate
+ * the firm's sign-in link reads too. Only a record nobody has ever used
+ * is offered a link to choose a password.
+ */
+export function doorFor(a: { mode: EffectiveMode; cameIn: boolean; login: string }): InviteDoor {
   // A directory-only company has shut the password door: no set-password
   // link is minted for it at all (second reader, fault 6).
   if (a.mode === 'SSO_ONLY') return 'DIRECTORY'
-  if (doorOpen() && a.login && !a.hasPassword) return 'PASSWORD'
+  // She has a way in already: she signs in as usual, and the letter never
+  // carries a link that sets a password on an account somebody has used.
+  if (a.cameIn) return 'SIGN_IN'
+  if (doorOpen() && a.login) return 'PASSWORD'
   return workAccountOn() ? 'WORK_ACCOUNT' : 'NONE'
 }
 
@@ -73,8 +84,9 @@ export interface SentInvitation {
 
 /**
  * Email one seat's invitation, now, and keep how it went on the record.
- * Mints a new set-password link where the door is a password (which kills
- * any older one for the person), sends it only to the address on the
+ * Mints a new set-password link only where the door is a password, which
+ * is only for a record nobody has ever used (`hasEverCameIn`); that kills
+ * any older one for the person. Sends it only to the address on the
  * person's record, and writes one EMAIL notice on the seat.
  */
 export async function sendInvitationMail(a: {
@@ -89,11 +101,20 @@ export async function sendInvitationMail(a: {
   const now = a.now ?? new Date()
   const email = a.person.primaryEmail
   const login = baseUrl() ? `${baseUrl()}/login` : ''
-  const door = doorFor({ mode: a.mode, hasPassword: Boolean(a.person.passwordHash), login })
+  // Whether anybody has ever used her record, by any door: a password, a
+  // Google, Microsoft or LinkedIn sign-in, a directory, a first email link,
+  // an answer given by link, a seat she used (2026-11-16). One predicate,
+  // the one the firm's sign-in link reads (`hasEverCameIn`). Read here, for
+  // the letter only she reads, and never said to the firm. A seat invited
+  // at an address that signs in elsewhere is offered Send again until she
+  // signs in here, so the letter must never carry a link that sets a
+  // password on an account somebody has used.
+  const cameIn = await hasEverCameIn(a.person.id)
+  const door = doorFor({ mode: a.mode, cameIn, login })
   const title = inviteTitle(a.inviterName, a.company.name)
 
   // One door mints the link, and it kills any older one for this person.
-  const setPasswordUrl = door === 'PASSWORD' ? await issueSetPassword(a.person.id, INVITE_LINK_HOURS, now) : null
+  const setPasswordUrl = door === 'PASSWORD' ? await issueSetPassword(a.person.id, INVITE_LINK_HOURS, now, a.company.id) : null
   const letter = inviteLetter({
     door, companyName: a.company.name, roleName: a.roleName,
     setPasswordUrl, loginUrl: login, linkHours: INVITE_LINK_HOURS, workAccount: workAccountOn(),
@@ -319,14 +340,18 @@ export async function inviteOne(inviter: Inviter, input: { email: string; name?:
         where: { companyId, revokedAt: null },
         select: { id: true, invitedAt: true, lastUsedAt: true },
       },
-      credentials: { where: { lastUsedAt: { not: null } }, select: { id: true }, take: 1 },
     },
   })
 
   // Already waiting on an invitation here: say where to press, rather than
-  // the bare refusal (fault 8). Only this company's own seats are named.
+  // the bare refusal (fault 8). Only this company's own seats are named,
+  // and whether she came in is this firm's own record, never her account
+  // elsewhere (2026-11-16): an address invited here that signs in at
+  // another firm is "already invited" until she signs in here, the same
+  // answer as an address Etyme has never seen.
   const here = existing?.contexts ?? []
-  const waiting = here.find((c) => !hasSignedIn({ invitedAt: c.invitedAt ?? null, lastUsedAt: c.lastUsedAt ?? null, everSignedIn: (existing?.credentials?.length ?? 0) > 0 }))
+  const cameIn = existing && here.length ? await signedInHere(companyId, [existing.id]) : new Set<string>()
+  const waiting = here.find((c) => !seatHasSignedIn({ invitedAt: c.invitedAt ?? null, lastUsedAt: c.lastUsedAt ?? null, signedInHere: cameIn.has(existing!.id) }))
   if (waiting) {
     return { ok: false, email, status: 422, code: 'ALREADY_INVITED', message: alreadyInvitedSays(email), field: 'email' }
   }

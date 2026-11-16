@@ -101,7 +101,9 @@ Full text → 03, 11, 36, 37, 59, 62, 63.
   not the motivation. **Tenure is the moat, never the wedge**: keep the
   tenure ledger correct and do not lead with it. What the wedge is, is not
   decided. A buyer says it; no agent derives it.
-- **Never lead with AI.** Ask Etyme is met in use, never sold.
+- **Never lead with AI.** Ask Etyme is met in use, never sold. A
+  tenant's own storefront may open on its Ask box when it picks that
+  template (→ 79).
 - **Never name an enterprise incumbent, or any real company, anywhere**:
   page, document, screen, test name, code comment, commit message, reply
   to the founder. A rule stands on its own reason. The one exception is an
@@ -261,7 +263,8 @@ company admin. The OAuth tenant is the authority — replaces the 2017
 **LinkedIn** is a sign-in door for candidates only, since 2026-11-12 (see "The
 sign-in page leads with the account buttons"). The button says "Candidates
 only". A seat at a company never signs in with it. The profile URL stays a
-field. No other LinkedIn data is used.
+field. No other LinkedIn data is used, except replies to Etyme's own job
+postings, which land as candidate records with consent (→ 80).
 
 **The table is the default.** A company also chooses directory-only,
 invitation-only or hybrid sign-in, and a small firm or a worker may use
@@ -442,6 +445,33 @@ Full text → 40, 11, 56, 68, 72.
   Tapin in production and sends a numbered list by area, and only what
   failed is fixed again. No new features. The order: linkage, the money
   chain, daily flows, findability and access, the bench.
+- **Layer 6, storefront templates, runs beside stabilization** (founder,
+  2026-11-16 → 79): Ask-first (Tapin's default), Feed or Board on the
+  tenant's own address, drawn from its record. Public visitors see the
+  bench by skills and availability only; board trading is for the known
+  network; nothing is submitted before her consent. Its own batch and
+  deploy; it never destabilizes the stabilization track.
+- **Layers 7 to 10 make the integrations work** (→ 80): security and
+  sign-in, outreach doors, an accounting feed any system reads, and
+  operations tools on the record. Each fails visibly and writes to the
+  record. Eight questions in 80 wait on the founder before each layer.
+  The bar is "SAP-like stability": every message has a status on the
+  record, nothing is lost silently, a failure can be reprocessed, a
+  duplicate is never posted twice, and anything short of that is labeled
+  as what it is, never "connected". Signing goes through the client's own
+  e-signature app; Etyme builds none.
+- **The founder's eight answers** (→ 80): a client uses its own directory
+  where it has one, else invitation only; one named scanning service;
+  passkey first, authenticator app as fallback, for money and bank acts;
+  only replies to Etyme's own postings come back from a job network, with
+  consent; the notification cap warns and never blocks; hours from an
+  app are a draft week she confirms; an invoice without a PO passes the
+  same one gate, approved first by the engagement owner; outside systems
+  are labels on a setting, while the chat doors stay named on storefronts.
+- **A template is a layout, never a look** (→ 79). A storefront renders in
+  the tenant's own branding, kept as tenant settings, adopted or created
+  on the Owner's yes; Etyme's own brand is at most "Runs on Etyme". Colors
+  that fail contrast are warned about, never changed.
 - **Etyme may run a client's program as a vendor-neutral MSP**, in a seat
   the client grants, under the client's rules, every read logged.
 - **When the training door is built**: a client's view never says
@@ -452,7 +482,7 @@ Full text → 40, 11, 56, 68, 72.
 
 ## Parties, deals and the record
 
-Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52, 72, 73, 75.
+Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52, 72, 73, 75, 77.
 
 - **Positions on a deal.** A client only buys. A prime, integrator or MSP
   sells to the client and buys from a sub-vendor by order, or from its
@@ -504,6 +534,11 @@ Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52, 72, 73, 75.
   own reads the name, title, skills, place and note on its own listing,
   and nothing of hers. A search or a filter is a reader too. One reader
   decides it (`firmReadsAt`). A read by id asks whose list she is on.
+  A refusal or a missing line is a reader too: nothing a firm reads
+  before her yes moves with her data, her rate or her account (→ 77).
+- **Who is on the bench reads the same on every page** (2026-11-16 →
+  77): placed today through any firm's line is off the bench, and
+  nothing of the other firm's deal is read.
 - **A firm on Etyme is never tied to you from your side alone.** Two
   firms on Etyme link by one ask and one yes. No door writes an
   agreement, a register row or an order on a firm that did not take part,
@@ -764,6 +799,12 @@ Full text → 12, 14, 24, 32, 35.
   only. No model feature reads across tenants. Another company's book is
   refused by rule, before the model. A conversation never leaves the
   tenant or the transaction.
+- **Every model call goes through one routing layer** (founder, written
+  2026-11-13, sent 2026-11-16 → 81). It picks the provider by job and by
+  data lane, and writes a cost ledger entry for every call. Tier 0 rules
+  come first. A cheap model is the default, and a stronger model only on
+  a validator's reason. Restricted data reaches no model. Built in its
+  own order, never ahead of stabilization.
 - **The voice.** Recommendation first. Names, not counts. One sentence
   per refusal, with the door. No apology words. The trade's phrasing:
   who applied, approve a timesheet, pay an invoice, on hold.
@@ -944,7 +985,7 @@ Full text → 28, 22, 23, 68, 69, 71.
 
 ## How this project tests and ships
 
-Full text → 33, 34, 17, 20, 52, 57, 41, 65, 67, 71, 73, 74, 75, 76.
+Full text → 33, 34, 17, 20, 52, 57, 41, 65, 67, 71, 73, 74, 75, 76, 77.
 
 - **The simulation drives the real routes as real seats**
   (`npm run simulate`), never rows written into tables, and never on
@@ -1158,6 +1199,12 @@ and why, and stops.
 | `etyme-scout` | "Does this already exist and who owns it" — read only |
 | `etyme-release` | Deciding whether it ships — read only |
 
+**Which model does which work** (founder, 2026-11-16 → 82). The lead
+stays on the strongest model. Workers run on the standard model by default, at most three at once,
+each on its own files. Strongest-model workers only for Layer 7 security and the
+model-routing lane tests. Each batch note says which model ran which
+piece; the model names are said in the note to the founder, not in the repository.
+
 Work moves: scout → schema → spec as test names → build → release →
 preview URL. Different domains may run at the same time. Two agents in
 one domain may not, and neither may anything touching the schema
@@ -1166,3 +1213,74 @@ concurrently.
 `docs/delivery-matrix.html` carries L1 to L4 with the owning agent per
 L2 group. A change to L3 or L4 belongs in the same commit as the code
 that caused it.
+
+---
+
+## Coding guidelines (from andrej-karpathy-skills, MIT) — added 2026-11-16
+
+The founder had these copied in on 2026-11-16 from
+github.com/multica-ai/andrej-karpathy-skills, commit 2c606141. Where they
+and a rule above differ, the rule above wins. The same text is the
+`karpathy-guidelines` skill in `.claude/skills/`.
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

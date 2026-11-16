@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   deskLine, desksOffered, assessDeskChange, waitingLine, inviteLetter,
-  hasSignedIn, seatPlace, deskChangedNotice, needsDecisionCount,
+  seatHasSignedIn, seatPlace, deskChangedNotice, needsDecisionCount,
   MEMBER_DESK, INVITE_LINK_HOURS, type DeskChange, type InviteLetter,
   inviteSays, invitedAs, mayHoldOutsideSeat,
   roleWords, holdsNoRole, roleChangeSays, roleChangeSummary, roleOptionText, roleChoiceSays,
@@ -179,7 +179,7 @@ describe('the base address', () => {
 
 describe('round two of the sign-up walk', () => {
   it('an invited person who never signed in is listed as invited with the desk they will have, never as somebody with access', () => {
-    const never = hasSignedIn({ invitedAt: new Date(), lastUsedAt: null, everSignedIn: false })
+    const never = seatHasSignedIn({ invitedAt: new Date(), lastUsedAt: null, signedInHere: false })
     expect(never).toBe(false)
     expect(seatPlace({ roleName: 'AP Clerk', signedIn: never })).toBe('WAITING')
     expect(waitingLine({ invited: true, signedIn: never, days: 0, desk: 'AP Clerk' }))
@@ -190,14 +190,15 @@ describe('round two of the sign-up walk', () => {
     expect(route).toContain('people: withAccess.map(')
   })
 
-  it('a person who has signed in keeps their access after a desk change clears the seat’s use date', () => {
-    const after = hasSignedIn({ invitedAt: new Date(), lastUsedAt: null, everSignedIn: true })
+  it('a person who has signed in here keeps their access after a desk change clears the seat’s use date', () => {
+    // Her coming in here is on the firm's access log, which a desk change does not touch.
+    const after = seatHasSignedIn({ invitedAt: new Date(), lastUsedAt: null, signedInHere: true })
     expect(after).toBe(true)
     expect(seatPlace({ roleName: 'Recruiter', signedIn: after })).toBe('WITH_ACCESS')
   })
 
   it('a seat nobody invited was made by a sign-in, and a seat with no desk waits either way', () => {
-    expect(hasSignedIn({ invitedAt: null, lastUsedAt: null, everSignedIn: false })).toBe(true)
+    expect(seatHasSignedIn({ invitedAt: null, lastUsedAt: null, signedInHere: false })).toBe(true)
     expect(seatPlace({ roleName: null, signedIn: true })).toBe('WAITING')
   })
 
@@ -689,8 +690,8 @@ describe('an invitation says whether its email left, and why not', () => {
 
   it('a directory-only company is never sent a set-password link: its invitation’s door is the directory', async () => {
     const { doorFor } = await import('@/app/api/access/invite/one')
-    expect(doorFor({ mode: 'SSO_ONLY', hasPassword: false, login: 'https://app.etyme.example/login' })).toBe('DIRECTORY')
-    expect(doorFor({ mode: 'HYBRID', hasPassword: true, login: 'https://app.etyme.example/login' })).not.toBe('PASSWORD')
+    expect(doorFor({ mode: 'SSO_ONLY', cameIn: false, login: 'https://app.etyme.example/login' })).toBe('DIRECTORY')
+    expect(doorFor({ mode: 'HYBRID', cameIn: true, login: 'https://app.etyme.example/login' })).not.toBe('PASSWORD')
   })
 
   it('a directory-only company’s invitation email carries no set-password link and names the directory', () => {
@@ -851,7 +852,7 @@ describe('Users & permissions counts people the way Settings and Team structure 
       grantedAt: new Date('2026-10-01'), invitedAt: signedIn ? null : new Date('2026-11-10'),
       lastUsedAt: null, suspendedAt: null, revokedAt: null,
       role: { name: 'Recruiter' },
-      person: { name: 'Meera Pillai', primaryEmail: email, credentials: signedIn ? [{ id: 'k' }] : [] },
+      person: { name: 'Meera Pillai', primaryEmail: email },
       ...rest,
     }
   }
@@ -907,7 +908,7 @@ describe('Users & permissions counts people the way Settings and Team structure 
 
   it('a seat named with the company’s own name reads as the name in its address, never as the company', async () => {
     const { seatsFrom } = await import('@/lib/company-seats')
-    const [s] = seatsFrom([row({ person: { name: 'Tapin', primaryEmail: 'sharath@tapin.example', credentials: [{ id: 'k' }] } })], 'Tapin')
+    const [s] = seatsFrom([row({ person: { name: 'Tapin', primaryEmail: 'sharath@tapin.example' } })], 'Tapin')
     expect(s.name).toBe('Sharath')
     // A seat no reader mapped falls back to the same rule, never the raw Person.name.
     expect(route).toContain('seatOf.get(c.id)?.name ?? personNameFor(c.person.name, c.person.primaryEmail, caller.company!.name)')
@@ -1282,7 +1283,7 @@ describe('the figures on Users and permissions say what they count and filter to
       id, personId: id, type: 'EMPLOYEE', roleId: 'r-admin', orgUnitId: null,
       grantedAt: new Date('2026-11-01'), invitedAt: signedIn ? null : new Date('2026-11-10'),
       lastUsedAt: null, suspendedAt: null, revokedAt: null, role: { name: 'Admin' },
-      person: { name: 'Partner', primaryEmail: `${id}@gmail.com`, credentials: signedIn ? [{ id: 'k' }] : [] },
+      person: { name: 'Partner', primaryEmail: `${id}@gmail.com` },
     })
     const c = countSeats(peopleOf(seatsFrom([row(true, 'o'), row(false, 'x'), row(false, 'y'), row(false, 'z')], 'Tapin')))
     expect(c.invited).toBe(3)
@@ -1328,7 +1329,7 @@ describe('a shared sign-in on Users and permissions', () => {
   const row = (name: string, email: string): Row => ({
     id: `c-${email}`, personId: email, type: 'EMPLOYEE', roleId: 'r', orgUnitId: null,
     grantedAt: new Date('2026-10-01'), invitedAt: null, lastUsedAt: null, suspendedAt: null, revokedAt: null,
-    role: { name: 'AP & Payroll' }, person: { name, primaryEmail: email, credentials: [{ id: 'k' }] },
+    role: { name: 'AP & Payroll' }, person: { name, primaryEmail: email },
   })
 
   it('a mailbox such as timesheets at the company’s own address is shown by its sign-in address with the label Shared sign-in', async () => {

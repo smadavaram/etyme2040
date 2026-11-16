@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
+import { PAYROLL_RUN } from '@/lib/payroll-paid'
 import { evaluateGovernance } from '@/lib/governance'
 import { resolvedEndClientId } from '@/lib/resolve-end-client'
 import { contractSide } from '@/lib/resolve-client-company'
@@ -11,8 +13,11 @@ import { startPapers, i9DoorAtStart } from './papers'
 import { hasPermission } from '@/lib/permissions'
 import { gateRefusal, whoMay, seatedRoles, TRANSITIONS, VALID_ACTIONS, DOING, NEEDS, type Action, type GateRefusal } from './gate'
 import { whoHereMaySays } from '@/lib/money/who-raises-bills'
+import { isSent } from '@/lib/money/bill-state'
+import { formatDay } from '@/lib/format-date'
 import { startWarningVerdict, startIdentityWarning, type StartWarning } from '@/lib/money/start-warnings'
 import { logAccess, recordRefusal, accessActor } from '@/lib/access-log'
+import { calendarDayIn, lastDayOnSite, cyclesAtLastDay, moneyPastLastDay, lastDaySays, periodCovers, dayKey, payLinesAtLastDay, type WeekAfter } from '@/lib/money/early-end'
 
 /**
  * POST /api/contracts/:id/activate
@@ -165,12 +170,14 @@ export async function POST(
   const contract = await prisma.sellContract.findUnique({
     where: { id },
     include: {
-      person: { select: { id: true, name: true } },
+      // Her own time zone, for the day an early end is pressed where the site names none.
+      person: { select: { id: true, name: true, timezone: true } },
       company: { select: { id: true, name: true } },
       clientCompany: { select: { id: true, name: true } },
       endClientCompany: { select: { id: true, name: true } },
-      // Where the work is done, which the worker is told when it starts.
-      workLocation: { select: { name: true, city: true, state: true, isRemote: true } },
+      // Where the work is done, which the worker is told when it starts,
+      // and its time zone, which says what day an early end is pressed on.
+      workLocation: { select: { name: true, city: true, state: true, isRemote: true, timeZone: true } },
       // The role, because the clearance picks the start packet off it:
       // a nurse is asked for a state license and a developer is not.
       // A SellContract carries no title of its own.
@@ -390,16 +397,65 @@ export async function POST(
   })
   const buyIds = linked?.buyLinks.map((l) => l.buyContractId) ?? []
 
-  await prisma.$transaction([
-    prisma.sellContract.update({
+  // ── Ended early: the real last day on site ─────────────────────────
+  //
+  // Founder, 2026-11-16. Ending a placement kept its planned end, so Bench
+  // and Today read her free only after it and tenure counted days she was
+  // not on site. The line's end date becomes the day it is ended, and the
+  // planned end goes in the log below (`lib/money/early-end`).
+  //
+  // Read once before the save, so a refusal costs no lock; and again
+  // inside it, on the save's own connection, so a week filed in between
+  // is read before anything is cut (2026-11-16, found by a reader).
+  const endedAt = new Date()
+  const ending = action === 'complete' ? await earlyEnd(prisma, contract, buyIds, endedAt) : null
+  if (ending && !ending.ok) {
+    return NextResponse.json({ error: { code: 'PAST_LAST_DAY', message: ending.says, week: ending.week } }, { status: 409 })
+  }
+  let early = ending?.ok && ending.early ? ending : null
+
+  const writes = (db: Db) => [
+    db.sellContract.update({
       where: { id },
-      data: { state: newState as any },
+      data: { state: newState as any, ...(early ? { endDate: early.lastDay } : {}) },
     }),
-    prisma.buyContract.updateMany({
+    db.buyContract.updateMany({
       where: { id: { in: buyIds }, state: { in: TRANSITIONS[action as Action].from as any } },
       data: { state: newState as any },
     }),
-    prisma.automationLog.create({
+    // The pay side ends on the same day: her row on each pay line it
+    // moves, the line itself where she is the only person on it, and the
+    // window her hours are paid through. Never moved later. A pay line
+    // another open placement of hers still pays through keeps her row and
+    // its end (`payLinesAtLastDay`).
+    //
+    // Only what started on or before the last day is cut there. A window,
+    // a row or a line that starts after it (a change of supplier set for
+    // a later day) is left as written, never given a last day before its
+    // first: it holds no day, since no week is filed past the last day.
+    ...(early
+      ? [
+          db.buyContract.updateMany({
+            where: { id: { in: early.buyEnding }, startDate: { lte: early.lastDay }, OR: [{ endDate: null }, { endDate: { gt: early.lastDay } }] },
+            data: { endDate: early.lastDay },
+          }),
+          db.buyContractCandidate.updateMany({
+            where: {
+              buyContractId: { in: early.rowsEnding }, personId: contract.personId, startDate: { lte: early.lastDay },
+              OR: [{ endDate: null }, { endDate: { gt: early.lastDay } }],
+            },
+            data: { endDate: early.lastDay },
+          }),
+          db.contractLink.updateMany({
+            where: { sellContractId: id, effectiveFrom: { lte: early.lastDay }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: early.lastDay } }] },
+            data: { effectiveTo: early.lastDay },
+          }),
+          // No period after the last day; the one holding it is cut at it.
+          db.cycle.deleteMany({ where: { id: { in: early.cycles.remove }, completedAt: null } }),
+          ...early.cycles.cut.map((c) => db.cycle.updateMany({ where: { id: c.id, completedAt: null }, data: { periodEnd: c.periodEnd } })),
+        ]
+      : []),
+    db.automationLog.create({
       data: {
         companyId: contract.companyId,
         // ── The name this is recorded under ──────────────────────────
@@ -437,7 +493,8 @@ export async function POST(
         summary: start
           ? `${start.says}, at ${contract.endClientCompany?.name ?? contract.clientCompany.name}`
           : `${contract.person.name}'s contract at ${contract.endClientCompany?.name ?? contract.clientCompany.name} ${ACTION_SUMMARIES[action as Action]}`,
-        reason: `State transition ${previousState} → ${newState} by ${caller.person.name}`,
+        reason: `State transition ${previousState} → ${newState} by ${caller.person.name}` +
+          (early ? `. ${lastDaySays(early.lastDay)} ${early.plannedEnd ? `It was planned to end ${formatDay(early.plannedEnd)}.` : 'It had no planned end date.'}` : ''),
         payload: {
           contractId: id,
           personId: contract.person.id,
@@ -454,6 +511,19 @@ export async function POST(
           // their reason travels with the record. Never silently permit.
           // Only where the paperwork warned and the reason answered it.
           documentsOverride: action === 'activate' && answeredPapers ? overrideReason : null,
+          // Ended early: the planned end kept, beside the real last day
+          // now written as the end date, and what that did to the dates.
+          ...(early
+            ? {
+                endDate: { from: early.plannedEnd?.toISOString().slice(0, 10) ?? null, to: dayKey(early.lastDay) },
+                cycles: { removed: early.cycles.remove.length, cut: early.cycles.cut.length, leftAsWritten: early.cycles.unplaced },
+                // Pay lines another open placement of hers still pays
+                // through, which keep her row; and windows that start after
+                // the last day, left as written.
+                ...(early.keptOpen.length > 0 ? { payLinesKeptOpen: early.keptOpen } : {}),
+                ...(early.notStarted.length > 0 ? { windowsStartingLater: early.notStarted } : {}),
+              }
+            : {}),
           // And where the hiring manager said the person who started is not the one interviewed.
           identityOverride: action === 'activate' && answeredIdentity ? overrideReason : null,
         },
@@ -461,7 +531,25 @@ export async function POST(
         reversible: !['complete', 'cancel'].includes(action),
       },
     }),
-  ])
+  ]
+
+  const refusedInside = await prisma
+    .$transaction(async (tx) => {
+      if (action === 'complete') {
+        const again = await earlyEnd(tx, contract, buyIds, endedAt)
+        if (!again.ok) return again
+        early = again.early ? again : null
+      }
+      // In order, on the save's own connection; a failure undoes them all.
+      for (const op of writes(tx)) await op
+      return null
+    })
+  if (refusedInside) {
+    return NextResponse.json(
+      { error: { code: 'PAST_LAST_DAY', message: refusedInside.says, week: refusedInside.week } },
+      { status: 409 },
+    )
+  }
 
   // Notify the consultant about contract state changes
   // Activation, completion, and cancellation are the ones they need to know about
@@ -482,7 +570,7 @@ export async function POST(
       body:
         action === 'activate'
           ? `You start${role} at ${at}, working for ${clientName}${through}. ${caller.person.name} started the placement.`
-          : `Your placement${role} at ${at}, for ${clientName}${through}, ${TOLD[action as Action]}. ${caller.person.name} made the change.`,
+          : `Your placement${role} at ${at}, for ${clientName}${through}, ${TOLD[action as Action]}.${early ? ` ${lastDaySays(early.lastDay)}` : ''} ${caller.person.name} made the change.`,
       entityId: id,
       data: { contractId: id, action, from: previousState, to: newState },
     })
@@ -495,8 +583,144 @@ export async function POST(
       state: newState,
       action,
       personName: contract.person.name,
-      message: start ? start.says : `Contract ${ACTION_SUMMARIES[action as Action]}`,
+      message: start ? start.says : `Contract ${ACTION_SUMMARIES[action as Action]}${early ? `. ${lastDaySays(early.lastDay)}` : ''}`,
+      ...(early ? { endDate: dayKey(early.lastDay), plannedEndDate: early.plannedEnd?.toISOString().slice(0, 10) ?? null } : {}),
       governance: action === 'activate' ? 'checked' : undefined,
     },
   })
+}
+
+/** The client a read goes through: the shared one, or the save's own. */
+type Db = Prisma.TransactionClient | typeof prisma
+
+/**
+ * What ending this line today writes, or the week that refuses it.
+ *
+ * The last day is today in the site's time zone, else the worker's, else
+ * UTC, held to the line (`lastDayOnSite`). Where it is the planned end,
+ * nothing about the dates moves. Where it is earlier, hours on a later
+ * day refuse it (`moneyPastLastDay`): a week on this line, or billed on
+ * it from the rung below, paid by a pay run processed over that day or on
+ * an invoice receipt paid, billed on a bill that was sent, or filed. The
+ * cycles past it are worked out on this line and on each pay line that
+ * ends with it; a pay line that holds other people keeps its own dates.
+ * It reads through `db`: the client before the save, the save's own
+ * connection inside it.
+ */
+async function earlyEnd(
+  db: Db,
+  contract: {
+    id: string; personId: string; startDate: Date; endDate: Date | null
+    person: { name: string; timezone: string | null }
+    workLocation: { timeZone: string | null } | null
+  },
+  buyIds: string[],
+  now: Date,
+): Promise<
+  | { ok: false; says: string; week: { id: string; weekOf: string; day: string; stage: string } }
+  | ({
+      ok: true; early: boolean; buyMoving: string[]; buyEnding: string[]; rowsEnding: string[]
+      keptOpen: Array<{ buyContractId: string; sellContractId: string }>
+      notStarted: Array<{ id: string; buyContractId: string; startsOn: string }>
+      cycles: ReturnType<typeof cyclesAtLastDay>
+    } & ReturnType<typeof lastDayOnSite>)
+> {
+  const today = calendarDayIn(now, contract.workLocation?.timeZone ?? contract.person.timezone)
+  const day = lastDayOnSite({ startDate: contract.startDate, plannedEnd: contract.endDate, today })
+  if (!day.early) return { ok: true, ...day, buyMoving: [], buyEnding: [], rowsEnding: [], keptOpen: [], notStarted: [], cycles: { remove: [], cut: [], unplaced: 0 } }
+
+  // One after another: inside the save these share one connection.
+  const buys = await db.buyContract.findMany({
+    where: { id: { in: buyIds } },
+    select: { id: true, companyId: true, state: true, candidates: { select: { personId: true } } },
+  })
+  const sheets = await db.timesheet.findMany({
+      where: {
+        periodEnd: { gt: day.lastDay },
+        status: { not: 'REJECTED' },
+        OR: [{ sellContractId: contract.id }, { invoiceLines: { some: { sellContractId: contract.id } } }],
+      },
+      select: {
+        id: true, periodStart: true, periodEnd: true, days: true, totalHours: true,
+        invoiceLines: { select: { invoice: { select: { status: true } } } },
+        vendorBillLines: { select: { vendorBill: { select: { paidAt: true, paidCents: true } } } },
+      },
+    })
+  const payDays = await db.cycle.findMany({
+    where: { buyContractId: { in: buyIds }, kind: 'SALARY_PAY', completedAt: { not: null } },
+    select: { periodStart: true, periodEnd: true },
+  })
+  // Every week a processed pay run recorded paying on these pay lines,
+  // whatever day it put the hours on: a run before 2026-11-16 paid a week
+  // outside its window as one lump on the week's first day. A paid week is
+  // named paid, never filed (2026-11-16, found by a reader).
+  const employers = [...new Set(buys.map((b) => b.companyId))]
+  const runs = employers.length && sheets.length
+    ? await db.automationLog.findMany({
+        where: { companyId: { in: employers }, action: PAYROLL_RUN, payload: { path: ['action'], equals: 'process' } },
+        select: { payload: true },
+      })
+    : []
+  const wanted = new Set(buyIds)
+  const paidSheets = new Set<string>()
+  for (const r of runs) {
+    for (const c of ((r.payload ?? {}) as { contracts?: Array<{ buyContractId?: string; refused?: string | null; paid?: Array<{ timesheetId?: string; hours?: number; overtimeHours?: number }> }> }).contracts ?? []) {
+      if (!c.buyContractId || !wanted.has(c.buyContractId) || c.refused || !Array.isArray(c.paid)) continue
+      for (const l of c.paid) if (l.timesheetId && (Number(l.hours) > 0 || Number(l.overtimeHours ?? 0) > 0)) paidSheets.add(l.timesheetId)
+    }
+  }
+
+  const weeks: WeekAfter[] = sheets.map((t) => {
+    const receiptPaid = t.vendorBillLines.some((l) => l.vendorBill.paidAt != null || l.vendorBill.paidCents > 0)
+    const settledOver = payDays.some((p) =>
+      p.periodStart && p.periodEnd && dayKey(p.periodStart) <= dayKey(t.periodEnd) && dayKey(t.periodStart) <= dayKey(p.periodEnd))
+    const days = (t.days ?? {}) as Record<string, unknown>
+    return {
+      id: t.id,
+      periodStart: t.periodStart,
+      periodEnd: t.periodEnd,
+      days,
+      totalHours: Number(t.totalHours ?? 0),
+      billed: t.invoiceLines.some((l) => isSent(l.invoice.status)),
+      // Any paid record names it: an invoice receipt paid, a run's paid
+      // lines; or, for a week with no daily hours, a pay day settled over it.
+      paid: receiptPaid || paidSheets.has(t.id) || (Object.keys(days).length === 0 && settledOver),
+      paidOn: (d: string) => payDays.some((p) => periodCovers(p, d)),
+    }
+  })
+  const past = moneyPastLastDay(weeks, day.lastDay, contract.person.name)
+  if (past) {
+    return { ok: false, says: past.says, week: { id: past.weekId, weekOf: dayKey(past.weekOf), day: past.day, stage: past.stage } }
+  }
+
+  const buyMoving = buys.filter((b) => (TRANSITIONS.complete.from as string[]).includes(b.state)).map((b) => b.id)
+  // Another open placement of hers through the same pay line, still paying
+  // after the last day: that line keeps her row and its end.
+  const otherOpen = buyMoving.length
+    ? await db.contractLink.findMany({
+        where: {
+          buyContractId: { in: buyMoving },
+          sellContractId: { not: contract.id },
+          sellContract: { personId: contract.personId, state: { notIn: ['ENDED', 'CANCELLED'] } },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gt: day.lastDay } }],
+        },
+        select: { buyContractId: true, sellContractId: true },
+      })
+    : []
+  const lines = payLinesAtLastDay({
+    moving: buyMoving,
+    onlyHers: buys.filter((b) => b.candidates.every((c) => c.personId === contract.personId)).map((b) => b.id),
+    otherOpen,
+  })
+  const buyEnding = lines.linesEnding
+  // Windows of this line that start after the last day: left as written.
+  const notStarted = (await db.contractLink.findMany({
+    where: { sellContractId: contract.id, effectiveFrom: { gt: day.lastDay } },
+    select: { id: true, buyContractId: true, effectiveFrom: true },
+  })).map((l) => ({ id: l.id, buyContractId: l.buyContractId, startsOn: dayKey(l.effectiveFrom) }))
+  const stored = await db.cycle.findMany({
+    where: { OR: [{ sellContractId: contract.id }, ...(buyEnding.length ? [{ buyContractId: { in: buyEnding } }] : [])] },
+    select: { id: true, completedAt: true, periodStart: true, periodEnd: true },
+  })
+  return { ok: true, ...day, buyMoving, buyEnding, rowsEnding: lines.rowsEnding, keptOpen: lines.keptOpen, notStarted, cycles: cyclesAtLastDay(stored, day.lastDay) }
 }

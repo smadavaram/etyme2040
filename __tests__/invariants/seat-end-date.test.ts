@@ -138,7 +138,7 @@ describe('the one seat reader ends a seat past its date', () => {
     personId: `p-${o.id}`, type: 'EMPLOYEE', roleId: 'r-recruiter', orgUnitId: null, grantedAt: day,
     invitedAt: null, lastUsedAt: day, suspendedAt: null, revokedAt: null, expiresAt: null,
     role: { name: 'Recruiter', permissions: RECRUITER },
-    person: { name: `Person ${o.id}`, primaryEmail: `${o.id}@northwind-staffing.example`, credentials: [{ id: 'c' }] },
+    person: { name: `Person ${o.id}`, primaryEmail: `${o.id}@northwind-staffing.example` },
     ...o,
   })
 
@@ -172,7 +172,7 @@ describe('the caller check reads the end date wherever it picks the seat', () =>
   const src = readFileSync(join(process.cwd(), 'src/lib/api-context.ts'), 'utf8')
   it('the header’s seat, the chosen seat and the default seat are all picked through the one end-date reader', () => {
     expect(src).toContain('? await pick({ id: contextId })')
-    expect(src).toContain('(chosen ? await pick({ id: chosen }) : null) ?? await pick({})')
+    expect(src).toContain('(chosen ? await pick({ id: chosen }) : null) ?? await pickDefault()')
     expect(src).toContain('const v = await seatOpenByDate(r, now)')
   })
 })

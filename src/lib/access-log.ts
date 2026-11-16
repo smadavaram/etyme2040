@@ -190,7 +190,7 @@ export type AccessAction =
   | 'LOGIN_REFUSED_SSO_ONLY'    // a door was refused because the company signs in through its directory only
   | 'JOIN_REFUSED_BY_POLICY'    // a join was refused because the company admits people by invitation only
   | 'INVITE_SENT'               // an Owner or Admin invited a person to a seat
-  | 'INVITE_ACCEPTED'           // an invited person signed in to the seat for the first time
+  | 'INVITE_ACCEPTED'           // an invited person opened the seat for the first time
   | 'MEMBERSHIP_REVOKED'        // a person's seat at a company was ended
   | 'INVITATION_WITHDRAW'       // somebody asked to withdraw a person's invitation; written only when refused
   | 'AUTH_POLICY_CHANGED'       // a company's Owner changed how its people sign in
@@ -203,6 +203,20 @@ export type AccessAction =
   | 'PERSON_RENAME'             // somebody asked to rename the person on a seat; written only when refused
   | 'DESK_CHANGE'               // somebody asked to give or change a person's role; written only when refused
   | 'DIRECTORY_READ'            // the company's Google Workspace directory was read, read only, to propose team structure
+  // ── A firm's sign-in link, pressed ────────────────────────────────
+  //
+  // `lib/notify/sign-in-link-door` (etyme-conversation, 2026-11-16): a
+  // firm hands a person a link that lets her into Etyme for the first
+  // time. Whoever holds the link presses Continue; the door reads every
+  // trace of her record (`hasEverCameIn`) and sends her to sign in as
+  // usual, or, only on a record nobody has ever used, to choose a first
+  // password. Each press, and each refusal (the link ran out, was
+  // replaced, or was used already), is a row with her as the subject and
+  // no actor, since whoever holds the link pressed it. They were filed as
+  // PROFILE_VIEW with the story in the reason, so "who pressed a sign-in
+  // link for her, and was it refused" could only be answered by reading
+  // reasons. No row holds the link or its token.
+  | 'SIGN_IN_LINK_USE'          // somebody pressed Continue on a firm's sign-in link for this person, or was refused: run out, replaced, used already
 
 /**
  * Whose data was read (2026-11-01). A person, by id — every caller before
@@ -611,4 +625,57 @@ export async function recordForwardedEmailRead(
 export function forwardedEmailReadReason(read: { inboundEmailId: string; shownOn?: string; refused?: string }): string {
   if (read.refused) return `Refused the body of forwarded email ${read.inboundEmailId}: ${read.refused}`
   return `Read the body of forwarded email ${read.inboundEmailId}${read.shownOn ? ` on ${read.shownOn}` : ''}`
+}
+
+// ── Whether she came in here ─────────────────────────────────────────
+
+/**
+ * Identity rows that name her as the actor at a firm and say she did NOT
+ * come in: a sign-in or a join the firm's policy refused. Never read as
+ * a sign-in here.
+ */
+export const NOT_A_SIGN_IN: readonly AccessAction[] = ['LOGIN_REFUSED_SSO_ONLY', 'JOIN_REFUSED_BY_POLICY']
+
+/**
+ * Where to look for whether a person came in at a firm: a row this firm's
+ * access log keeps with her, in person, as the actor at this firm. Her
+ * first opening of the seat an invitation here made writes one
+ * (INVITE_ACCEPTED, `markSeatOpened` through the caller check), choosing a seat here writes one
+ * (CONTEXT_SWITCH), and so does every read she makes on a seat here. A
+ * row a twin wrote on a seat's authority is not her coming in, and
+ * neither is a refused sign-in (`NOT_A_SIGN_IN`). Pure, so the shape is a
+ * sentence in a test.
+ */
+export function signedInHereWhere(companyId: string, personId: string) {
+  return {
+    actorPersonId: personId,
+    actorCompanyId: companyId,
+    actorKind: 'PERSON',
+    action: { notIn: [...NOT_A_SIGN_IN] as string[] },
+  }
+}
+
+/**
+ * Which of these people came in at this firm (2026-11-16): this firm's own
+ * record, never her account anywhere else. Users & permissions, the invite
+ * answer, Withdraw and End read it through `seatHasSignedIn` in
+ * lib/access-grant, so a seat invited at an address that already signs in
+ * at another firm reads "Invited" until she signs in here.
+ *
+ * The same fact the sign-in line on a person's row reads (`signsInHere`
+ * in lib/notify/sign-in-link-door). One row is enough, so each person is
+ * one indexed read that stops at the first row; only invited seats need
+ * asking, which on any firm is a handful.
+ */
+export async function signedInHere(
+  companyId: string,
+  personIds: readonly string[],
+  db: Pick<typeof prisma, 'accessLog'> = prisma,
+): Promise<Set<string>> {
+  const ids = [...new Set(personIds)].filter(Boolean)
+  const found = await Promise.all(ids.map(async (personId) => {
+    const row = await db.accessLog.findFirst({ where: signedInHereWhere(companyId, personId), select: { id: true } })
+    return row ? personId : null
+  }))
+  return new Set(found.filter((id): id is string => id !== null))
 }

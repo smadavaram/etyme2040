@@ -709,13 +709,35 @@ export function waitingLine(w: { invited: boolean; signedIn: boolean; days: numb
 }
 
 /**
- * Whether the person behind a seat has ever signed in.
+ * Whether the person behind a seat has signed in here, read from this
+ * firm's own record only (2026-11-16).
  *
  * A seat nobody invited was made by a sign-in, so it has. An invited seat
- * has once it was used here, or once the person signed in anywhere on
- * Etyme. The seat's own use date is not enough by itself: a desk change
- * clears it, so a person who signed in last week would read as never
- * having come.
+ * has once it was used here (its own use date), or once she did anything
+ * at this firm that the access log keeps with her as the actor, her first
+ * opening of the invited seat included (INVITE_ACCEPTED). `signedInHere` is
+ * that second fact, read by `signedInHere` in lib/access-log.
+ *
+ * Never her account anywhere else. The rule read "or once the person
+ * signed in anywhere on Etyme", so a seat invited at an address that
+ * already signs in at another firm read as a member with access, never
+ * "Invited", and the firm learned the address has an account elsewhere.
+ * CLAUDE.md: the page never says whether an address has an account; a
+ * person invited and never signed in is "Invited". Pure.
+ */
+export function seatHasSignedIn(s: { invitedAt: Date | null; lastUsedAt: Date | null; signedInHere: boolean }): boolean {
+  return s.invitedAt === null || s.lastUsedAt !== null || s.signedInHere
+}
+
+/**
+ * The old reading: signed in anywhere on Etyme counts. Kept, unchanged,
+ * only so that callers outside this domain still compile until each moves
+ * to `seatHasSignedIn` (handed over 2026-11-16: lib/company-seats,
+ * lib/api-context, lib/teams/binding, api/cron/watch, api/settings/grants,
+ * api/me/seats-on-offer). Nothing on Users & permissions or the invite
+ * answer reads it. Do not add a caller.
+ *
+ * @deprecated Reads her account elsewhere. Use `seatHasSignedIn`.
  */
 export function hasSignedIn(s: { invitedAt: Date | null; lastUsedAt: Date | null; everSignedIn: boolean }): boolean {
   return s.invitedAt === null || s.lastUsedAt !== null || s.everSignedIn
@@ -840,8 +862,12 @@ export function roleChangeSays(c: Pick<RoleChange, 'personName' | 'roleName' | '
 /**
  * Which way in the invitation can offer.
  *
- * PASSWORD: the deployment can send mail, so the email carries a one-time
- *   link to set a password.
+ * PASSWORD: nobody has ever used her record, by any door
+ *   (`hasEverCameIn`), so the email carries a one-time link to set a
+ *   first password.
+ * SIGN_IN: she has used Etyme before, by some door. The email gives the
+ *   sign-in address and says to sign in the way she usually does; it
+ *   never carries a link that sets a password (2026-11-16).
  * WORK_ACCOUNT: Microsoft or Google sign-in is set up, and no mail-based
  *   door; the email gives the sign-in address.
  * NONE: neither. The email still gives the sign-in address, and the
@@ -861,7 +887,7 @@ export const INVITE_LINK_HOURS = 72
  * email names the directory and carries no set-password link at all: a
  * password is a door that company has shut (founder, 2026-11-11).
  */
-export type InviteDoor = 'PASSWORD' | 'WORK_ACCOUNT' | 'DIRECTORY' | 'NONE'
+export type InviteDoor = 'PASSWORD' | 'SIGN_IN' | 'WORK_ACCOUNT' | 'DIRECTORY' | 'NONE'
 
 export interface InviteLetter {
   door: InviteDoor
@@ -915,7 +941,11 @@ export function inviteLetter(l: InviteLetter): { lines: string[]; link: string |
   if (l.loginUrl) {
     return {
       lines: [
-        l.door === 'WORK_ACCOUNT'
+        // She has used Etyme before, by some door: she signs in the way she
+        // always does, and no link here sets a password (2026-11-16).
+        l.door === 'SIGN_IN'
+          ? `Sign in at ${l.loginUrl} the way you usually do, then choose ${l.companyName} in the account menu. ${youAre}`
+          : l.door === 'WORK_ACCOUNT'
           ? `Sign in with your work account at ${l.loginUrl}. ${youAre}`
           : `Sign in at ${l.loginUrl}. ${youAre}`,
       ],

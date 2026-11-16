@@ -17,14 +17,15 @@ import { regionDoor, REGION_UNIT_KIND } from '@/lib/region-scope'
 import { pageNameOf, HAT_COOKIE, readHatCookie, type CompanyKind } from '@/lib/nav-table'
 import { invoiceBetween } from '@/lib/money/invoice-parties'
 import { seatFor } from '@/lib/program-seat'
-import { recordRefusal } from '@/lib/access-log'
+import { recordRefusal, signedInHere } from '@/lib/access-log'
 import { ownSeatFor, ownWorkOf, ownSeatWasRemoved, openOwnSeat } from '@/lib/own-seat'
 import {
   seatRefusal, linkedInSeatRefusal, effectiveMode, isLimitedPublicSeat, narrowForPublicSeat, publicSeatRefusal, needsWithheld, directoryTurnedOffSays, DIRECTORY_SUSPEND_REASON,
   type CompanyPolicy, type Door, type SignInMode,
 } from '@/lib/identity/policy'
 import { recordIdentityEvent } from '@/lib/identity/ledger'
-import { pausedSays, hasSignedIn } from '@/lib/access-grant'
+import { markSeatOpened, opensAnInvitation, defaultSeatOf } from '@/lib/identity/sign-in'
+import { pausedSays, seatHasSignedIn } from '@/lib/access-grant'
 import { seatByDate, pastEndDate, endedByDateSays, MANAGES_ACCESS, type ByDate } from '@/lib/account-lifecycle'
 import { OWNER_ROLE } from '@/lib/owner-rules'
 import { domainOfEmail, isConsumerDomain } from '@/lib/company-domains'
@@ -568,6 +569,13 @@ async function sampleCaller(
  * reads the company's seats that may manage access, once, on this rare
  * path, so the Owner's seat and the last one that may manage access stay
  * open (`seatByDate`).
+ *
+ * Another manager counts as able to rescue the firm only once she signed
+ * in here (`seatHasSignedIn` over `signedInHere`, 2026-11-16), as Users &
+ * permissions reads it; her account at another firm never counts. The
+ * change can only keep a seat open that the old reading ended, never end
+ * one it kept, so nobody is locked out by it. The caller's own seat is
+ * read as signed in: she is using it.
  */
 async function seatOpenByDate(
   seat: { id: string; companyId: string | null; expiresAt: Date | null; revokedAt: Date | null; suspendedAt: Date | null; invitedAt: Date | null; lastUsedAt: Date | null; role: { name: string; permissions: unknown } | null },
@@ -582,12 +590,15 @@ async function seatOpenByDate(
         },
         select: {
           id: true, companyId: true, expiresAt: true, revokedAt: true, suspendedAt: true, invitedAt: true, lastUsedAt: true,
+          personId: true,
           role: { select: { name: true, permissions: true } },
-          person: { select: { credentials: { where: { lastUsedAt: { not: null } }, select: { id: true }, take: 1 } } },
         },
       })
     : []
-  const dated = (r: { id: string; companyId: string | null; expiresAt: Date | null; revokedAt: Date | null; suspendedAt: Date | null; invitedAt: Date | null; lastUsedAt: Date | null; role: { name: string; permissions: unknown } | null }, everSignedIn: boolean) => ({
+  const here = seat.companyId
+    ? await signedInHere(seat.companyId, managers.filter((m) => m.invitedAt !== null && m.lastUsedAt === null).map((m) => m.personId))
+    : new Set<string>()
+  const dated = (r: { id: string; companyId: string | null; expiresAt: Date | null; revokedAt: Date | null; suspendedAt: Date | null; invitedAt: Date | null; lastUsedAt: Date | null; role: { name: string; permissions: unknown } | null }, signedIn: boolean) => ({
     contextId: r.id,
     companyId: r.companyId,
     expiresAt: r.expiresAt,
@@ -595,11 +606,11 @@ async function seatOpenByDate(
     rolePermissions: (r.role?.permissions as string[] | undefined) ?? [],
     revokedAt: r.revokedAt,
     suspendedAt: r.suspendedAt,
-    hasSignedIn: hasSignedIn({ invitedAt: r.invitedAt, lastUsedAt: r.lastUsedAt, everSignedIn }),
+    hasSignedIn: signedIn,
   })
   return seatByDate(
     dated(seat, true),
-    managers.map((m) => dated(m, m.person.credentials.length > 0)),
+    managers.map((m) => dated(m, seatHasSignedIn({ invitedAt: m.invitedAt, lastUsedAt: m.lastUsedAt, signedInHere: here.has(m.personId) }))),
     now
   )
 }
@@ -731,12 +742,38 @@ export async function getCallerContext(
     return null
   }
 
+  // Where she chose no seat: the newest she has used, never an invitation
+  // she has not opened (2026-11-16, `defaultSeatOf` in lib/identity/
+  // sign-in). Opening an invitation by default accepted it and told the
+  // inviting firm she has an account. This firm's access log is asked only
+  // where the newest seat is such an invitation and she holds another.
+  const pickDefault = async () => {
+    const rows = await prisma.context.findMany({
+      where: { personId: person.id, ...usable },
+      include: seatInclude,
+      orderBy: { grantedAt: 'desc' },
+    })
+    const open: typeof rows = []
+    for (const r of rows) {
+      const v = await seatOpenByDate(r, now)
+      if (v.open) open.push(r)
+      else if (open.length === 0) passedOver.seen ??= { companyName: r.company?.name ?? null, endedOn: v.endedOn }
+    }
+    const usedHere = new Set<string>()
+    if (open.length > 1 && opensAnInvitation(open[0])) {
+      for (const s of open) {
+        if (opensAnInvitation(s) && (await signedInHere(s.companyId!, [person.id])).size > 0) usedHere.add(s.id)
+      }
+    }
+    return defaultSeatOf(open, usedHere)
+  }
+
   // Where no header names a seat, the one chosen in the account menu,
-  // if it is still this person's and live; else the most recent.
+  // if it is still this person's and live; else the default above.
   const chosen = contextId ? null : await chosenSeat(request)
   let context = contextId
     ? await pick({ id: contextId })
-    : (chosen ? await pick({ id: chosen }) : null) ?? await pick({})
+    : (chosen ? await pick({ id: chosen }) : null) ?? await pickDefault()
 
   if (!context && !contextId) {
     // ── Their own work is their own seat (simulation, 2026-10-20) ──────
@@ -855,6 +892,22 @@ export async function getCallerContext(
       caller: null,
       error: NextResponse.json({ error: { code: 'LINKEDIN_NOT_FOR_COMPANIES', message: linkedInSays } }, { status: 403 }),
     }
+  }
+
+  // ── Her invitation is accepted where she opens its seat (2026-11-16) ──
+  //
+  // Once, at this firm, for this seat, after the firm's policy let the
+  // session use it. A sign-in anywhere used to mark every invited seat
+  // she held at every firm, so a firm read her as having come in where
+  // she never had (lib/identity/sign-in). Read off the seat as it was
+  // before the use date below is written; a seat with a use date is
+  // passed over with no read.
+  if (opensAnInvitation(context)) {
+    await markSeatOpened(context, person, {
+      companyName: (context.company as { name?: string } | null)?.name ?? null,
+      policy: effectiveMode(seatPolicy),
+      surface: request?.nextUrl?.pathname?.startsWith('/api/') ? 'API' : 'WEB',
+    })
   }
 
   // ── Record that this access was actually used ──
