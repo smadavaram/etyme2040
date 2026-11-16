@@ -18,7 +18,7 @@ import { useSession } from '@/components/session-provider'
 import { refusalOf, refusedRead } from '@/lib/money/refused-read'
 import { runDesk, type RunDeskVerdict } from '@/lib/money/pay-desk'
 import { Receipts } from './receipts'
-import { DownloadRunFile, DownloadReceiptLines, ConfirmRunPaid, MarkRunPaid, RunConfirmSummary } from './payment-run-file'
+import { DownloadRunFile, DownloadReceiptLines, ReceiptLineStates, AnswerFromYourSystem, ConfirmRunPaid, MarkRunPaid, RunConfirmSummary } from './payment-run-file'
 import type { ConfirmSummary } from '@/lib/money/run-confirm'
 import { formatDay } from '@/lib/format-date'
 
@@ -259,6 +259,7 @@ export default function ApPage() {
           {tab === 'runs' && (
             <PaymentRuns
               currency={book.currency}
+              onOpenReceipts={() => setTab('receipts')}
               // A run is drawn from the reader's own firm's book under the
               // reader's own role — the route has no seat — so a program
               // office reading a client's payables is offered no run, and
@@ -856,7 +857,17 @@ function Exceptions({ books, onOpen }: { books: Books; onOpen: (id: string) => v
 // measures `paidAt` and until now nothing set it except a clerk typing a
 // date one bill at a time.
 
-function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdict }) {
+/** The assemble panel's sentence is about assembling: it never reads as a verdict on a run already approved beside it. */
+function assembleSays(proposed: any, payOn: string): string {
+  if (proposed.lines.length > 0) return proposed.says
+  const left = proposed.excluded?.length ?? 0
+  return (
+    `Nothing more to put in a new run on ${formatDay(payOn)}.` +
+    (left > 0 ? ` ${left} invoice receipt${left === 1 ? '' : 's'} looked at and left out, each with a reason.` : '')
+  )
+}
+
+function PaymentRuns({ currency, desk, onOpenReceipts }: { currency: string; desk: RunDeskVerdict; onOpenReceipts: () => void }) {
   const [data, setData] = useState<any>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [said, setSaid] = useState<string | null>(null)
@@ -987,7 +998,7 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
       {proposed && (
         <div className="panel">
           <Lbl>What would go</Lbl>
-          <p className="mt-2 text-[15px] text-etyme-ink">{proposed.says}</p>
+          <p className="mt-2 text-[15px] text-etyme-ink">{assembleSays(proposed, payOn)}</p>
           <div className="mt-3 flex flex-wrap items-baseline gap-8 border-t border-etyme-rule pt-3">
             <div>
               <p className="stat-label">Total</p>
@@ -1126,7 +1137,9 @@ function PaymentRuns({ currency, desk }: { currency: string; desk: RunDeskVerdic
                     </button>
                   )}
                   {r.status === 'APPROVED' && <DownloadRunFile runId={r.id} disabled={busy} />}
-                  {r.status === 'APPROVED' && <DownloadReceiptLines runId={r.id} disabled={busy} />}
+                  {r.status === 'APPROVED' && <DownloadReceiptLines runId={r.id} disabled={busy} onOpenReceipts={onOpenReceipts} />}
+                  {r.status === 'APPROVED' && <ReceiptLineStates runId={r.id} />}
+                  {r.status === 'APPROVED' && !data?.payWaits && <AnswerFromYourSystem runId={r.id} onDone={() => void load()} />}
                   {/* No Mark it paid or confirmation where the company still waits
                       for a verified Owner: the page's own line says why, with its link. */}
                   {r.status === 'APPROVED' && !data?.payWaits && (
