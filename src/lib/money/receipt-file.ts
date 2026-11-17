@@ -119,6 +119,8 @@ export interface ReceiptLineIn {
   poLine?: string | null
   /** When the line was last fixed: the receipt changed or a code was added. */
   fixedAt?: Date | null
+  /** The client's own contract line this line is coded on, where the client can fix its coding. */
+  codingContractId?: string | null
   /** The client's coding for this line. Empty where the client has not coded it. */
   shares: CodeShare[]
 }
@@ -338,6 +340,8 @@ export function receiptFile(
   const header = columnIds.join(',')
   const body = rows.map((row) => columnIds.map((c) => csvCell(row.cells[c] ?? '')).join(','))
   const n = rows.length
+  // A line split across cost centers is one line in several rows: count lines, say rows apart.
+  const lineCount = new Set(rows.map((r) => r.lineId)).size
   const left =
     held.length === 0
       ? ''
@@ -363,7 +367,9 @@ export function receiptFile(
         ? alreadySent.length > 0
           ? 'Every line in this run that can go was sent in an earlier file.'
           : 'Nothing in this run can be put in the file today, so it has no lines.'
-        : `${n} line${n === 1 ? '' : 's'} in the file, coded with your own cost centers, for your own system to pay from. Etyme sends no money and the file holds no bank details.`) +
+        : `${lineCount} line${lineCount === 1 ? '' : 's'} in the file` +
+          (n !== lineCount ? `, in ${n} rows because a line is split across cost centers` : '') +
+          `, coded with your own cost centers, for your own system to pay from. Etyme sends no money and the file holds no bank details.`) +
       sentNote + left,
   }
 }
