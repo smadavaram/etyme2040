@@ -471,6 +471,11 @@ Full text → 40, 11, 56, 68, 72.
   app are a draft week she confirms; an invoice without a PO passes the
   same one gate, approved first by the engagement owner; outside systems
   are labels on a setting, while the chat doors stay named on storefronts.
+- **A storefront starts from one sentence** (founder, 2026-11-18 → 94):
+  the Owner describes the firm, Etyme drafts it, one yes publishes. One
+  storefront, three shelves: staffing, contracting, consulting. Etyme
+  drafts each message and a person's yes sends it. 2017 is not a model.
+  It is one tenant gateway, never the core, and never on Etyme's home page.
 - **A template is a layout, never a look** (→ 79). A storefront renders in
   the tenant's own branding, kept as tenant settings, adopted or created
   on the Owner's yes; Etyme's own brand is at most "Runs on Etyme". Colors
@@ -630,6 +635,10 @@ Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64, 70, 71, 74.
 - **Payroll is run by pay period, and the period is the company's
   choice** (default every other week). Pay never goes out before it is
   worked out. Every hour is paid at the rate in force on the day worked.
+- **A small firm may pay once a month in arrears** (founder, 2026-11-18
+  → 95): the month's work, paid N days after it ends, on the client's
+  approved timesheet. Tapin does; every other week stays the default.
+  A W-2 schedule past a confirmed state limit warns and never blocks.
 - **A placement ended early takes the day it ended as its last day on
   site** (founder, 2026-11-16 → 78); the planned end stays in the log.
   An extension moves her pay window and row with it, or says why not.
@@ -661,6 +670,16 @@ Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64, 70, 71, 74.
 - **A client's codes are kept by Finance and the Owner** (2026-11-17 →
   90): `codes.manage`, or the AP clerk where no Finance seat exists
   (`mayMaintainCodes`); an Admin only by the Owner's grant.
+- **Owner's answers** (2026-11-17 → 92): the first pay-period Sunday is
+  Dec 27; a holiday added later never moves pay days already written; a
+  public page prints the firm, never a person (an Owner may opt in); a
+  W-2 week worked outside the US follows the work country's local
+  overtime rule once the work location is moved there, and is held and
+  flagged only where that rule is not known or configured yet; a
+  business-visa trip moves nothing, and pay stays with the home
+  employment. A bill to a client not on Etyme
+  shows the supplier's chosen account with "Confirm these details with
+  [supplier] by phone before your first payment."
 - **Etyme never moves money.** A payment run is a list. It leaves as a
   file for the client's own system; the confirmation marks receipts
   paid; the supplier is told the day it is paid.
@@ -834,6 +853,11 @@ Full text → 12, 14, 24, 32, 35.
   come first. A cheap model is the default, and a stronger model only on
   a validator's reason. Restricted data reaches no model. Built in its
   own order, never ahead of stabilization.
+- **The cheap tier does the clerical work** (founder, 2026-11-18 → 96):
+  the stronger tier only when the cheap answer cannot be trusted, and a
+  failure there goes to a person. Confidential data never goes to the
+  cheap provider directly without the tenant's opt-in. The owner pastes
+  each key, after the report he asked for.
 - **The voice.** Recommendation first. Names, not counts. One sentence
   per refusal, with the door. No apology words. The trade's phrasing:
   who applied, approve a timesheet, pay an invoice, on hold.
@@ -1169,6 +1193,12 @@ were.
 - **American English on every screen**: program, cost center,
   authorization, color (`american-english.test.ts`). Machine names
   written before the rule stay.
+- **Etyme flows like Vercel** (Sharath, 2026-11-17 → 93): few steps in the
+  order a person thinks, state on the item itself, verification that
+  turns green by itself, reversible by default, and the system does the
+  wiring: never a person relaying values between admin portals. A flow
+  that needs training or a rollout plan is wrong, not the user. First in
+  tenant setup, Settings, sign-in doors and integration connections.
 - **Flowy** (founder, 2026-11-15 → 72). No dead ends, no silent no-ops,
   no form that blocks without saying why. A blocked screen links to the
   act that unblocks it. Each fix is checked four ways: the logic, the
@@ -1229,6 +1259,12 @@ and why, and stops.
 | `etyme-architect` | Schema, shared components, decisions crossing two domains |
 | `etyme-scout` | "Does this already exist and who owns it" — read only |
 | `etyme-release` | Deciding whether it ships — read only |
+
+**Experts first** (founder, 2026-11-18 → 94). A question reaches the
+founder only after the domain agents, run as read-only advisers, have
+answered it. What they settle the lead decides and records. What still
+reaches him is a brief: the choice, what the experts agree on, one
+recommendation.
 
 **Which model does which work** (founder, 2026-11-16 → 82). The lead
 stays on the strongest model. Workers run on the standard model by default, at most three at once,

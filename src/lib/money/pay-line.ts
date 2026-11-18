@@ -56,6 +56,7 @@
 
 import { saysCannotClassify, wageRuleLabel, type WageRuleName } from '@/lib/worker-classification'
 import { weekStart } from '@/lib/overtime'
+import { localOvertimeRuleFor } from '@/lib/money/local-overtime-rule'
 import { payBands, payCut } from '@/lib/money/pay-hours'
 import type { AcceptedCut } from '@/lib/periods'
 import type { CutOvertime } from '@/lib/cut-overtime-choice'
@@ -125,6 +126,15 @@ export interface PayLine {
    * held off pay (`heldForExemption`). Absent reads as false.
    */
   exemptUnrecorded?: boolean
+  /**
+   * The country the work is done in, in words, where it is outside the US
+   * and Etyme has no overtime rule for it (`localOvertimeRuleFor`). A week
+   * over the line is then held, whatever else says the work is abroad and
+   * whatever the exempt answer is: recording one never releases it.
+   * Set only from the work location, never the entity or the currency.
+   * Never set where the wage is not this firm's.
+   */
+  heldAbroad?: string | null
 }
 
 const NOT_A_WAGE_TYPES = new Set(['C2C', 'CORP_TO_CORP', 'IND_1099', '1099', 'C1099'])
@@ -174,13 +184,25 @@ export function payLineFor(i: PayLineInput): PayLine {
   const type = String(i.contractType).toUpperCase()
   if (!i.weAreTheEmployer || NOT_A_WAGE_TYPES.has(type)) return asDrawn('NOT_OUR_WAGE')
 
-  if (i.exemptStatus == null) return { ...asDrawn('UNRECORDED'), exemptUnrecorded: true }
-  if (i.exemptStatus !== 'NONEXEMPT') return asDrawn('EXEMPT')
+  // Worked in a country Etyme has no overtime rule for: a week over the
+  // line is held WHATEVER the exempt answer says (walk, 2026-11-17: "Not
+  // exempt" on a held row paid 86 hours at the usual rate, $8,256 for 46
+  // abroad hours at $96, with no word). Exemption is a US answer; it says
+  // nothing about another country's overtime law. Only a rule recorded
+  // for the country, or the work location moved, releases the week.
+  const site = i.where.siteCountry
+  const abroad = site && !isUS(site) && !localOvertimeRuleFor(site).known ? countryName(site) : null
+  const held = abroad ? { heldAbroad: abroad } : {}
+
+  if (i.exemptStatus == null) {
+    return { ...asDrawn('UNRECORDED'), exemptUnrecorded: true, ...held }
+  }
+  if (i.exemptStatus !== 'NONEXEMPT') return { ...asDrawn('EXEMPT'), ...held }
 
   // Nonexempt. Whose law?
   const rule = i.where.wageRule ?? null
-  if (rule !== 'US_FLSA') return asDrawn('NOT_US')
-  if (outside.length > 0) return asDrawn('US_UNCONFIRMED')
+  if (rule !== 'US_FLSA') return { ...asDrawn('NOT_US'), ...held }
+  if (outside.length > 0) return { ...asDrawn('US_UNCONFIRMED'), ...held }
 
   if (drawn == null) {
     return { afterHours: US_WEEKLY_LINE, source: 'LAW', reason: 'LAW', drawn: null, outside, wageRule: rule }
@@ -232,6 +254,17 @@ export function payLineSays(
     .filter(([, h]) => h > US_WEEKLY_LINE)
     .sort((a, b) => a[0].localeCompare(b[0]))
   if (over.length === 0) return null
+
+  // A week worked where Etyme has no overtime rule is held over the line,
+  // whatever else is recorded; "paid at straight time" would be untrue.
+  if (line.heldAbroad) {
+    const weeks = over.map(([w, h]) => `${hrs(h)} in the week of ${longDay(w)}`).join(', ')
+    return (
+      `${name} worked ${weeks} in ${line.heldAbroad}, and Etyme has no overtime rule recorded for ${line.heldAbroad}. ` +
+      `A week accepted over ${US_WEEKLY_LINE} hours is held, whether or not ${name} is exempt. ` +
+      `It is paid once a rule is recorded or the work location is moved.`
+    )
+  }
 
   switch (line.reason) {
     case 'LAW':
@@ -353,6 +386,8 @@ export interface HeldWeek {
   workedHours: number
   /** Of them, hours over the line a person not exempt is judged on. */
   overHours: number
+  /** The country, in words, where the week was worked and Etyme has no overtime rule for it. Absent for a home week. */
+  workedIn?: string
 }
 
 /**
@@ -371,13 +406,16 @@ function lineIfNotExempt(line: PayLine): number {
  * rules then leave a held week off the file in their own sentence.
  */
 export function judgedLine(line: PayLine): number | null {
+  if (line.heldAbroad) return lineIfNotExempt(line)
   if (line.exemptUnrecorded && line.outside.length === 0) return lineIfNotExempt(line)
   return line.afterHours
 }
 
 /**
  * Every week of a sheet held off pay because nobody has recorded whether
- * the person is exempt. Empty where the answer is recorded, where the
+ * the person is exempt, or because it was worked in a country Etyme has
+ * no overtime rule for (held whatever the exempt answer). Otherwise empty
+ * where the answer is recorded, where the
  * wage is not this firm's, where anything says the work is outside the
  * US, or where no week as accepted goes over the line. Judged on the
  * hours the employer accepted, cut under the pay line's own rule, so a
@@ -392,13 +430,19 @@ export function heldForExemption(i: {
   accepted: AcceptedCut | null
   cutOvertime: CutOvertime
 }): HeldWeek[] {
-  if (!i.line.exemptUnrecorded || i.line.outside.length > 0) return []
+  // Work abroad holds only where the work LOCATION's country has no rule
+  // recorded, and then whatever the exempt answer is: recording one never
+  // releases it. The entity country and the pay currency are the home
+  // employment and never hold or release a week (decisions/92, answer 4).
+  const workedIn = i.line.heldAbroad ?? null
+  if (!i.line.exemptUnrecorded && !workedIn) return []
+  if (i.line.outside.length > 0 && !workedIn) return []
   if (!i.days || Object.keys(i.days).length === 0) return []
   const at = lineIfNotExempt(i.line)
   const cut = payCut(payBands(i.days, i.leaveDays ?? null, at), i.accepted, at, i.cutOvertime)
   return cut.weeks
     .filter((w) => w.over > 0)
-    .map((w) => ({ weekOf: w.weekOf, workedHours: Math.round((w.regular + w.over) * 100) / 100, overHours: w.over }))
+    .map((w) => ({ weekOf: w.weekOf, workedHours: Math.round((w.regular + w.over) * 100) / 100, overHours: w.over, ...(workedIn ? { workedIn } : {}) }))
     .sort((a, b) => a.weekOf.localeCompare(b.weekOf))
 }
 
@@ -424,10 +468,27 @@ export function withoutHeldWeeks(
  */
 export function heldSays(personName: string, held: readonly HeldWeek[]): string | null {
   if (held.length === 0) return null
-  const weeks = held.map((h) => `${personName}'s week of ${longDay(h.weekOf)}, ${hrs(h.workedHours)}, is held off this pay.`)
+  const home = held.filter((h) => !h.workedIn)
+  const abroad = held.filter((h) => h.workedIn)
+  const parts: string[] = []
+  if (home.length > 0) {
+    const weeks = home.map((h) => `${personName}'s week of ${longDay(h.weekOf)}, ${hrs(h.workedHours)}, is held off this pay.`)
+    parts.push(
+      `${weeks.join(' ')} Nobody has recorded whether ${personName} is exempt from overtime. ` +
+      `Whoever runs payroll records it on this row. The week is then paid once, with any overtime owed.`
+    )
+  }
+  for (const h of abroad) parts.push(heldAbroadSays(personName, h))
+  return parts.join(' ')
+}
+
+/** The sentence for a week held because the country it was worked in has no overtime rule recorded. */
+export function heldAbroadSays(personName: string, h: HeldWeek): string {
   return (
-    `${weeks.join(' ')} Nobody has recorded whether ${personName} is exempt from overtime. ` +
-    `Whoever runs payroll records it on this row. The week is then paid once, with any overtime owed.`
+    `${personName}'s week of ${longDay(h.weekOf)} is held: ${hrs(h.workedHours)} worked in ${h.workedIn}, ` +
+    `and Etyme has no overtime rule recorded for ${h.workedIn}. No screen records a country's rule yet. ` +
+    `Recording whether ${personName} is exempt does not release it. ` +
+    `The week is paid once, when a rule is recorded or the work location is moved.`
   )
 }
 
