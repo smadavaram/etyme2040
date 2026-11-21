@@ -334,33 +334,52 @@ describe('What the three documents say is what the code does', () => {
     expect(existsSync(join(ROOT, 'src/app/api/conversations/twin/mask.ts'))).toBe(true)
   })
 
-  it('matching sends a person’s name to the outside service, and without a key it uses fixed rules and the resume check does not run', () => {
-    expect(PRIVACY).toMatch(/For matching: a Worker's name, skills, headline, location, work authorization type, minimum rate and date available/)
-    expect(PRIVACY).toMatch(/If no Anthropic key is set, matching uses fixed rules and says so, and the resume check does not run/)
+  it('matching sends no name to the outside service, and without a key it uses fixed rules and a resume check is recorded as unverified', () => {
+    expect(PRIVACY).toMatch(/For matching: a Worker's skills, location, work authorization type and date available; the name is never sent/)
+    expect(PRIVACY).toMatch(/matching uses fixed rules and says so, and a resume check that could not ask that service is recorded as unverified, never as passed/)
     expect(PRIVACY).toMatch(/For an import: up to 60,000 characters of the file/)
 
     const engine = read('src/lib/match-engine.ts')
-    expect(engine).toContain('name: c.personName')
+    expect(engine).toContain('Names never leave: a candidate is its index')
+    expect(read('src/lib/checks/skill-evidence.ts')).toContain('unverifiedSkills')
     expect(engine).toContain('workAuth: c.workAuth')
-    expect(engine).toContain('no ANTHROPIC_API_KEY — scored with rules, not the model')
-    expect(read('src/app/api/submissions/[id]/check/route.ts')).toContain('evidencePrompt(p.claimedSkills, cvText)')
+    expect(engine).toContain('scored with rules, not the model')
+    expect(read('src/app/api/submissions/[id]/check/route.ts')).toContain('readSkillEvidence')
     expect(read('src/lib/extract.ts')).toContain('source.length > 60_000')
   })
 
-  it('it uses no analytics, advertising or session-recording package, and the visit count is first-party with no name or cookie', () => {
+  it('it uses no advertising or session-recording package, one page-analytics package only on the public marketing pages, and the visit count is first-party with no name or cookie', () => {
     const pkg = JSON.parse(read('package.json'))
     const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
     const tracking = deps.filter((d) =>
       /analytics|segment|mixpanel|posthog|amplitude|hotjar|fullstory|logrocket|heap|gtag|google-tag|clarity|plausible|datadog-rum|smartlook|mouseflow|sentry\/replay/i.test(d)
     )
-    expect(tracking, 'a tracking package the notice says is not used').toEqual([])
-    expect(PRIVACY).toMatch(/We do not use any advertising, analytics or session-recording service/)
-    expect(PRIVACY).toMatch(/We set no third-party cookies/)
+    expect(tracking, 'the one page-analytics package the notice names; anything else is not disclosed').toEqual(['@vercel/analytics'])
+
+    // It renders in the public footer and nowhere else: not in the signed-in app, not on a firm's own page.
+    const users = (function walk(dir: string): string[] {
+      return readdirSync(join(process.cwd(), dir), { withFileTypes: true }).flatMap((e) => {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) return walk(p)
+        return /\.(ts|tsx)$/.test(e.name) && read(p).includes('@vercel/analytics') ? [p] : []
+      })
+    })('src')
+    expect(users, 'analytics may be imported only by the public footer').toEqual(['src/lib/public-site/frame.tsx'])
+    const frame = read('src/lib/public-site/frame.tsx')
+    expect(frame).toContain("import { Analytics } from '@vercel/analytics/react'")
+    expect(frame).toMatch(/export function HomeFooter[\s\S]*<Analytics \/>/)
+    expect(read('src/app/site/[slug]/page.tsx')).not.toContain('HomeFooter')
+    expect(read('src/app/dashboard/layout.tsx')).not.toMatch(/Analytics|HomeFooter/)
+
+    expect(PRIVACY).toMatch(/We do not use any advertising or session-recording service/)
+    expect(PRIVACY).toMatch(/Our public marketing pages load Vercel Web Analytics/)
+    expect(PRIVACY).toMatch(/The signed-in product and each firm's public page carry none/)
+    expect(PRIVACY).not.toMatch(/We do not use any advertising, analytics/)
 
     const count = read('src/lib/public-site/count.ts')
     expect(count).toContain('sessionStorage')
     expect(count).not.toMatch(/document\.cookie/)
-    expect(PRIVACY).toMatch(/The public website count records no name, email address, IP address, browser details or cookie/)
+    expect(PRIVACY).toMatch(/The first-party public website count records no name, email address, IP address, browser details or cookie/)
   })
 
   it('every category the schedule knows is in the notice’s list of what is collected, and nothing about a person is left off', () => {

@@ -753,6 +753,11 @@ Full text → 46, 47, 48, 41, 19, 55, 12, 20, 29, 35, 37, 64, 70, 71, 74.
 - **Who reads what.** A person reads only their own commissions. A
   client never sees a supplier's commissions or margin. A recruiter
   reads no margin unless the Owner grants it.
+- **A tax ID, bank details and a social security number are masked for
+  everyone** (founder, 2026-11-18 → 99). The Owner reveals one after a
+  fresh second check; anyone else asks, and reads it only inside the
+  window the Owner grants. A share outside is confirmed and attached to
+  the record. Every reveal and share is on the ledger.
 - **Bank details** are kept and shown as the bank, the account name and
   four digits. A bank change clears the bank check. A client is never
   asked for bank details.
@@ -858,6 +863,10 @@ Full text → 12, 14, 24, 32, 35.
   failure there goes to a person. Confidential data never goes to the
   cheap provider directly without the tenant's opt-in. The owner pastes
   each key, after the report he asked for.
+- **Company agents come first** (founder, 2026-11-18 → 98): an agent for
+  each role, account manager, recruiter, HR, contracts, timesheets,
+  billing, invoice receipts and money flow, as acts in the role contract,
+  rules first. A recruiter's mail plugin and a worker's own agent wait.
 - **The voice.** Recommendation first. Names, not counts. One sentence
   per refusal, with the door. No apology words. The trade's phrasing:
   who applied, approve a timesheet, pay an invoice, on hold.
@@ -940,6 +949,10 @@ Full text → 13, 22, 23, 53, 54, 58, 18, 21, 38, 46, 66, 73, 76.
 - **The Owner decides who sees what**: a grant by company, team or
   person (`PermissionGrant`), narrowed at the query. Never across a
   company, never past segregation of duties.
+- **A role is requested, assigned and approved by three people**
+  (founder, 2026-11-18 → 100): a person or her manager asks, the Admin
+  assigns, the holder's manager approves, then it is live. Nobody takes
+  two steps. A company setting, off by default. Not built yet.
 - **Team structure is one tree the Owner draws** (`OrgUnit`). A
   directory is read, never written.
 - **A company renames only a person it alone knows.**
@@ -1123,8 +1136,8 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
-| Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads: its jobs arrive from the client it already has. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
 | Worker | You: Your work, Your page, Who has you, Your data, Your paperwork | Unchanged: a list under "You", not nouns with tabs. |
