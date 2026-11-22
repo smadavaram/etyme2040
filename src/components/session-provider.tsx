@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import {
-  HAT_COOKIE, ASK_ETYME_HREF, readHatCookie, hatCookieValue, hatForPath, offersYouHat,
+  HAT_COOKIE, ASK_ETYME_HREF, START_HREF, readHatCookie, hatCookieValue, hatForPath, offersYouHat,
   type Hat, type HatLine,
 } from '@/lib/nav-table'
 
@@ -27,6 +27,8 @@ export interface SessionCompany {
   name: string
   slug: string
   kind: CompanyKind
+  /** The firm's own home setting (→ 107): DECISIONS lands its seats on the decision queue. */
+  homePage?: 'DECISIONS' | null
 }
 
 /** Who the signed-in person is here. A consultant on a vendor's bench has
@@ -347,6 +349,7 @@ export function SessionProvider({
                 name: company.name,
                 slug: company.slug,
                 kind: normalizeKind(company.kind),
+                homePage: company.homePage === 'DECISIONS' ? 'DECISIONS' : null,
               }
             : null,
           roleName: active?.role?.name ?? null,
@@ -427,8 +430,9 @@ export function SessionProvider({
       }
       rememberHat(hatCookieValue(line.hat, pin))
       // A whole page, so the shell, the mark and Ask Etyme's greeting are
-      // all read again for the hat now worn.
-      window.location.assign(ASK_ETYME_HREF)
+      // all read again for the hat now worn. A firm seat goes through
+      // /start, which reads that firm's own home setting (→ 107).
+      window.location.assign(line.hat === 'firm' ? START_HREF : ASK_ETYME_HREF)
     })()
   }, [state.seats, state.activeContextId])
 

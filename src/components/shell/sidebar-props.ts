@@ -46,6 +46,11 @@ export type SidebarIdentity = {
   hat?: Hat | null
   /** This person earns commission at this firm: "Your commissions" under Accounting. */
   earnsCommission?: boolean
+  /**
+   * The firm's own home setting (→ 107). Read only at the firm's own book:
+   * a seat in a client's program lands where that seat always did.
+   */
+  homePage?: 'DECISIONS' | null
   pending: boolean
 }
 
@@ -112,6 +117,8 @@ export function sidebarPropsFrom(
     region: session.region ?? null,
     hat: session.hat ?? null,
     earnsCommission: Boolean(session.earnsCommission),
+    // A seat that reads one region keeps its own home: the queue reads every region.
+    homePage: session.seat || session.region ? null : session.company?.homePage ?? null,
     pending: false,
   }
 }
@@ -162,6 +169,8 @@ export interface Desk {
    * "Program Manager at Northbend Athletic" over the AP desk's menu.
    */
   roleName: string | null
+  /** The firm's own home setting (→ 107); null at a client's seat. */
+  homePage: 'DECISIONS' | null
 }
 
 export function deskOf(
@@ -182,6 +191,8 @@ export function deskOf(
     region: session.region ?? null,
     hat: session.hat ?? null,
     roleName: seat ? seat.roleName : (session.roleName ?? null),
+    // A seat that reads one region keeps its own home: the queue reads every region.
+    homePage: seat || session.region ? null : session.company?.homePage ?? null,
   }
 }
 

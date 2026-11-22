@@ -630,6 +630,19 @@ export const DOMAINS: Domain[] = [
       // demo door — three doors onto one question that had three
       // answers, one of which sent two suppliers into a buyer's program.
       'lib/console-home',
+      // The record ledger with its three stamps, and decision items a
+      // person opens (2026-11-21 → 107). Every domain writes to the ledger
+      // through the one writer; the schema under it queues here.
+      'lib/record-ledger', 'lib/decision-items',
+      // The decision queue's routes and the record view (Flow A, A2 to A6):
+      // the open list, an item and its three acts, agent control and the
+      // firm's ledger, and one record with its whole history.
+      'lib/decision-queue', 'app/api/decision-items', 'app/api/records', 'app/dashboard/records',
+      // The money loop's routes and screens (Flow B, B2 to B6): the
+      // consultants page, a placement's month, a month for everybody with
+      // its payroll summary, and the words all three share. The chain's
+      // own rules are money's (lib/money/money-chain).
+      'lib/money-loop', 'app/api/money-loop', 'app/dashboard/money-loop',
       // The navigation table every menu, heading and landing reads. Pure,
       // so a server route may import it; the sidebar that draws it is a
       // client component and no route may import that.

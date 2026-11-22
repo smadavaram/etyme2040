@@ -15,7 +15,7 @@
 
 import { hasAnyPermission, type Permission } from '@/lib/permissions'
 import { roleWords } from '@/lib/access-grant'
-import { readsOnlyOwnWork, OWN_WORK_READS, consoleHome, type Reader } from '@/lib/console-home'
+import { readsOnlyOwnWork, OWN_WORK_READS, consoleHome, DECISIONS_HOME, type Reader } from '@/lib/console-home'
 import { IMPORT_PERMISSIONS } from '@/lib/importable'
 import { SETS_UP_A_PARTY } from '@/lib/party-onboarding'
 import { ENDING_SOON_READERS, CHECK_IN_READERS } from '@/lib/releasing-soon'
@@ -375,6 +375,13 @@ export function pinnedOn(sections: readonly NavSection[]): NavItem[] {
  * click from the chat.
  */
 export function landingFor(reader: Reader & { seatedAtClient?: string | null; region?: string | null }): string {
+  // A firm that chose the decision queue as home lands its working seats there (→ 107),
+  // except a seat the queue would refuse: one that reads a single region,
+  // which lands where it always did (Ask Etyme, narrowed to its region).
+  if (reader.homePage === 'DECISIONS' && !reader.region) {
+    const home = consoleHome(reader).href
+    if (home === DECISIONS_HOME) return home
+  }
   const menu = getNavForKind(reader.kind ?? null, Boolean(reader.isConsultant), {
     worker: reader.worker,
     permissions: reader.permissions ?? undefined,
@@ -459,6 +466,9 @@ const AP: NavItem = { label: 'AP', href: '/dashboard/ap', icon: '◨', needs: ['
 const PAYROLL: NavItem = { label: 'Payroll', href: '/dashboard/payroll', icon: '▩', needs: ['payroll.read'] }
 // What a recruiter earned on a placement.
 const COMMISSIONS: NavItem = { label: 'Commissions', href: '/dashboard/payroll/commissions', icon: '◈', needs: ['payroll.read'] }
+// Each billing consultant's month, from timesheet owed to closed (record 107, Flow B).
+// Its route opens for payroll.read (app/api/money-loop/door).
+const MONEY_LOOP: NavItem = { label: 'Timesheet to payment', href: '/dashboard/money-loop', icon: '◫', needs: ['payroll.read'] }
 
 /**
  * The firm's own people, its candidates: the register first, the bench
@@ -659,7 +669,7 @@ const FIRM_CONTRACTS: NavItem[] = [
  */
 const FIRM_BILLS: NavItem[] = [BILLS, AR]
 const FIRM_RECEIPTS: NavItem[] = [AP]
-const FIRM_PAYROLL: NavItem[] = [PAYROLL, COMMISSIONS]
+const FIRM_PAYROLL: NavItem[] = [PAYROLL, COMMISSIONS, MONEY_LOOP]
 
 /**
  * A staffing vendor: Ask Etyme · Today · Network · Jobs · Submissions ·
@@ -1070,6 +1080,12 @@ export type SeatFacts = {
  * seat it always answered.
  */
 export type Hat = 'firm' | 'you'
+
+/**
+ * The door every sign-in passes, which reads the seat's own firm's home
+ * setting (`deskHome`); a seat switch and a password set land through it.
+ */
+export const START_HREF = '/start'
 
 /**
  * The cookie that remembers the hat on this device: `firm` or `you`,

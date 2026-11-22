@@ -140,7 +140,9 @@ Full text → 03, 11, 36, 37, 59, 62, 63.
   that lets them. They get the hardest tests and the first seat at every
   release. Public pages lead with those two.
 - **The home page** is the owner-approved design of 2026-11-18 (→ 103),
-  which replaced the 2026-11-12 brief. The badge reads "Enterprise
+  which replaced the 2026-11-12 brief. Its replacement is built from
+  the prototypes in `prototypes/` and swaps in after the tester's
+  retest; the signed-in home is the decision queue (→ 108). The badge reads "Enterprise
   contingent workforce management." Light only. "Free" appears only in
   the hero offer, the price section and the Start free buttons. The
   standard footer. Sample figures are the seed's, labeled "Demo — not a
@@ -441,6 +443,13 @@ Full text → 40, 11, 56, 68, 72.
   five batches, each built, deployed once, then stopped for the tester's
   retest in production. Nothing is done until the retest passes. Fix
   what exists; an item not done in its batch is named, never swapped.
+- **One item ships each weekend to 2027-02-14** (2026-11-21 → 107),
+  from the pack (→ 105): one deploy, then stop. Done means the second
+  firm's team runs it on Monday, and the tester's production retest is
+  acceptance. A failed item is next weekend's first.
+- **Deploys happen on Saturday and Sunday only** (owner, 2026-11-21 →
+  107). No hotfix exception, not for money, not for security. A weekday
+  finding is logged NOT RELEASED and takes the weekend's first slot.
 - **The fix list is worked in layers, each its own deploy** (founder,
   2026-11-15). Tapin first, as the live tenant that runs its whole
   business on Etyme. A layer is built and deployed, the tester retests
@@ -1138,7 +1147,7 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
@@ -1280,6 +1289,11 @@ founder only after the domain agents, run as read-only advisers, have
 answered it. What they settle the lead decides and records. What still
 reaches him is a brief: the choice, what the experts agree on, one
 recommendation.
+
+**Build questions stop at the lead** (owner, 2026-11-21 → 108).
+Release, batching, architecture and acceptance follow the tester's
+documents; a gap is decided by the lead and written in STATE.md. The
+owner keeps money, signing, people, outside sends and his own gates.
 
 **Which model does which work** (2026-11-21 → 104, replacing 82).
 Workers run on the strongest model at low effort. Schema and money

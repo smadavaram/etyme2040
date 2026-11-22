@@ -1,6 +1,6 @@
 'use client'
 
-import { usePageSection } from '@/components/page-section'
+import { useFirstPageSection } from '@/components/page-section'
 import { useEffect, useState, useCallback } from 'react'
 import { DecideOvertime, type PendingWeek } from '../timesheets/decide-overtime'
 import Link from 'next/link'
@@ -8,6 +8,9 @@ import { amount } from '@/lib/money-display'
 import { useSession } from '@/components/session-provider'
 import { hasPermission } from '@/lib/permissions'
 import { chipsFor, emptyBook, decisionsAddress, type TypeFilter } from './chips'
+import { DecisionQueue } from './queue'
+import { QUEUE_EYEBROW_HREFS } from '@/lib/decision-queue'
+import { QueueTabs } from './queue-tabs'
 import { PageHead, Stat, FilterChips, RefusedState, LoadingState, ErrorState, EmptyState } from '@/components/ui'
 
 /**
@@ -78,6 +81,7 @@ function typeIcon(type: string): string {
     TWIN_QUESTION:      '✦',
     START_HELD:         '■',
     NO_AGREEMENT:       '§',
+    DECISION_ITEM:      '◆',
   }
   return map[type] ?? '●'
 }
@@ -102,6 +106,7 @@ function typeLabel(type: string): string {
     START_HELD:         'Start held',
     NO_AGREEMENT:       'No agreement',
     OWNER_ASK:          'Owner ask',
+    DECISION_ITEM:      'Decision',
   }
   return map[type] ?? type
 }
@@ -147,8 +152,9 @@ function timeAgo(dateStr: string): string {
 
 // ── Page ─────────────────────────────────────────────
 
-export default function DecisionsPage() {
-  const section = usePageSection('/dashboard/decisions')
+/** The twin's and the workflow's cards, unchanged, in their own section under the queue. */
+function NeedsAttention() {
+  const section = useFirstPageSection(QUEUE_EYEBROW_HREFS)
   const session = useSession()
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -634,6 +640,34 @@ export default function DecisionsPage() {
           {toast.message}
         </div>
       )}
+    </>
+  )
+}
+
+/**
+ * The decision queue (record 107, A2): its two tabs, the firm's own
+ * decisions oldest first, then the cards above, as they were.
+ *
+ * A seat the queue's door refuses (a place on the firm's bench) reads the
+ * door's sentence once and nothing else: no heading, no tabs, no chips,
+ * and no second refusal from the cards under it (the walk of 2026-11-22).
+ * So the heading waits for the queue's first answer.
+ */
+export default function DecisionsPage() {
+  const section = useFirstPageSection(QUEUE_EYEBROW_HREFS)
+  const [door, setDoor] = useState<'ASKING' | 'OPEN' | { refused: string }>('ASKING')
+  const answered = useCallback((refused: string | null) => setDoor(refused ? { refused } : 'OPEN'), [])
+  if (typeof door === 'object') return <RefusedState says={door.refused} />
+  return (
+    <>
+      {door === 'OPEN' && (
+        <>
+          <PageHead eyebrow={section} title="Decisions" subtitle="What the firm owes a decision on, oldest first. Open one to approve it, send it back or reject it." />
+          <QueueTabs current="decisions" />
+        </>
+      )}
+      <DecisionQueue onAnswered={answered} />
+      {door === 'OPEN' && <NeedsAttention />}
     </>
   )
 }

@@ -18,7 +18,8 @@
 import { describe, it, expect } from 'vitest'
 import { consoleHome, readsOnlyOwnWork } from '@/lib/console-home'
 import { getNavForKind } from '@/components/shell/sidebar'
-import { pinnedOn } from '@/lib/nav-table'
+import { pinnedOn, landingFor, ASK_ETYME_HREF } from '@/lib/nav-table'
+import { deskHome } from '@/components/desk-home'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -179,5 +180,52 @@ describe('a worker’s dashboard opens on their own work', () => {
       expect(call, f).toMatch(/worker/)
       expect(call, f).toMatch(/permissions/)
     }
+  })
+})
+
+describe('a firm that chose the decision queue as its home', () => {
+  it('a company with no home setting lands where it always did', () => {
+    for (const kind of ['VENDOR', 'CLIENT', 'GSI', 'MSP'] as const) {
+      expect(landingFor({ kind, permissions: ['*'], homePage: null })).toBe(landingFor({ kind, permissions: ['*'] }))
+      expect(consoleHome({ kind, permissions: ['*'], homePage: null }).href).toBe(consoleHome({ kind, permissions: ['*'] }).href)
+    }
+  })
+
+  it('a seat that works at a firm whose home is the decision queue lands on the decision queue', () => {
+    for (const kind of ['VENDOR', 'CLIENT', 'GSI', 'MSP'] as const) {
+      expect(landingFor({ kind, permissions: ['*'], homePage: 'DECISIONS' })).toBe('/dashboard/decisions')
+    }
+  })
+
+  it('a worker’s own page and a one-person firm do not move when the firm chose the decision queue', () => {
+    expect(landingFor({ kind: 'VENDOR', isConsultant: true, homePage: 'DECISIONS' })).not.toBe('/dashboard/decisions')
+    expect(landingFor({ kind: 'VENDOR', worker: true, permissions: ['assignments.read', 'timesheets.read'], homePage: 'DECISIONS' })).not.toBe('/dashboard/decisions')
+    expect(landingFor({ kind: 'CONSULTANT_CORP', homePage: 'DECISIONS' })).not.toBe('/dashboard/decisions')
+  })
+
+  it('the dashboard, the menu, the header and the tab row all read the firm’s home setting, so a seat returns to the decision queue', () => {
+    for (const f of ['src/app/dashboard/page.tsx', 'src/components/shell/sidebar.tsx', 'src/components/shell/header.tsx', 'src/components/shell/section-pills.tsx']) {
+      const src = readFileSync(join(process.cwd(), f), 'utf8')
+      const call = src.slice(src.indexOf('consoleHome({'), src.indexOf('consoleHome({') + 300)
+      expect(call, f).toMatch(/homePage/)
+    }
+    // And the session carries it from /api/me.
+    expect(readFileSync(join(process.cwd(), 'src/app/api/me/route.ts'), 'utf8')).toMatch(/homePage: true/)
+  })
+
+  it('a seat that reads one region still opens on Ask Etyme when the firm’s home is the decision queue', () => {
+    expect(landingFor({ kind: 'CLIENT', permissions: ['*'], region: 'Latin America', homePage: 'DECISIONS' })).not.toBe('/dashboard/decisions')
+    expect(deskHome({ kind: 'CLIENT', isConsultant: false, role: 'Hiring Manager', permissions: ['*'], region: 'Latin America', homePage: 'DECISIONS' })).toBe(ASK_ETYME_HREF)
+  })
+
+  it('every door that lands a seat reads the firm’s home setting: the demo door, a seat switch, a password set and the role-changed email', () => {
+    const demo = readFileSync(join(process.cwd(), 'src/app/api/demo/route.ts'), 'utf8')
+    const calls = demo.split('landingFor({').slice(1).map((c) => c.slice(0, 500))
+    expect(calls.length).toBe(3)
+    for (const c of calls) expect(c).toMatch(/homePage: homeSetting\(/)
+    expect(readFileSync(join(process.cwd(), 'src/components/session-provider.tsx'), 'utf8')).toMatch(/line\.hat === 'firm' \? START_HREF/)
+    expect(readFileSync(join(process.cwd(), 'src/app/(auth)/reset/[token]/form.tsx'), 'utf8')).toMatch(/j\.data\.landing \?\? START_HREF/)
+    const access = readFileSync(join(process.cwd(), 'src/app/api/access/route.ts'), 'utf8')
+    expect(access.slice(access.indexOf('landing: consoleHome({'), access.indexOf('landing: consoleHome({') + 400)).toMatch(/homePage/)
   })
 })
