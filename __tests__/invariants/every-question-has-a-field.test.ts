@@ -479,7 +479,7 @@ describe('the screen walk’s papers, on the build after it', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 
   it('a firm’s own name for the I-9 is read as the I-9 wherever a paper is credited, so accepting it asks for the document shown, and an I-94 or another form is never read as one', () => {
-    // Techpeple's own paper for Ifeoma Balogun: before, it read as no type,
+    // Tecwyn's own paper for Ifeoma Balogun: before, it read as no type,
     // so Accept drew no field, stamped it examined and recorded no I-9.
     for (const name of ['I-9, with the document it is completed from', 'Form I-9', 'I-9', 'Employment Eligibility Verification (Form I-9)']) {
       expect(typeKeyForTemplate(name, STRICT, { guess: false }), name).toBe('I9_EVERIFY')

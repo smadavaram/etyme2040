@@ -218,8 +218,8 @@ export interface AddVerdict {
  * (`isDemo: false`), with Karthik granted **Owner, permissions `*`**.
  * Because a person's contexts are read most-recently-granted first,
  * that seat then outranked his employer's, and every page he opened
- * read "Walk test — functional review" instead of Teleworld Solutions.
- * No confirmation, no refusal, no "you already work at Teleworld".
+ * read "Walk test — functional review" instead of Tellisford Solutions.
+ * No confirmation, no refusal, no "you already work at Tellisford".
  *
  * Two different acts wear one button:
  *

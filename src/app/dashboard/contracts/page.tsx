@@ -832,10 +832,9 @@ function ContractDetailDrawer({
   const drawerRateLabel = tab === 'sell' ? 'Bill rate' : 'Pay rate'
   const drawerCounterpartyLabel = tab === 'sell' ? 'Client' : 'Vendor'
 
-  // Three-party: endClientName differs from counterpartyName
-  const hasThreeParty = contract.endClientName
-    && contract.counterpartyName
-    && contract.endClientName !== contract.counterpartyName
+  // Three-party: the line names an end client other than the company
+  // billed. `viaName` is that billed company, set only where they differ.
+  const hasThreeParty = Boolean(contract.endClientName && contract.viaName)
 
   const dateOpts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
 
@@ -1115,7 +1114,7 @@ function ContractDetailDrawer({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-etyme-muted">Bills via</span>
-                  <span className="text-sm text-etyme-muted">{contract.counterpartyName}</span>
+                  <span className="text-sm text-etyme-muted">{contract.viaName}</span>
                 </div>
               </div>
             </div>
@@ -1428,6 +1427,14 @@ export default function ContractsPage() {
     const found = contracts.find((c) => c.id === openId || c.codingContractId === openId)
     if (found) setSelectedContract(found)
   }, [openId, contracts])
+
+  // The open panel reads the list's own row, so what a press changed (a
+  // contract activated, paused, ended) shows in the panel as it does in
+  // the list, without closing it (walk, 2026-11-22: the panel went on
+  // reading Draft beside "Contract activated").
+  const openContract = selectedContract
+    ? contracts.find((c) => c.id === selectedContract.id && c.side === selectedContract.side) ?? selectedContract
+    : null
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -1908,9 +1915,9 @@ export default function ContractsPage() {
         ))}
 
       {/* Contract detail drawer */}
-      {selectedContract && (
+      {openContract && (
         <ContractDetailDrawer
-          contract={selectedContract}
+          contract={openContract}
           tab={tab}
           viewerId={viewerId}
           mayTag={mayTagLines}

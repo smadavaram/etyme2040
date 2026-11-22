@@ -28,6 +28,7 @@
 import type { EmbedStep } from '@/lib/sample-seat'
 import { formatDay } from '@/lib/format-date'
 import { weekStart } from '@/lib/overtime'
+import { FIRM_NAMES } from './door-map-seed'
 
 export type Pill = 'ok' | 'wait' | 'att' | 'mute'
 
@@ -526,10 +527,10 @@ export const BRIGHTMOOR_STORY: Story = {
   ],
 }
 
-/** Techpeple's owner, accepting the week the firms above signed. */
-export const TECHPEPLE_SUB_STORY: Story = {
-  bar: { company: 'Techpeple', rest: 'a sample supplier' },
-  book: 'Techpeple',
+/** Tecwyn's owner, accepting the week the firms above signed. */
+export const TECWYN_SUB_STORY: Story = {
+  bar: { company: FIRM_NAMES.tecwyn, rest: 'a sample supplier' },
+  book: FIRM_NAMES.tecwyn,
   steps: [
     {
       n: 3,
@@ -564,10 +565,10 @@ export const TECHPEPLE_SUB_STORY: Story = {
   ],
 }
 
-/** Techpeple's recruiter, on the bench its partners can see. */
-export const TECHPEPLE_BENCH_STORY: Story = {
-  bar: { company: 'Techpeple', rest: 'a sample supplier with a bench' },
-  book: 'Techpeple',
+/** Tecwyn's recruiter, on the bench its partners can see. */
+export const TECWYN_BENCH_STORY: Story = {
+  bar: { company: FIRM_NAMES.tecwyn, rest: 'a sample supplier with a bench' },
+  book: FIRM_NAMES.tecwyn,
   steps: [
     {
       n: 2,
@@ -579,7 +580,7 @@ export const TECHPEPLE_BENCH_STORY: Story = {
         { who: 'etyme', text: 'Grace Lindqvist and Peter Halloran. Each said yes to being shown to the firms we sell to.' },
         {
           who: 'etyme',
-          text: 'Ifeoma Balogun is put forward to Computer Systems Inc for an Epic Beaker analyst job. Her phone screen is booked. Her I-9 is not signed yet.',
+          text: 'Ifeoma Balogun is put forward to Computer Systems Inc for a Laboratory systems analyst job. Her phone screen is booked. Her I-9 is not signed yet.',
           card: {
             t: 'Remind Ifeoma Balogun to sign her I-9?',
             s: 'Asked, not signed yet · phone screen booked',
@@ -593,7 +594,7 @@ export const TECHPEPLE_BENCH_STORY: Story = {
         rows: [
           ['Grace Lindqvist', 'ERP finance, General ledger', { pill: 'ok', t: 'Shown to partners' }],
           ['Peter Halloran', 'Teamcenter, PLM', { pill: 'ok', t: 'Shown to partners' }],
-          ['Ifeoma Balogun', 'Epic, Beaker, LIS', { pill: 'att', t: 'I-9 not signed', then: { pill: 'wait', t: 'Reminded' } }],
+          ['Ifeoma Balogun', 'LIS, Laboratory workflows, HL7', { pill: 'att', t: 'I-9 not signed', then: { pill: 'wait', t: 'Reminded' } }],
         ],
         flash: 2,
       },
@@ -602,10 +603,10 @@ export const TECHPEPLE_BENCH_STORY: Story = {
   ],
 }
 
-/** Teleworld Solutions' delivery manager, staffing a client's job from its own people. */
-export const TELEWORLD_STORY: Story = {
-  bar: { company: 'Teleworld Solutions', rest: 'a sample integrator and supplier · 4 people on site' },
-  book: 'Teleworld Solutions',
+/** Tellisford Solutions' delivery manager, staffing a client's job from its own people. */
+export const TELLISFORD_STORY: Story = {
+  bar: { company: 'Tellisford Solutions', rest: 'a sample integrator and supplier · 4 people on site' },
+  book: 'Tellisford Solutions',
   steps: [
     {
       n: 2,
@@ -695,15 +696,15 @@ export interface Story {
   steps: StoryStep[]
 }
 
-export type StoryKey = 'northbend' | 'aptiva' | 'brightmoor' | 'techpeple-sub' | 'techpeple-bench' | 'teleworld' | 'helena' | 'byrne'
+export type StoryKey = 'northbend' | 'aptiva' | 'brightmoor' | 'tecwyn-sub' | 'tecwyn-bench' | 'tellisford' | 'helena' | 'byrne'
 
 export const STORIES: Record<StoryKey, Story> = {
   northbend: { bar: STORY_BAR, book: STORY_BAR.company, steps: STORY },
   aptiva: { bar: APTIVA_BAR, book: APTIVA_BOOK, steps: APTIVA_STORY_STEPS },
   brightmoor: BRIGHTMOOR_STORY,
-  'techpeple-sub': TECHPEPLE_SUB_STORY,
-  'techpeple-bench': TECHPEPLE_BENCH_STORY,
-  teleworld: TELEWORLD_STORY,
+  'tecwyn-sub': TECWYN_SUB_STORY,
+  'tecwyn-bench': TECWYN_BENCH_STORY,
+  tellisford: TELLISFORD_STORY,
   helena: HELENA_STORY,
   byrne: BYRNE_STORY,
 }

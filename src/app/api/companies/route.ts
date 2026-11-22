@@ -514,7 +514,7 @@ export async function GET(request: NextRequest) {
   //
   // This handed every authenticated caller the whole directory: every
   // company, its slug, its domain. The walk of 2026-09-21 read all
-  // twenty-seven to Northbend Athletic's program manager, to Techpeple's
+  // twenty-seven to Northbend Athletic's program manager, to Tecwyn's
   // owner two rungs down somebody else's chain, and to a one-person
   // nursing corporation. The rule and the reasoning are in
   // `lib/directory-scope`; what is gathered here is the evidence for it.

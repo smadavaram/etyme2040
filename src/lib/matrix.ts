@@ -495,6 +495,7 @@ export const MATRIX: L1[] = [
       { code: 'L2.1.4', name: 'Reaching the market, and moving work between firms', domain: 'MARKET', processes: [
         { code: 'L3.1.4.1', name: 'What we say we are', owner: 'Etyme', status: B,
           tasks: [
+            'BUILT 2026-11-22, record 110: six segment pages at plain addresses (prime vendors, sub-vendors, bench, solopreneurs beside integrators and contractors), each new one a tab of its door at its own address with its own title; About no longer carries the two labels; Privacy, Terms and the DPA published as final with no draft notice and no bracketed point; every email leaves through one door that refuses CC, a second sender and a bulk send, writes each attempt to a ledger and limits a chase to once a day. NOT DONE: a bounce webhook; a yes before a scheduled notice; two reminder paths outside the chase limit',
             'BUILT 2026-10-27: the home page is the map: Corvane read as CFO, head of operations, regional manager, hiring manager (market, 64a1f6606)',
             'Category before cleverness: say what kind of thing it is first',
             'Never one module describing itself',

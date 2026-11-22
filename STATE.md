@@ -313,6 +313,24 @@ person. NOT STARTED, with the rest of the money loop (pack batch 3).
   read-only review by several reviewers, each finding checked twice,
   before the release check.
 
+## The sales-ready batch (record 110): IN PROGRESS, 2026-11-22
+
+For Monday morning, when the two operating firms' people start. Order:
+1. Staff sign-in for both tenants: one real test invitation each. A
+   PERSON's step in production. The path is being proven locally.
+2. Tapin's real records on the screens. A PERSON's step. A click path
+   is being written.
+3. The customer and client split (A1): CANCELED by the owner on
+   2026-11-22. Customer and client are the same; Kind stays one fact.
+   What had been built is removed before the deploy. NOT DEPLOYED.
+4. The public face: four new segment pages, About, legal pages as
+   final, demo data cleaned, the email law. BUILDING. The home page and
+   page analytics are already live in the code; analytics is switched on
+   by a person in the host's settings.
+This is a second Sunday deploy, on the owner's direction. It does not
+go out on a weekday. Second batch after the retest: imports (A4), then
+the stabilization batch.
+
 ## The weekend release contract (record 107)
 
 Thirteen weekend releases, 2026-11-21 to 2027-02-14. One item, one
@@ -333,8 +351,10 @@ BASELINE PENDING. Blended margin an hour: BASELINE PENDING. The
 baseline is an output of the week 2 census and is never estimated. The
 target is 36 at $15 by 2027-11-21.
 
-**Week 1, Nov 21–22: RELEASED, NOT RETESTED (record 109).** Source
-428f4009f. Every line is a claim until the tester passes it by screen
+**Week 1, Nov 21–22: RELEASED, NOT RETESTED (record 109).** Deployed
+2026-11-22 as 6490627a, from source f988c05c3 (code checked at
+428f4009f). The last replayed source is f988c05c3. STOPPED for the
+retest; no second deploy this weekend. Every line is a claim until the tester passes it by screen
 number in production.
 
 | Screen | Claim | Retest |

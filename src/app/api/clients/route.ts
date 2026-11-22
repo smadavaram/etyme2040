@@ -325,7 +325,8 @@ export async function POST(request: NextRequest) {
         // Email, never Teams: a firm that has never heard of us has no
         // channel here, and would not want one before it decides.
         routeFor({ isConsultant: false, email: made.email, teamsWebhookUrl: null }),
-        made.email, letter.subject, letter.body, configuredSenders(), new Date(),
+        made.email, letter.subject, letter.body, configuredSenders(), new Date(), null,
+        { companyId, mail: { template: 'client-invitation', recordType: 'Company', recordId: client.id, actorPersonId: caller.person.id } },
       )
       invite = { email: made.email, delivery: { state: out.state, note: out.note } }
     }

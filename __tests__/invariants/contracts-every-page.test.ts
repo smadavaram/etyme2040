@@ -118,4 +118,27 @@ describe('a supplier’s Contracts page counts every line, not the route’s fir
     expect(page).not.toMatch(/fetch\(`\/api\/contracts\?side=/)
     expect(page).not.toContain("fetch('/api/contracts?side=sell&limit=100')")
   })
+
+  it('after a contract is activated the open panel reads the same state as the list, without being closed and opened again', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/dashboard/contracts/page.tsx'), 'utf8')
+    // The activation tells the page to read the list again.
+    expect(page).toContain("<ActivatePanel contractId={contract.id} onDone={(says) => { onToast(says, 'success'); onRefresh() }} />")
+    expect(page).toContain('onRefresh={fetchContracts}')
+    // The panel is drawn from the list's own row for the contract that is open, never from the row as it was when it was clicked.
+    expect(page).toContain('? contracts.find((c) => c.id === selectedContract.id && c.side === selectedContract.side) ?? selectedContract')
+    expect(page).toContain('contract={openContract}')
+    expect(page).not.toContain('contract={selectedContract}')
+  })
+
+  it('a placement whose end client differs from the company billed shows both on its open panel: End client, and Bills via', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/dashboard/contracts/page.tsx'), 'utf8')
+    // The block is drawn from the billed company the row carries, never from
+    // two names that the row builder makes equal.
+    expect(page).toContain('const hasThreeParty = Boolean(contract.endClientName && contract.viaName)')
+    expect(page).not.toContain('contract.endClientName !== contract.counterpartyName')
+    const block = page.slice(page.indexOf('{hasThreeParty && ('))
+    expect(block.slice(0, 900)).toContain('End client')
+    expect(block.slice(0, 900)).toContain('Bills via')
+    expect(block.slice(0, 900)).toContain('{contract.viaName}')
+  })
 })
