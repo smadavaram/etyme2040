@@ -126,3 +126,7 @@ built, every release check, every walk and every deploy.
 | 108 | Two homes, and who decides build questions — 2026-11-21 | 595 | [108-two-homes-and-who-decides-build-questions-2026-11-21.md](108-two-homes-and-who-decides-build-questions-2026-11-21.md) |
 | 109 | Week 1 released: the decision queue, and timesheet to payment — 2026-11-22 | 968 | [109-week-1-released-the-decision-queue-and-timesheet-to-payment-2026-11-22.md](109-week-1-released-the-decision-queue-and-timesheet-to-payment-2026-11-22.md) |
 | 110 | The sales-ready batch, and the customer and client split — 2026-11-22 | 728 | [110-the-sales-ready-batch-and-the-customer-client-split-2026-11-22.md](110-the-sales-ready-batch-and-the-customer-client-split-2026-11-22.md) |
+| 111 | Tenant websites come from the dashboard settings — 2026-11-22 | 238 | [111-tenant-websites-come-from-dashboard-settings-2026-11-22.md](111-tenant-websites-come-from-dashboard-settings-2026-11-22.md) |
+| 112 | The agent activity spec — 2026-11-22 | 684 | [112-the-agent-activity-spec-2026-11-22.md](112-the-agent-activity-spec-2026-11-22.md) |
+| 113 | Model mix, seven workstreams, and the launch order — 2026-11-22 | 405 | [113-model-mix-seven-workstreams-and-the-launch-order-2026-11-22.md](113-model-mix-seven-workstreams-and-the-launch-order-2026-11-22.md) |
+| 114 | The first agents, built for the launch — 2026-11-23 | 616 | [114-the-first-agents-built-for-the-launch-2026-11-23.md](114-the-first-agents-built-for-the-launch-2026-11-23.md) |

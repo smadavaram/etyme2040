@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   mayOpenDecision, maySetHomePage, readOpenAsk, openBody, readDecideAsk, decideBody, agentRows, ageWords,
-  ownPageOf, recordViewHref, readHomeAsk, FIRM_AGENTS, VERDICT_BUTTONS, PROOF_TYPES,
-  QUEUE_EYEBROW_HREFS, ledgerBeganSays, readNeeds, isRecordType, cannotReadSays,
+  ownPageOf, recordViewHref, agentByWords, agentNameOf, readHomeAsk, FIRM_AGENTS, VERDICT_BUTTONS, PROOF_TYPES,
+  QUEUE_EYEBROW_HREFS, onlyAcknowledged, proofParts, ledgerBeganSays, readNeeds, isRecordType, cannotReadSays,
 } from '@/lib/decision-queue'
 import { queueCards } from '@/app/api/conversations/twin/ask'
 import { execSync } from 'child_process'
@@ -53,7 +53,7 @@ describe('opening a decision', () => {
   })
 
   it('a proof link names one of the five kinds of record, and a decision is not one of them', () => {
-    expect(PROOF_TYPES.map((p) => p.label)).toEqual(['A company', 'A contract', 'A person on your list', 'An invoice receipt', 'A bill'])
+    expect(PROOF_TYPES.map((p) => p.label)).toEqual(['A company', 'A contract', 'A person on your list', 'An invoice receipt', 'A bill', 'An offer', 'A checklist paper', 'An immigration petition', 'A posted notice', 'A public access file', 'A submission confirmation'])
     expect(readOpenAsk(openBody({ ...typed, proofLinks: [{ recordType: 'Invoice', recordId: 'i1' }] }), false).ok).toBe(true)
     expect(readOpenAsk(openBody({ ...typed, proofLinks: [{ recordType: 'DecisionItem', recordId: 'd1' }] }), false).ok).toBe(false)
     expect(readOpenAsk({ ...openBody(typed), proofLinks: [{ recordType: 'Timesheet', recordId: 't1' }] }, false).ok).toBe(false)
@@ -87,11 +87,11 @@ describe('the three acts', () => {
 })
 
 describe('agent control', () => {
-  it('the six agents each read not enabled, a count of actions as the meter, and a cap not set', () => {
+  it('the thirteen agents each read off, a count of actions as the meter, and no cap until the Owner sets one', () => {
     const rows = agentRows([{ agentKey: 'digest-scanner', count: 2 }, { agentKey: null, count: 9 }])
     expect(rows.map((r) => r.name)).toEqual(FIRM_AGENTS.map((a) => a.name))
-    expect(rows).toHaveLength(6)
-    expect(rows.every((r) => r.state === 'Not enabled' && r.cap === 'Not set')).toBe(true)
+    expect(rows).toHaveLength(13)
+    expect(rows.every((r) => (r.state === 'Off' || r.state === 'Not live yet') && r.cap.endsWith('today · no cap'))).toBe(true)
     expect(rows.find((r) => r.key === 'digest-scanner')).toMatchObject({ actionsToday: 2, meter: '2 actions' })
     expect(rows.find((r) => r.key === 'census-keeper')).toMatchObject({ actionsToday: 0, meter: '0 actions' })
   })
@@ -150,6 +150,25 @@ describe('how the queue’s pages are framed and drawn (the walk of Flow A)', ()
     expect(ledgerBeganSays(new Date('2026-11-21T10:00:00Z'))).toMatch(/^Your firm’s ledger began on November 21, 2026/)
   })
 
+  it('an offer, a checklist paper, a petition, a posted notice, an access file and a confirmation are records the record view opens, each for the seat that reads its own list', () => {
+    for (const t of ['Offer', 'ChecklistItem', 'Petition', 'NoticePosting', 'PublicAccessFile', 'SubmissionConfirmation'] as const) expect(isRecordType(t), t).toBe(true)
+    expect([readNeeds('Offer'), readNeeds('SubmissionConfirmation')]).toEqual(['submissions.read', 'submissions.read'])
+    expect([readNeeds('ChecklistItem'), readNeeds('Petition'), readNeeds('NoticePosting'), readNeeds('PublicAccessFile')]).toEqual(Array(4).fill('consultants.write'))
+  })
+
+  it('a payroll draft is a record the record view opens for a seat that reads payroll, and is never picked as proof by hand', () => {
+    expect(isRecordType('PayrollDraft')).toBe(true)
+    expect(readNeeds('PayrollDraft')).toBe('payroll.read')
+    expect(PROOF_TYPES.some((p) => (p.type as string) === 'PayrollDraft')).toBe(false)
+    expect(readOpenAsk({ ...typed, proofLinks: [{ recordType: 'PayrollDraft', recordId: 'd1' }] }, true).ok).toBe(false)
+    expect(src('src/app/api/records/lookup.ts')).toContain("case 'PayrollDraft': {")
+  })
+
+  it('an agent’s row reads its name and the person who switched it on, never its key', () => {
+    expect(agentByWords('timesheet-chase', 'Jenna Okafor')).toBe('Timesheet chase, switched on by Jenna Okafor')
+    expect(agentNameOf('some-new-agent')).toBe('Some new agent')
+  })
+
   it('a record view asks for the permission its own list asks for', () => {
     expect([readNeeds('SellContract'), readNeeds('Person'), readNeeds('Invoice'), readNeeds('Company')]).toEqual(['assignments.read', 'consultants.read', 'invoices.read', null])
   })
@@ -171,7 +190,7 @@ describe('how the queue’s pages are framed and drawn (the walk of Flow A)', ()
     // Every file that writes to the ledger, and the record type each names.
     const files = execSync("grep -rl 'writeRecordAction(' src", { encoding: 'utf8' }).trim().split('\n').filter((f) => !f.endsWith('lib/record-ledger.ts'))
     const named = new Set<string>()
-    const consts: Record<string, string> = { CHAIN_RECORD: 'MoneyChain', DECISION_RECORD: 'DecisionItem' }
+    const consts: Record<string, string> = { CHAIN_RECORD: 'MoneyChain', DECISION_RECORD: 'DecisionItem', SWITCH_RECORD: 'AgentSwitch', TASK_RECORD: 'AgentTask' }
     for (const f of files) {
       const text = src(f)
       for (const m of text.matchAll(/writeRecordAction\([\s\S]*?recordType: ('([A-Za-z]+)'|([A-Z_]+))/g)) named.add(m[2] ?? consts[m[3]] ?? m[3])
@@ -204,4 +223,17 @@ describe('how the queue’s pages are framed and drawn (the walk of Flow A)', ()
     expect(src('src/app/dashboard/decisions/agents/page.tsx')).toContain('{data.ledger.payrollHidden && <p')
     expect(src('src/app/api/decision-items/agents/route.ts')).toContain('payrollHidden: payrollRowsHiddenSays(ledger.hidden)')
   })
+
+describe('the words on a card', () => {
+  it('a card that only needs reading offers Done, and a card that asks for a decision does not', () => {
+    expect(onlyAcknowledged('This week: 3 hours waiting. Read the summary?')).toBe(true)
+    expect(onlyAcknowledged('A placement changed. Review the placement now?')).toBe(true)
+    expect(onlyAcknowledged('Weekly census: 4 companies moved between active and dormant. Read the list.')).toBe(true)
+    expect(onlyAcknowledged('Approve the client renewal for another year?')).toBe(false)
+  })
+  it('a path to a job inside a card’s proof is drawn as a link', () => {
+    const parts = proofParts('open the job at /dashboard/requirements/abc-1, where each person has the ask.')
+    expect(parts.find((p) => p.href)).toEqual({ text: '/dashboard/requirements/abc-1', href: '/dashboard/requirements/abc-1' })
+  })
+})
 })

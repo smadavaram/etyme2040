@@ -17,6 +17,7 @@ import { EXEMPTION_CHOICES, exemptBody, exemptSavedSays, type ExemptChoice } fro
 import { formatMonth } from '@/lib/format-date'
 import { payrollRunSays, postedInMoreThanOneCurrency } from '@/lib/money/payroll-run-says'
 import { WindowRepair } from './window-repair'
+import PayrollDrafts from './payroll-drafts'
 import { OwnerGateLine } from '@/components/owner-gate-line'
 import type { OwnerLine } from '@/lib/owner-gate'
 
@@ -790,8 +791,8 @@ export default function PayrollPage() {
             aria-label="Pay period"
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="px-3 py-2 text-[13px] border border-etyme-rule rounded-lg bg-white
-                       text-etyme-ink focus:outline-none focus:ring-2 focus:ring-etyme-action/20"
+            className="w-full max-w-full min-w-0 truncate px-3 py-2 text-[13px] border border-etyme-rule rounded-lg bg-white
+                       text-etyme-ink focus:outline-none focus:ring-2 focus:ring-etyme-action/20 sm:w-auto"
           >
             {/* The company's own periods first, the current one at the top;
                 the calendar month stays as a second choice. */}
@@ -893,6 +894,7 @@ export default function PayrollPage() {
         </p>
       )}
       {runSaid && <p role="status" className="mb-2 text-[12.5px] text-etyme-verified">{runSaid}</p>}
+      <PayrollDrafts />
 
       {/* Stats row — prototype Stat component pattern */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

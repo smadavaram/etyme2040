@@ -491,6 +491,10 @@ Full text → 40, 11, 56, 68, 72.
   the tenant's own branding, kept as tenant settings, adopted or created
   on the Owner's yes; Etyme's own brand is at most "Runs on Etyme". Colors
   that fail contrast are warned about, never changed.
+- **A tenant's website is made from its dashboard settings** (owner,
+  2026-11-22 → 111): template, branding, pages and content stored on
+  the tenant's record, built once as an engine. No tenant's site is a
+  one-off build. Not built yet.
 - **Etyme may run a client's program as a vendor-neutral MSP**, in a seat
   the client grants, under the client's rules, every read logged.
 - **When the training door is built**: a client's view never says
@@ -534,6 +538,10 @@ Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52, 72, 73, 75, 77.
   skills, availability and reasons, never a name or a rate, and its one
   act is "ask to add this firm". A bench is shared only between firms
   that already trade, one rung at a time.
+- **Customer and client are the same, and Kind is one fact** (owner,
+  2026-11-22 → 110). No screen classifies a company as one or the
+  other. The end client is the worksite, named on the placement only
+  where it differs from the company billed.
 - **A company can be recorded without classifying it** (2026-11-12).
   Kind and position are two facts. A position (Customer above us,
   Supplier below us) lives on the register row, is given by Extend and
@@ -821,6 +829,10 @@ Full text → 49, 31, 17, 34, 35, 37, 20, 13.
   paper that arrived and nobody examined reads "Arrived, not examined".
   Its notice goes to HR and the compliance officer, else the Owner, else
   the Admin; never to the sender or a colleague.
+- **Petitions, posted notices and public access files are HR's and the
+  compliance officer's** (lead's ruling, 2026-11-23 → 114): read and
+  written with `governance.read`, never by a recruiter, an account
+  manager or a contract manager.
 - **A chase asks a worker for her consent and identifiers**, never for
   the background report. Never ask for a non-compete where the state
   voids it for workers (CA, MN, ND, OK).
@@ -878,6 +890,15 @@ Full text → 12, 14, 24, 32, 35.
   each role, account manager, recruiter, HR, contracts, timesheets,
   billing, invoice receipts and money flow, as acts in the role contract,
   rules first. A recruiter's mail plugin and a worker's own agent wait.
+- **The agent activity spec judges every agent** (owner, 2026-11-22 →
+  112): done means its activities run in production, on the ledger and
+  metered. Every activity feeds the decision queue or closes a loop on
+  the ledger. Never an agent's: money, signing, a decision about a
+  person, publishing compliance copy.
+- **An agent that sends asks once per task** (owner, 2026-11-22 →
+  112): one person's yes releases the whole task, retries and closing
+  included. Every new task asks again, and an escalation is its own
+  task. Approval never carries across tasks.
 - **The voice.** Recommendation first. Names, not counts. One sentence
   per refusal, with the door. No apology words. The trade's phrasing:
   who applied, approve a timesheet, pay an invoice, on hold.
@@ -1147,7 +1168,7 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
@@ -1295,10 +1316,12 @@ Release, batching, architecture and acceptance follow the tester's
 documents; a gap is decided by the lead and written in STATE.md. The
 owner keeps money, signing, people, outside sends and his own gates.
 
-**Which model does which work** (2026-11-21 → 104, replacing 82).
-Workers run on the strongest model at low effort. Schema and money
-work is sequential under the lead. Each batch note says which model ran
-which piece; model names are said to the founder, not in the repository.
+**Which model does which work** (owner, 2026-11-22 → 113, replacing
+104). The lead runs on the second tier and the workers on the third;
+the top tier is not the driver. Schema and money work is sequential
+under the lead. The build is seven workstreams, one per chain of the
+agent activity spec (→ 112); chains 4 and 5 for Tapin launch first, on
+chain 7's surface. Model names are said to the founder, not here.
 
 Work moves: scout → schema → spec as test names → build → release →
 preview URL. Different domains may run at the same time. Two agents in

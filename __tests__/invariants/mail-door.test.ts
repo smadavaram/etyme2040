@@ -227,7 +227,7 @@ describe('every send attempt is one row on the mail ledger', () => {
     const d = door()
     await sendMail({ to: ['a@firm.test', 'b@firm.test'], subject: 'You are invited', text: 'the letter', about }, d.deps)
     expect(d.rows).toEqual([{
-      companyId: 'co_1', actingEntityId: 'ent_1', actorPersonId: 'per_1', heldAs: 'HR', agentKey: null,
+      companyId: 'co_1', actingEntityId: 'ent_1', actorPersonId: 'per_1', heldAs: 'HR', agentKey: null, agentTaskId: null,
       recordType: 'Context', recordId: 'ctx_1',
       fromAddress: SENDER, toAddresses: ['a@firm.test'], bccAddresses: ['b@firm.test'],
       subject: 'You are invited', template: 'invitation', templateVersion: 'PASSWORD', chase: false,
@@ -266,8 +266,10 @@ describe('every send attempt is one row on the mail ledger', () => {
   it('the mail ledger is read only by company and record together, never by company alone', () => {
     const src = read('src/lib/notify/mail-door.ts')
     const reads = src.match(/prisma\.mailSend\.find\w+\(/g) ?? []
-    expect(reads).toHaveLength(2)
+    expect(reads).toHaveLength(3)
     expect(src).toContain('where: { companyId, recordType, recordId }')
+    // The second reader names the same two things and the records it may return.
+    expect(src).toContain('where: { companyId, recordType, recordId: { in: recordIds } }')
     const elsewhere = sources('src').filter((f) => f !== 'src/lib/notify/mail-door.ts' && /\.mailSend\b/.test(read(f)))
     expect(elsewhere).toEqual([])
   })

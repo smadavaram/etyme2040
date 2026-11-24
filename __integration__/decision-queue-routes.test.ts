@@ -77,11 +77,24 @@ describe('the decision queue, through its routes', () => {
     expect(res.body.error.message).toMatch(/Owner or an Admin/)
   })
 
-  it('a firm with a legal entity cannot open a decision without choosing which entity it is for', async () => {
+  it('a firm with one legal entity opens a decision by hand without choosing it', async () => {
     as(w.admin.primaryEmail)
-    const res = await json(await queue.POST(post('/api/decision-items', openBody({ question: 'x?', ownerPersonId: w.am.id, openedOn: '2026-11-01', proof: 'y' }))))
-    expect(res.status).toBe(422)
-    expect(res.body.error.message).toMatch(/Choose which one/)
+    const res = await json(await queue.POST(post('/api/decision-items', openBody({ question: 'One entity, opened by hand?', ownerPersonId: w.am.id, openedOn: '2026-11-01', proof: 'y' }))))
+    expect(res.status, JSON.stringify(res.body)).toBe(201)
+    const item = await prisma.decisionItem.findFirstOrThrow({ where: { companyId: w.firm.id, question: 'One entity, opened by hand?' } })
+    expect(item.actingEntityId).toBe(w.entity.id)
+  })
+
+  it('a firm with several legal entities cannot open a decision without choosing which entity it is for', async () => {
+    const second = await prisma.legalEntity.create({ data: { companyId: w.firm.id, name: 'Queue Firm Opening LLC', country: 'US', currency: 'USD' } })
+    try {
+      as(w.admin.primaryEmail)
+      const res = await json(await queue.POST(post('/api/decision-items', openBody({ question: 'x?', ownerPersonId: w.am.id, openedOn: '2026-11-01', proof: 'y' }))))
+      expect(res.status).toBe(422)
+      expect(res.body.error.message).toMatch(/Choose which one/)
+    } finally {
+      await prisma.legalEntity.delete({ where: { id: second.id } })
+    }
   })
 
   it('a proof link to another firm’s record is refused', async () => {
@@ -122,11 +135,22 @@ describe('the decision queue, through its routes', () => {
     expect(res.body.error.message).toBe('Say in one line why it is rejected.')
   })
 
-  it('a decider at a firm with entities must choose which entity she decides for', async () => {
+  it('a decider at a firm with several legal entities must choose which entity she decides for', async () => {
+    const second = await prisma.legalEntity.create({ data: { companyId: w.firm.id, name: 'Queue Firm Two LLC', country: 'US', currency: 'USD' } })
     as(w.am.primaryEmail)
     const res = await json(await item.POST(post(`/api/decision-items/${w.itemId}`, decideBody('APPROVE', '', '')), p(w.itemId)))
+    await prisma.legalEntity.delete({ where: { id: second.id } })
     expect(res.status).toBe(422)
     expect(res.body.error.message).toMatch(/Choose which one you decide for/)
+  })
+
+  it('a firm with one legal entity approves a card without choosing it', async () => {
+    const opened = await openOne('Approve the single-entity renewal?')
+    as(w.am.primaryEmail)
+    const res = await json(await item.POST(post(`/api/decision-items/${opened.body.data.id}`, decideBody('APPROVE', '', '')), p(opened.body.data.id)))
+    expect(res.status).toBe(200)
+    const row = await prisma.recordAction.findFirst({ where: { recordId: opened.body.data.id, action: { not: 'OPENED' } } })
+    expect(row?.actingEntityId).toBe(w.entity.id)
   })
 
   it('after approval the item names the decider, the entity, the role she held, the time and the reason, and it leaves the open list', async () => {
@@ -160,11 +184,11 @@ describe('the decision queue, through its routes', () => {
 })
 
 describe('agent control and the ledger', () => {
-  it('each of the six agents reads not enabled, no actions today, and a cap not set', async () => {
+  it('each of the thirteen agents reads off, no actions today, and no cap, until the Owner switches it on', async () => {
     as(w.am.primaryEmail)
     const res = await json(await agents.GET(req('GET', '/api/decision-items/agents')))
-    expect(res.body.data.agents).toHaveLength(6)
-    for (const a of res.body.data.agents) expect([a.state, a.actionsToday, a.meter, a.cap]).toEqual(['Not enabled', 0, '0 actions', 'Not set'])
+    expect(res.body.data.agents).toHaveLength(13)
+    for (const a of res.body.data.agents) expect([a.state, a.actionsToday, a.meter, a.cap]).toEqual([a.key === 'digest-scanner' ? 'Not live yet' : 'Off', 0, '0 actions', '0 today · no cap'])
   })
 
   it('the margin baseline line is shown only to a seat that may read margin', async () => {
@@ -194,6 +218,30 @@ describe('the record view', () => {
     expect(res.status).toBe(200)
     expect(res.body.data.timeline.map((r: any) => r.action)).toEqual(['OPENED', 'SENT_BACK', 'APPROVED'])
     expect(res.body.data.ownPage.href).toBe(`/dashboard/decisions/${w.itemId}`)
+  })
+
+  it('a payroll draft opens for a seat that reads payroll, showing its rows, and is refused to one that does not', async () => {
+    const draft = await prisma.payrollDraft.create({
+      data: {
+        companyId: w.firm.id, periodStart: new Date('2026-11-01T00:00:00Z'), periodEnd: new Date('2026-11-14T00:00:00Z'), contentHash: `h-${tag}`,
+        rows: [{ person: 'Priya Rao', hours: 80, overtimeHours: 0, grossPay: 400000, currency: 'USD', held: [] }],
+      },
+    })
+    const view = (email: string) => { as(email); return recordView.GET(req('GET', `/api/records/PayrollDraft/${draft.id}`), { params: Promise.resolve({ type: 'PayrollDraft', id: draft.id }) }).then(json) }
+    const owner = await view(w.owner.primaryEmail)
+    expect(owner.status).toBe(200)
+    expect(owner.body.data.facts.some((f: any) => f.label === 'Priya Rao' && /80 hours/.test(f.value))).toBe(true)
+    const am = await view(w.am.primaryEmail)
+    expect([am.status, am.body.error.message]).toEqual([403, 'Your seat cannot read payroll records.'])
+  })
+
+  it('an offer opens for a seat that reads submissions and its ledger line is on the offer itself', async () => {
+    const offer = await prisma.offer.findFirst({ where: { companyId: w.firm.id } })
+    expect(offer).toBeNull() // none yet in this world: the kind is exercised by its own routes in fill-it-chain-2
+    as(w.owner.primaryEmail)
+    const res = await json(await recordView.GET(req('GET', '/api/records/Offer/nope'), { params: Promise.resolve({ type: 'Offer', id: 'nope' }) }))
+    expect(res.status).toBe(403)
+    expect(res.body.error.message).toBe('That record is not on your firm’s book, so it cannot be opened here.')
   })
 
   it('a record of another company is refused in a sentence and the refusal is logged first', async () => {

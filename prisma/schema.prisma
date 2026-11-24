@@ -34,6 +34,8 @@ model Person {
   /// Money chains for this person's placements (Flow B, → 105, 107).
   moneyChains              MoneyChain[]
   decisionsSentBack        DecisionItem[]            @relation("decisionSentBackBy")
+  agentSwitchesChanged     AgentSwitch[]
+  agentTasksApproved       AgentTask[]
   /// Team structure (2026-11-09): leads named, changes made and undone.
   unitLeadsSet             OrgUnit[]                 @relation("unitLeadSetBy")
   orgChangesMade           OrgChange[]               @relation("orgChangeActor")
@@ -678,6 +680,14 @@ model AccessLog {
 // ─────────────────────────────────────────────
 
 model Company {
+  submissionConfirmations SubmissionConfirmation[]
+  offers                  Offer[]
+  checklistItems          ChecklistItem[]
+  petitions               Petition[]
+  noticePostings          NoticePosting[]
+  publicAccessFiles       PublicAccessFile[]
+  /// Payroll drafts the payroll agent prepared (record 112, chain 4).
+  payrollDrafts PayrollDraft[]
   id             String      @id @default(cuid())
   name           String
   slug           String      @unique // {slug}.etyme.com — 2017 create_slug, collision numbered
@@ -978,6 +988,8 @@ model Company {
   /// The record ledger and the decisions a person opened (2026-11-21 → 107).
   recordActions         RecordAction[]
   decisionItems         DecisionItem[]
+  agentSwitches         AgentSwitch[]
+  agentTasks            AgentTask[]
   /// Money chains, one per placement per period (Flow B, → 105, 107).
   moneyChains           MoneyChain[]
   /// Where a signed-in seat at this firm lands. Null is the standing rule
@@ -3834,6 +3846,8 @@ model Match {
 
 // One record, two views. Sent for the origin, received for the destination.
 model Submission {
+  confirmations SubmissionConfirmation[]
+  offers        Offer[]
   id            String         @id @default(cuid())
   requirementId String
   requirement   Requirement    @relation(fields: [requirementId], references: [id])
@@ -11131,6 +11145,10 @@ model DecisionItem {
   createdAt          DateTime      @default(now())
   /// The money chains this decision holds in dispute (Flow B).
   disputedChains     MoneyChain[]
+  /// The agent tasks this decision asks the yes for.
+  agentTasks         AgentTask[]
+  /// The payroll drafts this decision asks a person to review.
+  payrollDrafts      PayrollDraft[]
 
   @@index([companyId, state, openedOn])
   @@index([ownerPersonId])
@@ -11216,6 +11234,8 @@ model MailSend {
   heldAs          String?
   /// Set where an agent drafted the letter.
   agentKey        String?
+  /// The approved task an agent's send belongs to (record 112).
+  agentTaskId     String?
   /// The record the mail is about, named by type and id.
   recordType      String?
   recordId        String?
@@ -11243,5 +11263,273 @@ model MailSend {
 
   @@index([companyId, createdAt])
   @@index([recordType, recordId, createdAt])
+  @@index([agentTaskId])
   @@index([outcome, createdAt])
+}
+
+enum AgentSwitchState {
+  OFF
+  DRAFT_ONLY
+  ON
+}
+
+/// One row per company per agent (record 112, chain 7). No row reads OFF.
+/// Only the Owner changes it; each change is a RecordAction row.
+/// DRAFT_ONLY: the agent prepares tasks and drafts, and sends nothing even
+/// after a yes. dailyCap is the most acts the agent may do in a day; null
+/// is no cap.
+model AgentSwitch {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agentKey    String
+  state       AgentSwitchState @default(OFF)
+  dailyCap    Int?
+  changedById String
+  changedBy   Person           @relation(fields: [changedById], references: [id])
+  changedAt   DateTime         @default(now())
+
+  @@unique([companyId, agentKey])
+  @@index([changedById])
+}
+
+enum AgentTaskState {
+  PROPOSED
+  APPROVED
+  RUNNING
+  DONE
+  CLOSED_BY_ARRIVAL
+  REFUSED
+  STOPPED
+}
+
+/// What an agent sends, asked once (record 112, the owner's answer of
+/// 2026-11-22): one yes releases the whole task; every new task asks again;
+/// an escalation is its own task with its parent's id. The yes is the
+/// DecisionItem; the task reads it, never copies it.
+model AgentTask {
+  id           String         @id @default(cuid())
+  companyId    String
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agentKey     String
+  /// TIMESHEET_CHASE, ESCALATION, ...
+  kind         String
+  /// The record the task is about, by type and id.
+  recordType   String
+  recordId     String
+  /// { messages: [{ template, ... }], retries, daysApart, closesWhen } as approved.
+  plan         Json
+  state        AgentTaskState @default(PROPOSED)
+  decisionId   String
+  decision     DecisionItem   @relation(fields: [decisionId], references: [id])
+  approvedById String?
+  approvedBy   Person?        @relation(fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  parentTaskId String?
+  parentTask   AgentTask?     @relation("escalation", fields: [parentTaskId], references: [id])
+  escalations  AgentTask[]    @relation("escalation")
+  /// The messages sent so far, counted from the mail ledger as they go.
+  sentCount    Int            @default(0)
+  closedReason String?
+  createdAt    DateTime       @default(now())
+
+  @@index([companyId, agentKey, state])
+  @@index([decisionId])
+  @@index([approvedById])
+  @@index([parentTaskId])
+  @@index([recordType, recordId])
+}
+
+/// What the payroll agent worked out for a pay period that has ended
+/// (record 112, chain 4). A DRAFT, never a run: it pays nobody and marks no
+/// pay day. `rows` is what the existing payroll calculation returned for the
+/// period, person by person (hours, gross, held weeks and why), and
+/// `contentHash` says whether a later pass found the same thing. Only the
+/// latest draft of a period is current; an older one is SUPERSEDED.
+/// No relation is drawn on purpose: nothing in the core reads this.
+model PayrollDraft {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  /// DRAFT or SUPERSEDED.
+  state       String   @default("DRAFT")
+  /// A hash of the rows, so an unchanged period is never drafted twice.
+  contentHash String
+  /// [{ buyContractId, buyContractCandidateId, person, hours, grossPay, currency, held, refused }]
+  rows        Json
+  /// The card on the decision queue that asks a person to review and run it.
+  decisionId  String?
+  decision    DecisionItem? @relation(fields: [decisionId], references: [id])
+  agentKey    String   @default("payroll-draft")
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, periodStart, periodEnd, createdAt])
+  @@index([decisionId])
+}
+
+/// Chain 1 (record 112): a firm's record that a submission was confirmed by
+/// the other side. Written only by a person's act or by the confirmation
+/// tracker on a reply it can read; a draft is not a confirmation. The mail
+/// ledger row, where the confirmation came by email, is `mailSendId`.
+model SubmissionConfirmation {
+  id                 String     @id @default(cuid())
+  companyId          String
+  company            Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  submissionId       String
+  submission         Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  /// The person who confirmed, by id. A person at the other firm is named in the note.
+  confirmedByPersonId String?
+  confirmedAt        DateTime   @default(now())
+  /// EMAIL, PHONE, PORTAL or MANUAL.
+  channel            String
+  /// The MailSend row the confirmation answers, where there is one.
+  mailSendId         String?
+  note               String?
+  createdAt          DateTime   @default(now())
+
+  @@index([companyId, submissionId])
+  @@index([submissionId])
+  @@index([confirmedByPersonId])
+  @@index([mailSendId])
+}
+
+enum OfferState {
+  DRAFT
+  PROPOSED
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+/// Chain 2: an offer on a submission. One live offer (DRAFT, PROPOSED or
+/// ACCEPTED) per submission: `liveFor` holds the submission id while the
+/// offer is live and is null once it is DECLINED or WITHDRAWN, and its
+/// unique index is what refuses a second live offer. Whoever changes the
+/// state sets or clears it in the same write.
+model Offer {
+  id           String      @id @default(cuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  submissionId String
+  submission   Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rate         Decimal     @db.Decimal(12, 2)
+  currency     String      @default("USD")
+  startDate    DateTime?   @db.Date
+  terms        String?
+  state        OfferState  @default(DRAFT)
+  liveFor      String?     @unique
+  decidedById  String?
+  decidedAt    DateTime?
+  createdById  String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([companyId, state])
+  @@index([submissionId, state])
+  @@index([decidedById])
+  @@index([createdById])
+}
+
+enum ChecklistKind {
+  CONTRACT_TERM
+  PETITION_PAPER
+  ONBOARDING_PAPER
+}
+
+enum ChecklistState {
+  OPEN
+  MET
+  DRIFT
+  WAIVED_WITH_REASON
+}
+
+/// Chains 3 (both checklists): one line of agreed against actual, on an
+/// owner named by type and id (a contract, a petition, an onboarding).
+/// A line waived carries its reason. A signature line names the person who signs.
+model ChecklistItem {
+  id                String         @id @default(cuid())
+  companyId         String
+  company           Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ownerType         String
+  ownerId           String
+  kind              ChecklistKind
+  label             String
+  agreedValue       String?
+  actualValue       String?
+  state             ChecklistState @default(OPEN)
+  /// Required when the state is WAIVED_WITH_REASON.
+  waivedReason      String?
+  dueDate           DateTime?      @db.Date
+  signatoryPersonId String?
+  decidedById       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([companyId, kind, state])
+  @@index([ownerType, ownerId])
+  @@index([signatoryPersonId])
+  @@index([decidedById])
+}
+
+/// Chain 3: a petition for a person, tracked by stage. Records what the
+/// employer's counsel reports; Etyme decides nothing about the filing.
+model Petition {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  personId          String
+  /// e.g. SPECIALTY_OCCUPATION.
+  kind              String
+  stage             String
+  filedOn           DateTime? @db.Date
+  /// The firm that files as the employer.
+  employerCompanyId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  accessFiles       PublicAccessFile[]
+
+  @@index([companyId, stage])
+  @@index([personId])
+  @@index([employerCompanyId])
+}
+
+/// Chain 6: a required notice, when it went up at a work site and when it came down.
+model NoticePosting {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind        String
+  /// The work site (a CompanyLocation), by id.
+  locationId  String
+  postedOn    DateTime  @db.Date
+  takenDownOn DateTime? @db.Date
+  postedById  String?
+  removedById String?
+  fileRef     String?
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId, kind])
+  @@index([locationId])
+  @@index([postedById])
+  @@index([removedById])
+}
+
+/// Chain 6: the public access file for a petition: due by a date, ready on a
+/// date, approved by a person.
+model PublicAccessFile {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  petitionId   String
+  petition     Petition  @relation(fields: [petitionId], references: [id], onDelete: Cascade)
+  readyBy      DateTime  @db.Date
+  readyOn      DateTime? @db.Date
+  approvedById String?
+  createdAt    DateTime  @default(now())
+
+  @@index([companyId])
+  @@index([petitionId])
+  @@index([approvedById])
 }

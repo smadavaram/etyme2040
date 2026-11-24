@@ -35,6 +35,12 @@ export const PROOF_TYPES = [
   { type: 'Person', label: 'A person on your list' },
   { type: 'VendorBill', label: 'An invoice receipt' },
   { type: 'Invoice', label: 'A bill' },
+  { type: 'Offer', label: 'An offer' },
+  { type: 'ChecklistItem', label: 'A checklist paper' },
+  { type: 'Petition', label: 'An immigration petition' },
+  { type: 'NoticePosting', label: 'A posted notice' },
+  { type: 'PublicAccessFile', label: 'A public access file' },
+  { type: 'SubmissionConfirmation', label: 'A submission confirmation' },
 ] as const
 
 export type ProofType = (typeof PROOF_TYPES)[number]['type']
@@ -44,9 +50,9 @@ export type ProofType = (typeof PROOF_TYPES)[number]['type']
  * payroll record of lib/record-ledger). A month is never picked as proof
  * by hand; a disputed month's own decision links to it.
  */
-export type RecordType = ProofType | 'DecisionItem' | 'MoneyChain'
+export type RecordType = ProofType | 'DecisionItem' | 'MoneyChain' | 'AgentTask' | 'AgentSwitch' | 'PayrollDraft'
 
-export const RECORD_TYPES: readonly RecordType[] = [...PROOF_TYPES.map((p) => p.type), 'DecisionItem', 'MoneyChain']
+export const RECORD_TYPES: readonly RecordType[] = [...PROOF_TYPES.map((p) => p.type), 'DecisionItem', 'MoneyChain', 'AgentTask', 'AgentSwitch', 'PayrollDraft']
 
 export function isRecordType(t: unknown): t is RecordType {
   return typeof t === 'string' && (RECORD_TYPES as readonly string[]).includes(t)
@@ -57,8 +63,11 @@ export function isRecordType(t: unknown): t is RecordType {
  * needed beyond a working seat: the one its own list asks for. A decision
  * is read by the proof rule (`mayReadProof` in lib/decision-items). Pure.
  */
-export function readNeeds(type: RecordType): 'invoices.read' | 'assignments.read' | 'consultants.read' | typeof LOOP_READS | null {
-  if (type === 'MoneyChain') return LOOP_READS
+export function readNeeds(type: RecordType): 'invoices.read' | 'assignments.read' | 'consultants.read' | 'consultants.write' | 'submissions.read' | typeof LOOP_READS | null {
+  if (type === 'MoneyChain' || type === 'PayrollDraft') return LOOP_READS
+  if (type === 'Offer' || type === 'SubmissionConfirmation') return 'submissions.read'
+  // The paperwork routes read these with the permission that writes them (whoever looks after paperwork).
+  if (type === 'ChecklistItem' || type === 'Petition' || type === 'NoticePosting' || type === 'PublicAccessFile') return 'consultants.write'
   if (type === 'Invoice' || type === 'VendorBill') return 'invoices.read'
   if (type === 'SellContract') return 'assignments.read'
   if (type === 'Person') return 'consultants.read'
@@ -71,6 +80,9 @@ export function cannotReadSays(type: RecordType): string {
   if (type === 'Invoice' || type === 'VendorBill') return 'Your seat cannot read bills or invoice receipts.'
   if (type === 'SellContract') return 'Your seat cannot read contracts.'
   if (type === 'Person') return 'Your seat cannot read people’s records.'
+  if (type === 'PayrollDraft') return CANNOT_READ_MONTH_RECORD
+  if (type === 'Offer' || type === 'SubmissionConfirmation') return 'Your seat cannot read submissions.'
+  if (type === 'ChecklistItem' || type === 'Petition' || type === 'NoticePosting' || type === 'PublicAccessFile') return 'Your seat cannot read paperwork records.'
   return 'Your seat cannot read this record.'
 }
 
@@ -83,6 +95,15 @@ export function ownPageOf(type: RecordType, id: string): { href: string; words: 
     case 'VendorBill': return { href: '/dashboard/ap', words: 'Open invoice receipts' }
     case 'Invoice': return { href: `/dashboard/invoices/${id}`, words: 'Open the bill' }
     case 'DecisionItem': return { href: `/dashboard/decisions/${id}`, words: 'Open the decision' }
+    case 'Offer':
+    case 'SubmissionConfirmation': return { href: '/dashboard/submissions', words: 'Open Submissions' }
+    case 'ChecklistItem':
+    case 'Petition':
+    case 'NoticePosting':
+    case 'PublicAccessFile': return { href: '/dashboard/compliance', words: 'Open Compliance' }
+    case 'PayrollDraft': return { href: '/dashboard/payroll', words: 'Open Payroll' }
+    case 'AgentSwitch':
+    case 'AgentTask': return { href: '/dashboard/decisions/agents', words: 'Open Agent control' }
     // The month's own page needs its contract and month, which the route reads (`monthPageOf`); this is the page they are on.
     case 'MoneyChain': return { href: LOOP_HREF, words: 'Open Timesheet to payment' }
   }
@@ -169,7 +190,7 @@ export function readOpenAsk(body: unknown, hasEntities: boolean): { ok: true; as
     const o = (l ?? {}) as Record<string, unknown>
     const type = o.recordType
     const id = typeof o.recordId === 'string' ? o.recordId.trim() : ''
-    if (!isRecordType(type) || type === 'DecisionItem' || type === 'MoneyChain' || !id) {
+    if (!isRecordType(type) || type === 'DecisionItem' || type === 'MoneyChain' || type === 'AgentTask' || type === 'AgentSwitch' || type === 'PayrollDraft' || !id) {
       return { ok: false, field: 'proofLinks', says: 'Each proof link names a kind of record from the list and the record itself.' }
     }
     links.push({ recordType: type, recordId: id })
@@ -212,6 +233,16 @@ export function readDecideAsk(body: unknown, hasEntities: boolean):
   return { ok: true, ask: { verdict, reason, actingEntityId: entity } }
 }
 
+/** A card that only needs acknowledging: it offers Done, never Approve, Send back or Reject. Pure. */
+export function onlyAcknowledged(question: string): boolean {
+  return /(Read the summary\?|Review the placement now\?|Read the list\.)$/.test(question.trim())
+}
+
+/** A proof's text cut at the in-app paths it names, so each path can be drawn as a link. Pure. */
+export function proofParts(proof: string): { text: string; href: string | null }[] {
+  return proof.split(/(\/dashboard\/[\w/-]+[\w-])/).filter(Boolean).map((t) => (t.startsWith('/dashboard/') ? { text: t, href: t } : { text: t, href: null }))
+}
+
 /** The decision, in the words its page prints. Pure. */
 export function stateWords(state: string): string {
   return state === 'APPROVED' ? 'Approved' : state === 'REJECTED' ? 'Rejected' : 'Open'
@@ -225,7 +256,7 @@ export function ageWords(days: number): string {
 
 // ── Agent control (A5) ──────────────────────────────────────────────
 
-/** The six agents of record 105. None is enabled in week 1, and no switch is drawn. */
+/** The agents of record 105, and the payroll draft of chain 4. Each is Off until the Owner switches it on (lib/agents/switch). */
 export const FIRM_AGENTS = [
   { key: 'chase-and-reconciliation', name: 'Chase and reconciliation' },
   { key: 'digest-scanner', name: 'Digest scanner' },
@@ -233,9 +264,38 @@ export const FIRM_AGENTS = [
   { key: 'census-keeper', name: 'Census keeper' },
   { key: 'contracts-checklist', name: 'Contracts checklist' },
   { key: 'immigration-checklist', name: 'Immigration checklist' },
+  { key: 'payroll-draft', name: 'Payroll draft' },
+  { key: 'timesheet-chase', name: 'Timesheet chase' },
+  { key: 'match-ranker', name: 'Match ranker' },
+  { key: 'interview-chase', name: 'Interview chase' },
+  { key: 'compliance-watch', name: 'Compliance watch' },
+  { key: 'money-owed-chase', name: 'Money-owed chase' },
+  { key: 'weekly-summary', name: 'Weekly summary' },
 ] as const
 
-export const AGENT_STATE = 'Not enabled'
+/** Agents named on Agent control that have no step behind them yet: they read "Not live yet" and cannot be switched on. */
+export const NOT_LIVE_AGENTS: readonly string[] = ['digest-scanner']
+
+/** The sentence a refused switch says. Pure. */
+export function notLiveSays(key: string): string {
+  return `${agentNameOf(key)} is not live yet, so it cannot be switched on.`
+}
+
+/** An agent's name as a person reads it; an unknown key reads as the key made into words. Pure. */
+export function agentNameOf(key: string): string {
+  const known = FIRM_AGENTS.find((a) => a.key === key)?.name
+  if (known) return known
+  const t = key.replace(/[-_]+/g, ' ').trim()
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+/** Who an agent's row is under: the agent's name, and the person who last set its switch. Pure. */
+export function agentByWords(key: string, personName: string): string {
+  return `${agentNameOf(key)}, switched on by ${personName}`
+}
+
+/** An agent's switch in the words a person reads. */
+export const SWITCH_WORDS = { OFF: 'Off', DRAFT_ONLY: 'Drafts only', ON: 'On' } as const
 export const AGENT_CAP = 'Not set'
 export const BASELINE_LINES = {
   billing: 'Consultants billing: baseline pending',
@@ -245,11 +305,24 @@ export const BASELINE_LINES = {
 /** What a seat that does not read the firm's ledger reads in its place. */
 export const LEDGER_IS_FOR = 'The firm’s ledger is read by its Owner and Admins, and by a seat that reads the activity log.'
 
-/** Each agent's row: its state, today's count of its acts, and its cap. Pure. */
-export function agentRows(counts: readonly { agentKey: string | null; count: number }[]) {
+/**
+ * Each agent's row: its switch (Off where no row), today's count of its
+ * acts, and its cap as "N of M today" or "N today · no cap". Pure.
+ */
+export function agentRows(
+  counts: readonly { agentKey: string | null; count: number }[],
+  switches: readonly { agentKey: string; state: keyof typeof SWITCH_WORDS; dailyCap: number | null }[] = [],
+) {
   return FIRM_AGENTS.map((a) => {
     const today = counts.find((c) => c.agentKey === a.key)?.count ?? 0
-    return { key: a.key, name: a.name, state: AGENT_STATE, actionsToday: today, meter: `${today} ${today === 1 ? 'action' : 'actions'}`, cap: AGENT_CAP }
+    const sw = switches.find((s) => s.agentKey === a.key)
+    const cap = sw?.dailyCap ?? null
+    return {
+      key: a.key, name: a.name, switchState: sw?.state ?? 'OFF', state: NOT_LIVE_AGENTS.includes(a.key) ? 'Not live yet' : SWITCH_WORDS[sw?.state ?? 'OFF'], dailyCap: cap,
+      live: !NOT_LIVE_AGENTS.includes(a.key),
+      actionsToday: today, meter: `${today} ${today === 1 ? 'action' : 'actions'}`,
+      cap: cap === null ? `${today} today · no cap` : `${today} of ${cap} today`,
+    }
   })
 }
 
