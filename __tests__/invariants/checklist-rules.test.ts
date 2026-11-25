@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   CONTRACT_LABELS, PETITION_LINES, PROPOSED_ACCESS_FILE_WORKING_DAYS, PROPOSED_NOTICE_WORKING_DAYS, PROPOSED_PACK_LEAD_DAYS,
   accessFileReadyBy, accessFileWords, addWorkingDays, approvedLate, contractItemsFor, crossedWarning, daysFromTo, driftWords,
-  judgeContractItem, noticeEndsOn, noticePeriodOver, noticeWords, packDue, packWords, petitionComplete, petitionMissing,
-  removedEarly, signatureWords, tenureWords, windowInside, type LineFacts,
+  judgeContractItem, noticeEndsOn, noticePeriodOver, noticeWords, packCompleteWords, packDue, packWords, placementWords, petitionComplete, petitionMissing,
+  PROPOSED_NOTICE_LEAD_DAYS, noticeTiming, noticeTimingWords, petitionListFor, PETITION_LISTS, removedEarly, signatureWords, tenureWords, windowInside, type LineFacts,
 } from '@/lib/agents/checklist-rules'
 
 const d = (s: string) => new Date(`${s}T00:00:00Z`)
@@ -11,7 +11,7 @@ const SAT_SUN = [0, 6]
 const none = new Set<string>()
 
 const line = (over: Partial<LineFacts> = {}): LineFacts => ({
-  billRateCents: 12_500, billCurrency: 'USD', paymentTerms: 30, startDate: d('2026-12-01'), endDate: d('2027-05-31'), msa: null, order: null, ...over,
+  billRateCents: 12_500, billCurrency: 'USD', paymentTerms: 30, startDate: d('2026-12-01'), endDate: d('2027-05-31'), msa: null, order: null, sow: null, ...over,
 })
 
 describe('working days', () => {
@@ -50,17 +50,39 @@ describe('the contracts checklist items', () => {
     const items = contractItemsFor(line({ order: { number: 'PO-1', startDate: d('2026-12-01'), endDate: d('2027-03-31') } }))
     expect(items.map((i) => i.label)).toEqual([CONTRACT_LABELS.RATE, CONTRACT_LABELS.WINDOW])
   })
-  it('the first time a rate is listed the agreed value is the line’s rate, so it starts agreed', () => {
+  it('a new bill rate item has no agreed value until a person records the signed paper', () => {
     const [rate] = contractItemsFor(line())
-    expect(rate.firstAgreed).toBe(rate.actual)
+    expect(rate.firstAgreed).toBeNull()
     expect(rate.actual).toBe('$125.00 an hour')
-    expect(judgeContractItem(rate.label, rate.firstAgreed, rate.actual)).toBe('MET')
+  })
+  it('a bill rate with no signed paper recorded reads as open, not drift', () => {
+    expect(judgeContractItem(CONTRACT_LABELS.RATE, null, '$125.00 an hour')).toBe('OPEN')
+  })
+  it('once a person records the signed paper and the line matches, the bill rate reads as met', () => {
+    expect(judgeContractItem(CONTRACT_LABELS.RATE, '$125.00 an hour', '$125.00 an hour')).toBe('MET')
+  })
+  it('the statement of work is listed only where the placement has a written one', () => {
+    expect(contractItemsFor(line()).map((i) => i.label)).not.toContain(CONTRACT_LABELS.SOW)
+    const items = contractItemsFor(line({ sow: { signedAt: null } }))
+    expect(items.map((i) => i.label)).toEqual([CONTRACT_LABELS.RATE, CONTRACT_LABELS.SOW])
+    expect(items[1]).toMatchObject({ firstAgreed: 'Signed', actual: 'Not signed' })
+  })
+  it('a signed statement of work reads as met and an unsigned one as drift', () => {
+    const [, signed] = contractItemsFor(line({ sow: { signedAt: d('2026-11-01') } }))
+    const [, unsigned] = contractItemsFor(line({ sow: { signedAt: null } }))
+    expect(judgeContractItem(signed.label, signed.firstAgreed, signed.actual)).toBe('MET')
+    expect(judgeContractItem(unsigned.label, unsigned.firstAgreed, unsigned.actual)).toBe('DRIFT')
+  })
+  it('the card for an unsigned statement of work says the agent signed nothing and changed nothing', () => {
+    const w = driftWords({ person: 'Priya Nair', client: 'Northbend Athletic', label: CONTRACT_LABELS.SOW, agreed: 'Signed', actual: 'Not signed' })
+    expect(w.question).toBe('The statement of work for Priya Nair at Northbend Athletic is written and not signed. Look at it?')
+    expect(w.proof).toMatch(/changed nothing/)
+    expect(w.proof).toMatch(/signing is a person’s/)
   })
   it('a rate that moved off the agreed value is a drift', () => {
     expect(judgeContractItem(CONTRACT_LABELS.RATE, '$125.00 an hour', '$130.00 an hour')).toBe('DRIFT')
   })
-  it('an item with no agreed value or no actual value is a drift, never silently met', () => {
-    expect(judgeContractItem(CONTRACT_LABELS.RATE, null, '$1.00 an hour')).toBe('DRIFT')
+  it('an item with no actual value is a drift, never silently met', () => {
     expect(judgeContractItem(CONTRACT_LABELS.RATE, '$1.00 an hour', null)).toBe('DRIFT')
   })
   it('a line inside the order’s dates is met and one running past them is a drift', () => {
@@ -105,6 +127,37 @@ describe('the immigration checklist', () => {
   it('the missing papers are named by their labels', () => {
     expect(petitionMissing([{ label: 'Petition form', state: 'MET' }, { label: 'Representation form', state: 'OPEN' }])).toEqual(['Representation form'])
   })
+  it('an H-1B petition keeps today’s four papers, so nothing changes for the specialty-occupation walk', () => {
+    const l = petitionListFor('H-1B')
+    expect(l.key).toBe('H1B')
+    expect(l.lines).toBe(PETITION_LINES)
+  })
+  it('SPECIALTY_OCCUPATION, H1B and h-1b all read as the one H-1B list, and H-1B1 does not', () => {
+    for (const k of ['SPECIALTY_OCCUPATION', 'H1B', 'h-1b', 'H-1B transfer']) expect(petitionListFor(k).key).toBe('H1B')
+    expect(petitionListFor('H-1B1').key).toBe('GENERAL')
+  })
+  it('a TN petition gets no labor condition application line', () => {
+    const l = petitionListFor('TN')
+    expect(l.lines.map((x) => x.label)).toEqual(['Petition form', 'Representation form', 'Approval notice copy'])
+  })
+  it('a petition of a kind nobody has listed gets the general papers and is never refused', () => {
+    for (const k of ['L-1', 'O-1', '', '   ', 'something new']) {
+      const l = petitionListFor(k)
+      expect(l.key).toBe('GENERAL')
+      expect(l.lines.length).toBeGreaterThan(0)
+    }
+  })
+  it('no petition type’s list is called confirmed until regulatory records a source for it', () => {
+    for (const l of Object.values(PETITION_LISTS)) {
+      expect(l.confirmed).toBe(false)
+      expect(l.unconfirmedBecause).toMatch(/Regulatory has not confirmed/)
+    }
+  })
+  it('a list marked confirmed without a source fails the build', () => {
+    for (const l of Object.values(PETITION_LISTS)) {
+      if (l.confirmed) { expect(l.source).toBeTruthy(); expect(l.checkedOn).toBeTruthy() }
+    }
+  })
   it('the signature card says Etyme signs nothing and files nothing', () => {
     const w = signatureWords({ person: 'Priya Nair', label: 'Petition form' })
     expect(w.question).toBe('The petition form for Priya Nair’s petition needs your signature. Is it signed?')
@@ -121,12 +174,55 @@ describe('the onboarding pack', () => {
   })
   it('the card names the papers that are missing and the day the person starts', () => {
     const w = packWords({ person: 'Priya Nair', client: 'Northbend Athletic', startDate: d('2026-11-30'), days: 3, missing: ['I-9', 'Background check'] })
-    expect(w.question).toBe('Priya Nair starts at Northbend Athletic in 3 days, and 2 papers are still missing: I-9; Background check. Chase them?')
+    expect(w.question).toBe('Priya Nair starts at Northbend Athletic in 3 days, and 2 papers are still missing: I-9; Background check. Get them on file before day one.')
+    expect(w.question).not.toMatch(/Chase them/)
     expect(w.proof).toMatch(/Start day Nov 30, 2026/)
   })
   it('a start tomorrow and a start today are said as such', () => {
     expect(packWords({ person: 'A', client: 'B', startDate: d('2026-11-24'), days: 1, missing: ['I-9'] }).question).toMatch(/starts at B tomorrow, and one paper is still missing/)
     expect(packWords({ person: 'A', client: 'B', startDate: d('2026-11-23'), days: 0, missing: ['I-9'] }).question).toMatch(/starts at B today/)
+  })
+})
+
+describe('the onboarding pack when every paper is on file', () => {
+  const w = packCompleteWords({ person: 'Priya Nair', client: 'Northbend Athletic', startDate: d('2026-11-30'), days: 3, papers: ['I-9', 'Right to work'] })
+  it('a placement starting within five days with every paper on file names each paper and asks HR to confirm it is ready', () => {
+    expect(w.question).toBe('All 2 papers for Priya Nair are on file, and they start at Northbend Athletic in 3 days. Confirm ready?')
+    expect(w.proof).toContain('On file: I-9; Right to work.')
+  })
+  it('one paper on file is said in the singular', () => {
+    expect(packCompleteWords({ person: 'A', client: 'B', startDate: d('2026-11-24'), days: 1, papers: ['I-9'] }).question).toBe('The one paper for A is on file, and they start at B tomorrow. Confirm ready?')
+  })
+  it('HR’s yes is said to be advisory: Activate still decides the start, and the agent started nobody', () => {
+    expect(w.proof).toMatch(/Activate still decides the start/)
+    expect(w.proof).toMatch(/The agent sent nothing and started nobody/)
+  })
+})
+
+describe('the placement record card', () => {
+  const base = { person: 'Priya Nair', customer: 'Northbend Athletic', endClient: null, billRateCents: 12_500, currency: 'USD', startDate: d('2026-12-01'), endDate: d('2027-05-31') as Date | null, suppliers: [] as string[] }
+  it('the card asks to confirm the placement record and names the customer, the bill rate, the start and end days', () => {
+    const w = placementWords(base)
+    expect(w.question).toBe('Confirm the placement record for Priya Nair at Northbend Athletic?')
+    expect(w.proof).toContain('Customer: Northbend Athletic.')
+    expect(w.proof).toContain('Bill rate: $125.00 an hour.')
+    expect(w.proof).toContain('Starts Dec 1, 2026 and ends May 31, 2027.')
+  })
+  it('a line with no end day says it has none', () => {
+    expect(placementWords({ ...base, endDate: null }).proof).toContain('Starts Dec 1, 2026 and has no end day.')
+  })
+  it('the worksite is named only where it differs from the customer, and otherwise the card says the customer’s own site', () => {
+    expect(placementWords(base).proof).toContain('Worksite: the customer’s own site.')
+    expect(placementWords({ ...base, endClient: 'Lakeview Plant' }).proof).toContain('Worksite: Lakeview Plant.')
+  })
+  it('the suppliers on the firm’s own chain are named, and a line with none says the person is the firm’s own', () => {
+    expect(placementWords({ ...base, suppliers: ['Acme Staff', 'Bolt Bench'] }).proof).toContain('Suppliers on this firm’s own chain: Acme Staff; Bolt Bench.')
+    expect(placementWords(base).proof).toContain('No supplier below this firm on this line.')
+  })
+  it('the card says the agent changed nothing and signed nothing, and shows no buy rate', () => {
+    const w = placementWords({ ...base, suppliers: ['Acme Staff'] })
+    expect(w.proof).toMatch(/The agent changed nothing and signed nothing/)
+    expect(w.proof).not.toMatch(/pay rate|buy rate|\$\d+\.\d\d an hour.*\$\d+\.\d\d an hour/i)
   })
 })
 
@@ -197,5 +293,38 @@ describe('the public access file', () => {
   })
   it('the card says the agent approves and publishes nothing', () => {
     expect(accessFileWords({ person: 'A', readyBy: d('2026-11-24'), today: d('2026-11-23') }).proof).toMatch(/publishes nothing/)
+  })
+})
+
+describe('the notice timing check (proposed, measured from the filing day a person entered)', () => {
+  it('the proposed lead is thirty days', () => {
+    expect(PROPOSED_NOTICE_LEAD_DAYS).toBe(30)
+  })
+  it('a notice posted ten days before the filing day is judged on time under the proposed rule', () => {
+    expect(noticeTiming(d('2026-11-10'), d('2026-11-20'), PROPOSED_NOTICE_LEAD_DAYS)).toBe('ON_TIME')
+  })
+  it('a notice posted on the filing day itself is not late', () => {
+    expect(noticeTiming(d('2026-11-20'), d('2026-11-20'), PROPOSED_NOTICE_LEAD_DAYS)).toBe('ON_TIME')
+  })
+  it('a notice posted after the filing day is judged late', () => {
+    expect(noticeTiming(d('2026-11-21'), d('2026-11-20'), PROPOSED_NOTICE_LEAD_DAYS)).toBe('LATE')
+  })
+  it('a notice posted more than the proposed thirty days before the filing day is judged too early, and exactly thirty is not', () => {
+    expect(noticeTiming(d('2026-10-20'), d('2026-11-20'), PROPOSED_NOTICE_LEAD_DAYS)).toBe('TOO_EARLY')
+    expect(noticeTiming(d('2026-10-21'), d('2026-11-20'), PROPOSED_NOTICE_LEAD_DAYS)).toBe('ON_TIME')
+  })
+  it('a notice with no filing day entered has no timing verdict at all', () => {
+    expect(noticeTiming(d('2026-11-21'), null, PROPOSED_NOTICE_LEAD_DAYS)).toBeNull()
+  })
+  it('the card says the rule is a proposal and that the agent posted, removed and changed nothing, and never accuses', () => {
+    const late = noticeTimingWords({ kind: 'Labor condition', site: 'Lakewood HQ', postedOn: d('2026-11-21'), measuredFromOn: d('2026-11-20'), timing: 'LATE' })
+    expect(late.question).toBe('The Labor condition notice posted at Lakewood HQ on Nov 21, 2026 is dated after the filing day it is measured against, Nov 20, 2026. Check the days on the record?')
+    const early = noticeTimingWords({ kind: 'Labor condition', site: 'Lakewood HQ', postedOn: d('2026-10-01'), measuredFromOn: d('2026-11-20'), timing: 'TOO_EARLY' })
+    expect(early.question).toMatch(/more than 30 days before the filing day it is measured against, Nov 20, 2026/)
+    for (const c of [late, early]) {
+      expect(c.proof).toMatch(/proposed rule, not confirmed by regulatory/i)
+      expect(c.proof).toMatch(/posted, removed and changed nothing/)
+      expect(c.question + c.proof).not.toMatch(/fraud|violat|\bdesk\b/i)
+    }
   })
 })

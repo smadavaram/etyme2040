@@ -899,6 +899,16 @@ Full text → 12, 14, 24, 32, 35.
   112): one person's yes releases the whole task, retries and closing
   included. Every new task asks again, and an escalation is its own
   task. Approval never carries across tasks.
+- **Agent outreach follows a mass-mail service's policy** (owner,
+  2026-11-24 → 116): after one yes, only to contacts the firm recorded
+  at firms it traded with, an unsubscribe in every letter that ends its
+  outreach, the sender and its postal address named, bounces suppressed.
+- **Outreach is one lean engine to sell staffing and project pods**
+  (owner, 2026-11-25 → 117): audience from the firm's own record, an
+  offer drafted from it, one yes per batch, record 116 on every letter,
+  two follow-ups at most, replies as lead cards, links to the storefront.
+  Candidates only after their own yes to updates. Step 1, Companies,
+  Outreach, is built (→ 118).
 - **The voice.** Recommendation first. Names, not counts. One sentence
   per refusal, with the door. No apology words. The trade's phrasing:
   who applied, approve a timesheet, pay an invoice, on hold.
@@ -1168,9 +1178,9 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Contacts → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Customers, Contacts, Outreach → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
-| MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Contacts → Companies. |
+| MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Customers, Contacts, Outreach → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
 | Worker | You: Your work, Your page, Who has you, Your data, Your paperwork | Unchanged: a list under "You", not nouns with tabs. |
 

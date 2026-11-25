@@ -14,6 +14,9 @@
  *     the required posting period (10 working days, proposed) and opens a
  *     card to HR when it ends, so a person takes the notice down and records
  *     the removal. The agent publishes and removes nothing.
+ *     A notice a person entered a filing day for is also judged against it
+ *     (dated after it, or over 30 days before it, both proposals): one card
+ *     to HR, nothing changed.
  *  3. The public access file: for a petition with a filing day, the agent
  *     opens the tracker (due within 1 working day, proposed) and a card to
  *     HR; a person approves it. It approves and publishes nothing.
@@ -31,12 +34,13 @@ import { bookedLimitDay, linesCounted, standingAgainstLimit } from '@/lib/tenure
 import { registerAgent, type AgentContext } from './runner'
 import { openOnce, ownerOf } from './open-once'
 import {
-  accessFileReadyBy, accessFileWords, crossedWarning, daysFromTo, dayStart, noticeEndsOn, noticePeriodOver, noticeWords, tenureWords,
+  accessFileReadyBy, accessFileWords, crossedWarning, daysFromTo, dayStart, noticeEndsOn, noticePeriodOver, noticeTiming, noticeTimingWords, noticeWords, tenureWords,
 } from './checklist-rules'
 
 export const COMPLIANCE_WATCH_AGENT = 'compliance-watch'
 export const COMPLIANCE_WATCH_RULES = 'compliance-watch-1'
-export const TENURE_RECORD = 'TenureWatch'
+/** The tenure card's own link is the placement, a record the record view opens. */
+export const TENURE_RECORD = 'SellContract'
 export const NOTICE_RECORD = 'NoticePosting'
 export const ACCESS_FILE_RECORD = 'PublicAccessFile'
 
@@ -58,7 +62,7 @@ async function tenureStep(ctx: AgentContext): Promise<void> {
 
   const lines = await prisma.sellContract.findMany({
     where: { ...endClientFilter(companyId), state: { in: ['IN_PROGRESS', 'ENDED', 'PAUSED'] } },
-    select: { personId: true, startDate: true, endDate: true, state: true, person: { select: { name: true } } },
+    select: { id: true, personId: true, startDate: true, endDate: true, state: true, person: { select: { name: true } } },
     orderBy: { id: 'asc' },
   })
   const client = (await prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }))?.name ?? 'the client'
@@ -80,7 +84,9 @@ async function tenureStep(ctx: AgentContext): Promise<void> {
     const words = tenureWords({ person: own[0].person.name, client, capMonths, limitDay, daysLeft })
     // One card per person, per limit day, per warning crossed.
     if (!(await ctx.mayAct())) return
-    const r = await openOnce(ctx, owner, { recordType: TENURE_RECORD, recordId: `${personId}:${limitDay.toISOString().slice(0, 10)}:${step}` }, words, [{ recordType: 'Person', recordId: personId }])
+    // The card is tied to the placement the person is on now (a contract the record view opens), one open card each.
+    const placement = own.filter((l) => l.state !== 'ENDED').sort((a, b) => (b.endDate?.getTime() ?? Infinity) - (a.endDate?.getTime() ?? Infinity))[0]
+    const r = await openOnce(ctx, owner, { recordType: TENURE_RECORD, recordId: placement.id }, words, [{ recordType: 'Person', recordId: personId }])
     if (r === 'OPENED') await ctx.act({ recordType: 'Person', recordId: personId, action: 'TENURE_WARNING_OPENED', summary: `${words.question} A decision is open. Nothing was changed.` })
   }
 }
@@ -99,6 +105,28 @@ async function noticeStep(ctx: AgentContext, daysOff: number[], holidays: Set<st
     if (!(await ctx.mayAct())) return
     const r = await openOnce(ctx, owner, { recordType: NOTICE_RECORD, recordId: n.id }, words, [])
     if (r === 'OPENED') await ctx.act({ recordType: NOTICE_RECORD, recordId: n.id, action: 'NOTICE_PERIOD_ENDED', summary: `${words.question} A decision is open. Nothing was taken down.` })
+  }
+}
+
+/**
+ * A notice with a filing day a person entered is judged against it: dated
+ * after it, or more than the proposed lead before it, opens one card to HR
+ * (else the Owner). Closed notices count. Its own link, so it is never the
+ * same card as the period-ended one. Nothing is posted, removed or changed.
+ */
+async function noticeTimingStep(ctx: AgentContext): Promise<void> {
+  const { companyId } = ctx
+  const dated = await prisma.noticePosting.findMany({ where: { companyId, measuredFromOn: { not: null } }, orderBy: { id: 'asc' }, take: 500 })
+  const off = dated.filter((n) => noticeTiming(n.postedOn, n.measuredFromOn) !== null && noticeTiming(n.postedOn, n.measuredFromOn) !== 'ON_TIME')
+  if (off.length === 0) return
+  const owner = await ownerOf(ctx, ['HR', 'Compliance Officer'])
+  const sites = await prisma.companyLocation.findMany({ where: { id: { in: [...new Set(off.map((n) => n.locationId))] } }, select: { id: true, name: true } })
+  for (const n of off) {
+    const timing = noticeTiming(n.postedOn, n.measuredFromOn) as 'LATE' | 'TOO_EARLY'
+    const words = noticeTimingWords({ kind: n.kind, site: sites.find((s) => s.id === n.locationId)?.name ?? 'the site', postedOn: n.postedOn, measuredFromOn: n.measuredFromOn!, timing })
+    if (!(await ctx.mayAct())) return
+    const r = await openOnce(ctx, owner, { recordType: NOTICE_RECORD, recordId: `${n.id}:timing` }, words, [{ recordType: NOTICE_RECORD, recordId: n.id }])
+    if (r === 'OPENED') await ctx.act({ recordType: NOTICE_RECORD, recordId: n.id, action: 'NOTICE_TIMING_FLAGGED', summary: `${words.question} A decision is open. Nothing was posted, removed or changed.` })
   }
 }
 
@@ -133,6 +161,7 @@ export async function complianceWatchStep(ctx: AgentContext): Promise<void> {
   const holidays = await loadCompanyHolidays(ctx.companyId, year - 1, year + 1)
   await tenureStep(ctx)
   await noticeStep(ctx, daysOff, holidays)
+  await noticeTimingStep(ctx)
   await accessFileStep(ctx, daysOff, holidays)
 }
 

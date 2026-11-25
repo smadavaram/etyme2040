@@ -6,6 +6,10 @@ import { rateWordsOf } from '@/app/dashboard/compliance/checklists/bodies'
 import { kindWords, petitionWords, stageWords } from '@/app/dashboard/compliance/act-spec'
 import { rolesFor } from '@/lib/company-defaults'
 import { getNavForKind } from '@/lib/nav-table'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { SavedLine } from '@/app/dashboard/compliance/act-form'
+import { recordNoticeFields, timingChip, filingDayFields } from '@/app/dashboard/compliance/notices/bodies'
 
 /**
  * The Checklists and Notices tabs of Contracts (record 112, chains 3 and 6):
@@ -127,5 +131,56 @@ describe('the Checklists and Notices tabs', () => {
       expect(src, p).toContain('<SavedLine says={saved} />')
       expect(src, p).not.toContain('onDone={load}')
     }
+  })
+
+  it('an act\u2019s saved sentence is drawn once on the page', () => {
+    const html = renderToStaticMarkup(createElement(SavedLine, { says: 'Saved. Each paper is its own line.' }))
+    expect(html.match(/Saved\. Each paper/g)?.length).toBe(1)
+    expect(html.match(/role="status"/g)?.length).toBe(1)
+    for (const p of ['checklists', 'notices']) expect(read(`src/app/dashboard/compliance/${p}/page.tsx`).match(/<SavedLine /g)?.length, p).toBe(1)
+  })
+
+  it('a petition\u2019s kind prints H-1B and never says petition twice', () => {
+    expect(petitionWords('H-1b transfer')).toBe('H-1B transfer petition')
+    expect(petitionWords('H1B_TRANSFER')).toBe('H-1B transfer petition')
+    expect(petitionWords('h-1b transfer petition')).toBe('H-1B transfer petition')
+    expect(petitionWords('L1A_EXTENSION')).toBe('L-1A extension petition')
+    expect(petitionWords('o-1')).toBe('O-1 petition')
+    expect(petitionWords('tn')).toBe('TN petition')
+    expect(petitionWords('SPECIALTY_OCCUPATION')).toBe('Specialty occupation petition')
+    expect(petitionWords('Green card petition')).toBe('Green card petition')
+    const route = read('src/app/api/compliance/immigration-petitions/route.ts')
+    expect(route).toContain('petitionWords(kind)')
+    expect(route).not.toContain("toLowerCase().replace(/_/g, ' ')} petition")
+  })
+
+  it('a contract item with no signed paper reads No signed paper in a quiet chip, never a green one, and the statement of work line offers no paper to record', () => {
+    const page = read('src/app/dashboard/compliance/checklists/page.tsx')
+    expect(page).toContain("i.state === 'OPEN' ? 'No signed paper'")
+    expect(page).toContain("i.state === 'MET' ? 'verified' : 'passive'")
+    expect(page).toContain('contract.mayRecord && i.recordable')
+  })
+
+  it('a notice dated on its filing day is not called dated before it', () => {
+    expect(timingChip('ON_TIME')).toEqual({ tone: 'passive', text: 'Dated on or before filing' })
+  })
+
+  it('the notices form offers the filing day field that the route accepts, and so does the row’s own act', () => {
+    expect(recordNoticeFields([], []).map((f) => f.key)).toContain('measuredFromOn')
+    expect(filingDayFields([]).map((f) => f.key)).toEqual(['measuredFromOn'])
+    for (const r of ['notice-postings/route.ts', 'notice-postings/[id]/route.ts']) expect(read(`src/app/api/compliance/${r}`), r).toContain('measuredFromOn')
+  })
+
+  it('the notices screen shows no green chip for any timing, and no chip where there is no filing day', () => {
+    expect(timingChip(null)).toBeNull()
+    for (const t of ['ON_TIME', 'LATE', 'TOO_EARLY'] as const) expect(timingChip(t)!.tone).not.toBe('verified')
+    expect(timingChip('ON_TIME')!.tone).toBe('passive')
+    expect(timingChip('LATE')!.text).toBe('Dated after filing')
+    expect(timingChip('TOO_EARLY')!.text).toBe('Dated early')
+  })
+
+  it('the notices screen says the timing rule is a proposal beside its chip', () => {
+    expect(read('src/app/dashboard/compliance/notices/page.tsx')).toContain('timingChip(')
+    expect(read('src/app/dashboard/compliance/notices/page.tsx')).toMatch(/Proposed rule, not yet confirmed with its source/)
   })
 })

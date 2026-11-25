@@ -84,14 +84,14 @@ export default function DecisionItemPage() {
       <PageHead
         eyebrow={section}
         title={item.question}
-        subtitle={`${stateWords(item.state)} · owed by ${item.ownerName}${item.entityName ? ` · for ${item.entityName}` : ''} · ${ageWords(item.ageDays)}`}
+        subtitle={`${stateWords(item.state, item.question)} · owed by ${item.ownerName}${item.entityName ? ` · for ${item.entityName}` : ''} · ${ageWords(item.ageDays)}`}
         actions={<Link href={'/dashboard/decisions' as any} className="btn-secondary text-[13px]">Back to the queue</Link>}
       />
 
       <Panel title="Proof">
         {item.proofHidden && <p className="text-[14px] text-etyme-muted">{item.proofHidden}</p>}
         {item.proof && (
-          <p className="text-[14px] text-etyme-ink whitespace-pre-line">
+          <p className="text-[14px] text-etyme-ink whitespace-pre-line break-words [overflow-wrap:anywhere]">
             {proofParts(item.proof).map((part, i) => part.href
               ? <Link key={i} href={part.href as any} className="text-etyme-action hover:underline">{part.text}</Link>
               : <span key={i}>{part.text}</span>)}
@@ -115,13 +115,13 @@ export default function DecisionItemPage() {
 
       {item.decision && (
         <div className="mt-5">
-          <Panel title={`${stateWords(item.decision.verdict)} by ${item.decision.personName}`}>
+          <Panel title={`${stateWords(item.decision.verdict, item.question)} by ${item.decision.personName}`}>
             <dl className="grid sm:grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-[14px]">
               <dt className="text-etyme-muted">Decided by</dt><dd>{item.decision.personName}</dd>
               <dt className="text-etyme-muted">For</dt><dd>{item.decision.entityName ?? 'The firm (no legal entity on record)'}</dd>
               <dt className="text-etyme-muted">As</dt><dd>{item.decision.heldAs}</dd>
               <dt className="text-etyme-muted">When</dt><dd className="tabular-nums">{when(item.decision.at)}</dd>
-              <dt className="text-etyme-muted">Decision</dt><dd>{stateWords(item.decision.verdict)}</dd>
+              <dt className="text-etyme-muted">Decision</dt><dd>{stateWords(item.decision.verdict, item.question)}</dd>
               <dt className="text-etyme-muted">Reason</dt><dd>{item.decision.reason ?? 'None given'}</dd>
             </dl>
           </Panel>

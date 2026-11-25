@@ -344,9 +344,151 @@ the stabilization batch.
   engine, never a one-off build. NOT BUILT. Nothing in record 110's
   batch built a tenant's site directly.
 
-## Saturday 2026-11-28 deploy: READY, gate passed
+## Latest ready source: 7d03c56e5 (release check GREEN; walks S and T passed — T walked the "Read." history line)
 
-Source 4eae9cbab. Release check green on 11ac0ab21 (17,991 unit, 4,071
+The three leftovers fixed and walked (f91387752, 7d03c56e5): no colon
+before a blocked card's link; a read-only card reads "Read" after Done on
+its page, in the queue and in its history line; the activity log points
+to Agent control. Release check GREEN on 7d03c56e5: type check; 18,155
+unit; 4,224 database; build. This source carries records 115, 112's rest
+and 116 for a weekend release after Saturday's c8d8abaf7.
+
+## Record 116, agent outreach under a mass-mail service's policy: READY, walk passed, Source a02e489ab
+
+The owner's answer: agent outreach to a dormant firm may send after one
+yes, under that policy. Built: only the firm's own contacts at firms it
+traded with; an unsubscribe link in every letter (signed, no sign-in,
+GET changes nothing); the firm and its postal address named; bounces
+suppress; 180-day cooling-off (proposal). Blocked cards link to the fix
+and ask only for an acknowledgement. A contact opens in the record view.
+Walks Q (did not ship: no link on blocked cards) and R (ships). Release
+check GREEN on a02e489ab: type check; 18,153 unit; 4,223 database;
+build. Left: a colon before the link on blocked cards; an acknowledged
+card's status reads "Approved" (all acknowledge-only cards); the
+activity log page does not show agent acts. Final notice stays drafted;
+chase numbers stay proposals.
+
+## The rest of record 112 in chains 1, 2, 3 and 5: READY, walk passed, Source 526aba57d
+
+Built on the branch after the four gaps (commits 5161170ee to 526aba57d):
+- Chain 1: submission chase (one yes per task, one letter, one reminder,
+  3 working days apart, numbers proposed); dormant outreach is a draft
+  card only, never sent by an agent.
+- Chain 2: ask and put-forward cards from the match ranker; a yes sends
+  nothing and submits nobody.
+- Chain 3: placement-record card on the line the award wrote; HR's pack
+  card, advisory, Activate unchanged.
+- Chain 5: final notice as its own escalation task; drafted on its card,
+  never sent by an agent. Payroll hold waits on regulatory.
+- Review fix: a card whose agent task closed no longer counts as owed
+  (STILL_OWED in decision-items), and an answered chase closes first.
+Walk P said ships; its wording points fixed in 526aba57d. Release check
+GREEN on 526aba57d: type check; 18,138 unit; 4,213 database; build.
+Owner questions open: may an agent send outreach or an approved final
+notice, and who writes the final notice's text; do the submission chase
+numbers stand. Chain 6 has nothing left unbuilt.
+
+## The four agent gaps (record 115): READY, walk passed, Source f897913e5
+
+Owner's yes, 2026-11-23, then "complete the build now and not have to
+wait". Built on the branch, for a weekend release after Saturday's:
+- Gap 1: the SOW item on the contracts checklist; a bill rate reads
+  "No signed paper" until a person records one (906cae5da, 6d8059f28).
+- Gap 2: one checklist per petition type, H-1B and general, both
+  unconfirmed (d3d25fcb8).
+- Gap 3: the on-time notice check from NoticePosting.measuredFromOn, a
+  filing day a person enters (b018224d0, 4585f5866).
+- Gap 4: the money chase says once why it skipped a bill (7779243f6).
+- Review fix: openOnce matches a card by its own link only (cb0cba95e).
+- Found by the release check: By region read receipts in no order
+  (4568c2c0a).
+Release check GREEN: type check; 18,082 unit tests; 4,139 database tests
+(three parts on cb0cba95e, part 00 on 4568c2c0a); build. Walk O said
+ships; its two wording faults fixed in f897913e5 (no record code in the
+held line; "Dated on or before filing"). FINAL release check GREEN on
+f897913e5: type check; 18,084 unit; 4,139 database; build. Deploy on a
+weekend after Saturday's, with `prepare-replay.sh <last replayed>
+f897913e5`. Left: the doubled colon in the shared empty-save sentence;
+AR cannot read the ledger line (by design). Gaps 2 and 3 warn until regulatory confirms the
+rule with a source; regulatory also owes which filing a notice is
+measured against.
+
+## The weekend after (2026-12-05/06): READY, walk passed
+
+Source 0dffd42dc (on top of Saturday's c8d8abaf7; walked pieces at
+a5ba6f102 and 43c48107c, plus the older petitions route under
+governance.read, tested on the database, not walked): the confirmation
+date; the supplier's side of an offer; record links that open; the
+money chase's missing-contact card and Owner-set chase numbers. Walks L
+and M; M says ship. Before deploying: a full release check on the
+source then current. The cosmetic items (saved
+sentence, task names, H-1B wording, own-page buttons) are fixed and
+walked (walk N, 43c48107c).
+Release check GREEN on 88c15dd23 (0dffd42dc plus the access-log count in
+docs/security-posture.md, 106 to 108 of 424): type check; 18,056 unit
+tests; 4,102 database tests; build. Deploy then with
+`prepare-replay.sh <last replayed> 88c15dd23`.
+
+## LIVE LEAK found 2026-11-25 (NOT RELEASED): a sub-vendor's name can reach the client on a contract line
+
+Found by walk X of the papers view. In production (72a7b313, source
+c8d8abaf7) GET /api/placements/[id] sends the checklist item `note` and
+`compliance.person[].provider` to every reader, client included. Both
+come from the free-text screening provider, so a firm that records a
+check under the sub-vendor's own name shows that name to the client,
+against the rule that a sub-vendor's name is the prime's to keep. It
+predates record 117. FIXED on the branch in 07710b0c6 (with the papers view, record 117 step
+2): no hidden firm's name reaches a client in any field. Release check
+GREEN on 07710b0c6 (type check; 18,268 unit; 4,274 database, 7 skipped by
+a timing flake in check-ins-before-her-yes that passes alone; build).
+Walk Y: the name is gone from screen and JSON; arrived-not-examined,
+the I-9 edition, the refusal page and "your supplier" all pass. Kept by
+the existing rule in the route: a hidden firm's opaque id stays on the
+payload ("a client cannot turn an id into a firm"); a client may open the
+line between its supplier and a sub-vendor, labelled "arranged by your
+supplier". Both are open questions for the owner, not changed. Deploy
+timing is the owner's: the weekend rule has no hotfix exception, and he
+has overridden it once (2026-11-24).
+
+## Record 117 step 1, outreach to companies: READY, walks V and W passed, Source 8e67b3154
+
+Built on the branch (894eaabf4 to 8e67b3154), with the Network tab change
+(0616f7941): Companies > Outreach for supplier, integrator and MSP; a
+client is refused at every route. Audience from the firm's own record,
+offer (who is available: skills and availability only; a project team;
+an open job), letter checked for rate, email and phone, one yes per
+batch, one letter each with record 116, at most two follow-ups 5 working
+days apart ("Following up:"), "I'm interested" link to a lead card, a
+letter claimed before it is sent. Release check GREEN on 8e67b3154: type
+check; 18,212 unit; 4,255 database; build. Numbers stay proposals (180
+days, two follow-ups, 5 working days). Next in record 117: the papers
+view per contract line, then candidate outreach with opt-in, then the
+course module. Staged for a later release; production stays on 72a7b313
+for Pax's retest.
+
+## Launch build DEPLOYED Tue 2026-11-24 (owner: "deploy if it's green")
+
+Deploy commit 72a7b313 on etyme2040 main, replayed from 18f59d2b1 to
+source c8d8abaf7. Production etyme2040.vercel.app serves 72a7b313
+(health: database READY). The owner set DB_PUSH_ON_BUILD on before the
+push; he turns it off after. Smoke: home, /demo, /docs, /about,
+/security, /privacy, /terms, /dpa, /contact, /login, /site/tapin, every
+/for/ door, /map, /ready 200; four old addresses 308; inbound email door
+404. NOT proven: the 13 new tables (the health page counts companies
+only, and this session cannot sign in to production); the first screen
+of Agent control or Checklists in the tester's retest proves them. No
+agent is switched on: each Owner switches to Drafts only first. The
+Saturday reminder is cancelled. Last replayed source is now c8d8abaf7.
+Staged for later: 88c15dd23 line, record 115, the rest of 112, 116
+(7d03c56e5). STOPPED for Pax's production retest.
+
+## Saturday 2026-11-28 deploy: superseded by the Tuesday deploy above
+
+Source c8d8abaf7 (supersedes 4eae9cbab): adds the census card's Done and
+the Checklists and Notices tabs, walked and passing. Final release check
+on it: type check; 18,021 unit tests; 4,084 database tests; build. Deploy
+with `prepare-replay.sh 18f59d2b1 c8d8abaf7`.
+Earlier: Release check green on 11ac0ab21 (17,991 unit, 4,071
 database tests, build) plus the whole unit suite on 4eae9cbab. Walks:
 three, the last saying ships. Deploy on Saturday with
 `prepare-replay.sh 18f59d2b1 4eae9cbab`, then smoke. After it, each

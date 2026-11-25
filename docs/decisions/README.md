@@ -130,3 +130,7 @@ built, every release check, every walk and every deploy.
 | 112 | The agent activity spec — 2026-11-22 | 684 | [112-the-agent-activity-spec-2026-11-22.md](112-the-agent-activity-spec-2026-11-22.md) |
 | 113 | Model mix, seven workstreams, and the launch order — 2026-11-22 | 405 | [113-model-mix-seven-workstreams-and-the-launch-order-2026-11-22.md](113-model-mix-seven-workstreams-and-the-launch-order-2026-11-22.md) |
 | 114 | The first agents, built for the launch — 2026-11-23 | 616 | [114-the-first-agents-built-for-the-launch-2026-11-23.md](114-the-first-agents-built-for-the-launch-2026-11-23.md) |
+| 115 | The four agent gaps, built after the first deploy — 2026-11-23 | 249 | [115-the-four-agent-gaps-after-the-first-deploy-2026-11-23.md](115-the-four-agent-gaps-after-the-first-deploy-2026-11-23.md) |
+| 116 | Agent outreach follows a mass-mail service's policy — 2026-11-24 | 289 | [116-agent-outreach-follows-a-mass-mail-service-policy-2026-11-24.md](116-agent-outreach-follows-a-mass-mail-service-policy-2026-11-24.md) |
+| 117 | Lean outreach to sell staffing and pods; the course module — 2026-11-25 | 539 | [117-lean-outreach-to-sell-staffing-and-pods-and-the-course-module-2026-11-25.md](117-lean-outreach-to-sell-staffing-and-pods-and-the-course-module-2026-11-25.md) |
+| 118 | Outreach to companies, built — 2026-11-25 | 509 | [118-outreach-to-companies-built-2026-11-25.md](118-outreach-to-companies-built-2026-11-25.md) |

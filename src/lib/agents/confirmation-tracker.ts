@@ -19,20 +19,24 @@
  *     is recorded: probation is scope.
  *  3. An item whose letter bounced opens one card, owed by the Account
  *     Manager else the Owner.
- *  4. Once a week one ledger line gives the tally.
+ *  4. A submission still waiting after three days is proposed as one chase
+ *     task; once a person says yes it sends one letter and one reminder
+ *     (`submission-chase`).
+ *  5. Once a week one ledger line gives the tally.
  *
- * It sends nothing, moves no money and changes no submission.
+ * It sends only inside that approved task, moves no money and changes no submission.
  */
 
 import { prisma } from '@/lib/db'
 import { LedgerRefusal, writeRecordAction } from '@/lib/record-ledger'
 import { openDecision, firmSeats, seatAtFirm, firmToday } from '@/lib/decision-items'
-import { mailSendsAbout, mailSendsAboutMany } from '@/lib/notify/mail-door'
+import { mailSendsAbout, mailSendsAboutMany, type sendMail } from '@/lib/notify/mail-door'
 import { ownerForRoles } from '@/lib/money/agent-owners'
+import { submissionChaseStep } from './submission-chase'
 import { AGENT_HELD_AS, registerAgent, type AgentContext, type AgentDef } from './runner'
 import {
   CONFIRMATION_AGENT, CONFIRMATION_RULE, CONFIRMING_MESSAGE_TYPES, PROPOSED_LATE_AFTER_DAYS,
-  blockReleased, confirmationRefusal, daysWaiting, dualAuthorizations, dualProof, dualQuestion,
+  blockReleased, confirmationRefusal, confirmedMoment, daysWaiting, dualAuthorizations, dualProof, dualQuestion,
   failedQuestion, itemState, twoSeats, type ItemState, type SubmissionFact,
 } from './confirmation-rules'
 
@@ -101,6 +105,8 @@ export interface RecordConfirmationInput {
   channel: unknown
   note?: string | null
   mailSendId?: string | null
+  /** The day it was confirmed, as YYYY-MM-DD; today where nothing is typed. */
+  confirmedOn?: unknown
   /** Set where the tracker matched a reply it already holds. */
   agentKey?: string
   ruleVersion?: string
@@ -122,6 +128,8 @@ export async function recordConfirmation(input: RecordConfirmationInput) {
     alreadyConfirmed: item.state === 'CONFIRMED',
   })
   if (says) throw new LedgerRefusal(says)
+  const when = confirmedMoment(input.confirmedOn, item.fact.submittedAt, now)
+  if (!when.ok) throw new LedgerRefusal(when.says)
   let mailSendId: string | null = null
   if (input.mailSendId) {
     const mail = (await mailSendsAbout(input.companyId, MAIL_ABOUT, input.submissionId)).find((m) => m.id === input.mailSendId)
@@ -133,7 +141,7 @@ export async function recordConfirmation(input: RecordConfirmationInput) {
     const row = await tx.submissionConfirmation.create({
       data: {
         companyId: input.companyId, submissionId: input.submissionId, channel: input.channel as string, mailSendId, note,
-        confirmedByPersonId: input.agentKey ? null : input.personId, confirmedAt: now,
+        confirmedByPersonId: input.agentKey ? null : input.personId, confirmedAt: when.at,
       },
     })
     await writeRecordAction(tx, {
@@ -178,7 +186,7 @@ const tag = (f: SubmissionFact) => `${f.personName} for ${f.jobTitle} (put forwa
 const said = (companyId: string, action: string, f: SubmissionFact) =>
   prisma.recordAction.count({ where: { companyId, agentKey: CONFIRMATION_AGENT, action, recordId: f.personId, summary: { contains: tag(f) } } }).then((n) => n > 0)
 
-export async function confirmationTrackerStep(ctx: AgentContext): Promise<void> {
+export async function confirmationTrackerStep(ctx: AgentContext, deps: { send?: typeof sendMail } = {}): Promise<void> {
   const { companyId, now } = ctx
   const sw = await prisma.agentSwitch.findUnique({ where: { companyId_agentKey: { companyId, agentKey: ctx.agentKey } } })
   if (!sw) return
@@ -263,7 +271,10 @@ export async function confirmationTrackerStep(ctx: AgentContext): Promise<void> 
     await ctx.act({ recordType: PERSON_RECORD, recordId: item.fact.personId, action: 'FAILED_DELIVERY_REOPENED', summary: `${tag(item.fact)}: the letter did not reach the other side, so it is open again.` })
   }
 
-  // 4. The week's tally, once.
+  // 4. A submission still waiting after three days is proposed for a chase; a released chase is walked.
+  await submissionChaseStep(ctx, items, deps)
+
+  // 5. The week's tally, once.
   const from = weekStart(now)
   const tallied = await prisma.recordAction.count({ where: { companyId, agentKey: ctx.agentKey, action: 'WEEKLY_TALLY', createdAt: { gte: from } } })
   if (tallied === 0 && (await ctx.mayAct())) {

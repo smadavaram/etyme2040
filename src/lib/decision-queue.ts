@@ -8,6 +8,7 @@
  * age, state and who decides are lib/decision-items.
  */
 
+import { hasPermission } from '@/lib/permissions'
 import { OWNER_ROLE, ADMIN_ROLE } from '@/lib/owner-rules'
 import { formatDayLong } from '@/lib/format-date'
 import { CANNOT_READ_MONTH_RECORD, LOOP_HREF, LOOP_READS } from '@/lib/money-loop'
@@ -41,6 +42,8 @@ export const PROOF_TYPES = [
   { type: 'NoticePosting', label: 'A posted notice' },
   { type: 'PublicAccessFile', label: 'A public access file' },
   { type: 'SubmissionConfirmation', label: 'A submission confirmation' },
+  { type: 'Requirement', label: 'A job' },
+  { type: 'CompanyContact', label: 'A contact' },
 ] as const
 
 export type ProofType = (typeof PROOF_TYPES)[number]['type']
@@ -63,15 +66,28 @@ export function isRecordType(t: unknown): t is RecordType {
  * needed beyond a working seat: the one its own list asks for. A decision
  * is read by the proof rule (`mayReadProof` in lib/decision-items). Pure.
  */
-export function readNeeds(type: RecordType): 'invoices.read' | 'assignments.read' | 'consultants.read' | 'consultants.write' | 'submissions.read' | typeof LOOP_READS | null {
+export function readNeeds(type: RecordType): 'invoices.read' | 'assignments.read' | 'consultants.read' | 'consultants.write' | 'submissions.read' | 'requirements.read' | 'governance.read' | typeof LOOP_READS | null {
   if (type === 'MoneyChain' || type === 'PayrollDraft') return LOOP_READS
   if (type === 'Offer' || type === 'SubmissionConfirmation') return 'submissions.read'
-  // The paperwork routes read these with the permission that writes them (whoever looks after paperwork).
-  if (type === 'ChecklistItem' || type === 'Petition' || type === 'NoticePosting' || type === 'PublicAccessFile') return 'consultants.write'
+  // Petitions, posted notices and public access files are HR's and the compliance officer's (CLAUDE.md, ruling 114): the routes read them with governance.read.
+  if (type === 'ChecklistItem' || type === 'Petition' || type === 'NoticePosting' || type === 'PublicAccessFile') return 'governance.read'
   if (type === 'Invoice' || type === 'VendorBill') return 'invoices.read'
   if (type === 'SellContract') return 'assignments.read'
+  if (type === 'Requirement') return 'requirements.read'
   if (type === 'Person') return 'consultants.read'
   return null
+}
+
+/**
+ * Whether a seat holding these permissions may open a record of this kind in
+ * the record view: the one check the view's route, a decision's proof links
+ * and the firm ledger's rows all read. A decision is read by the proof rule
+ * in the route, so here it is only a matter of kind. Pure.
+ */
+export function mayOpenRecordKind(type: string, permissions: readonly string[] | Parameters<typeof hasPermission>[0]): boolean {
+  if (!isRecordType(type)) return false
+  const needs = readNeeds(type)
+  return needs === null || hasPermission(permissions as any, needs)
 }
 
 /** What a seat that does not hold `readNeeds(type)` reads, in a sentence. Pure. */
@@ -79,6 +95,7 @@ export function cannotReadSays(type: RecordType): string {
   if (type === 'MoneyChain') return CANNOT_READ_MONTH_RECORD
   if (type === 'Invoice' || type === 'VendorBill') return 'Your seat cannot read bills or invoice receipts.'
   if (type === 'SellContract') return 'Your seat cannot read contracts.'
+  if (type === 'Requirement') return 'Your seat cannot read jobs.'
   if (type === 'Person') return 'Your seat cannot read people’s records.'
   if (type === 'PayrollDraft') return CANNOT_READ_MONTH_RECORD
   if (type === 'Offer' || type === 'SubmissionConfirmation') return 'Your seat cannot read submissions.'
@@ -86,12 +103,33 @@ export function cannotReadSays(type: RecordType): string {
   return 'Your seat cannot read this record.'
 }
 
+/**
+ * What the record's own page asks for, read off the page's own route (any
+ * one of these lets a seat in): the Compliance page asks `governance.read`
+ * (`/api/compliance`), the Submissions page `submissions.read` or
+ * `submissions.create` (`/api/submissions`). Null where the page asks
+ * nothing beyond what the record view already did. Pure.
+ */
+export function ownPageNeeds(type: RecordType): readonly string[] | null {
+  if (type === 'Offer' || type === 'SubmissionConfirmation') return ['submissions.read', 'submissions.create']
+  if (type === 'ChecklistItem' || type === 'Petition' || type === 'NoticePosting' || type === 'PublicAccessFile') return ['governance.read']
+  return null
+}
+
+/** Whether a seat holding these permissions is let in by the record's own page, so its button is drawn. Pure. */
+export function mayOpenOwnPage(type: RecordType, permissions: readonly string[] | Parameters<typeof hasPermission>[0]): boolean {
+  const needs = ownPageNeeds(type)
+  return needs === null || needs.some((n) => hasPermission(permissions as any, n as any))
+}
+
 /** The record's own page, where it already has one. Pure. */
 export function ownPageOf(type: RecordType, id: string): { href: string; words: string } {
   switch (type) {
     case 'Company': return { href: '/dashboard/companies', words: 'Open Companies' }
+    case 'CompanyContact': return { href: '/dashboard/contacts', words: 'Open Contacts' }
     case 'SellContract': return { href: `/dashboard/placements/${id}`, words: 'Open the contract' }
     case 'Person': return { href: `/dashboard/people/${id}`, words: 'Open the person' }
+    case 'Requirement': return { href: `/dashboard/requirements/${id}`, words: 'Open the job' }
     case 'VendorBill': return { href: '/dashboard/ap', words: 'Open invoice receipts' }
     case 'Invoice': return { href: `/dashboard/invoices/${id}`, words: 'Open the bill' }
     case 'DecisionItem': return { href: `/dashboard/decisions/${id}`, words: 'Open the decision' }
@@ -107,6 +145,13 @@ export function ownPageOf(type: RecordType, id: string): { href: string; words: 
     // The month's own page needs its contract and month, which the route reads (`monthPageOf`); this is the page they are on.
     case 'MoneyChain': return { href: LOOP_HREF, words: 'Open Timesheet to payment' }
   }
+}
+
+/** The kind of record a proof link names, in words, where it is not one a person picks. Pure. */
+export function proofLabelOf(type: string): string {
+  const picked = PROOF_TYPES.find((p) => p.type === type)?.label
+  if (picked) return picked
+  return type === 'AgentTask' ? 'The agent’s task' : type === 'AgentSwitch' ? 'The agent’s switch' : type === 'DecisionItem' ? 'A decision' : 'A record'
 }
 
 /** Where the record view for one record is. Pure. */
@@ -235,16 +280,24 @@ export function readDecideAsk(body: unknown, hasEntities: boolean):
 
 /** A card that only needs acknowledging: it offers Done, never Approve, Send back or Reject. Pure. */
 export function onlyAcknowledged(question: string): boolean {
-  return /(Read the summary\?|Review the placement now\?|Read the list\.)$/.test(question.trim())
+  return /(Read the summary\?|Review the placement now\?|Read the list\.|Read why\.)$/.test(question.trim())
 }
 
-/** A proof's text cut at the in-app paths it names, so each path can be drawn as a link. Pure. */
+/** A proof's text cut at the in-app paths it names, so each path can be drawn as a link. A job's path reads "Open the job", never the path. Pure. */
+/** Paths a card names, in the words a person reads instead of the path. */
+const PATH_WORDS: Record<string, string> = {
+  '/dashboard/settings/setup/addresses': 'Open Settings, Addresses',
+  '/dashboard/contacts': 'Open Contacts',
+}
+
 export function proofParts(proof: string): { text: string; href: string | null }[] {
-  return proof.split(/(\/dashboard\/[\w/-]+[\w-])/).filter(Boolean).map((t) => (t.startsWith('/dashboard/') ? { text: t, href: t } : { text: t, href: null }))
+  return proof.split(/(\/dashboard\/[\w/-]+[\w-])/).filter(Boolean).map((t) => (t.startsWith('/dashboard/') ? { text: PATH_WORDS[t] ?? (/^\/dashboard\/requirements\/[\w-]+$/.test(t) ? 'Open the job' : t), href: t } : { text: t, href: null }))
 }
 
 /** The decision, in the words its page prints. Pure. */
-export function stateWords(state: string): string {
+export function stateWords(state: string, question = ''): string {
+  // A card that only asks to be read is never called approved: its Done records that it was read.
+  if (state === 'APPROVED' && onlyAcknowledged(question)) return 'Read'
   return state === 'APPROVED' ? 'Approved' : state === 'REJECTED' ? 'Rejected' : 'Open'
 }
 
@@ -271,6 +324,7 @@ export const FIRM_AGENTS = [
   { key: 'compliance-watch', name: 'Compliance watch' },
   { key: 'money-owed-chase', name: 'Money-owed chase' },
   { key: 'weekly-summary', name: 'Weekly summary' },
+  { key: 'outreach-batch', name: 'Outreach batch' },
 ] as const
 
 /** Agents named on Agent control that have no step behind them yet: they read "Not live yet" and cannot be switched on. */
@@ -279,6 +333,11 @@ export const NOT_LIVE_AGENTS: readonly string[] = ['digest-scanner']
 /** The sentence a refused switch says. Pure. */
 export function notLiveSays(key: string): string {
   return `${agentNameOf(key)} is not live yet, so it cannot be switched on.`
+}
+
+/** A task named by what it is about, once: "Chase of bill IN-1 (Money-owed chase)"; the agent's name alone where nothing more is known. Pure. */
+export function agentTaskName(agentKey: string, about: string | null): string {
+  return about ? `${about} (${agentNameOf(agentKey)})` : agentNameOf(agentKey)
 }
 
 /** An agent's name as a person reads it; an unknown key reads as the key made into words. Pure. */

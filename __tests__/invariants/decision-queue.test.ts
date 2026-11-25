@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { agentTaskName, mayOpenOwnPage, ownPageNeeds } from '@/lib/decision-queue'
 import {
   mayOpenDecision, maySetHomePage, readOpenAsk, openBody, readDecideAsk, decideBody, agentRows, ageWords,
   ownPageOf, recordViewHref, agentByWords, agentNameOf, readHomeAsk, FIRM_AGENTS, VERDICT_BUTTONS, PROOF_TYPES,
-  QUEUE_EYEBROW_HREFS, onlyAcknowledged, proofParts, ledgerBeganSays, readNeeds, isRecordType, cannotReadSays,
+  QUEUE_EYEBROW_HREFS, onlyAcknowledged, stateWords, proofParts, mayOpenRecordKind, proofLabelOf, ledgerBeganSays, readNeeds, isRecordType, cannotReadSays,
 } from '@/lib/decision-queue'
 import { queueCards } from '@/app/api/conversations/twin/ask'
 import { execSync } from 'child_process'
@@ -52,8 +53,16 @@ describe('opening a decision', () => {
     expect(readOpenAsk(openBody(typed), true).ok).toBe(true)
   })
 
+  it('a card that only asks to be read reads Read once done, never Approved, and every other card keeps its verdict word', () => {
+    expect(stateWords('APPROVED', 'Check in with customer Orchid Foods: quiet. No letter was drafted, and nothing is sent. Read why.')).toBe('Read')
+    expect(stateWords('APPROVED', 'Weekly census: 4 companies moved between active and dormant. Read the list.')).toBe('Read')
+    expect(stateWords('APPROVED', 'Approve the client renewal for another year?')).toBe('Approved')
+    expect(stateWords('REJECTED', 'Approve the client renewal for another year?')).toBe('Rejected')
+    expect(stateWords('OPEN')).toBe('Open')
+  })
+
   it('a proof link names one of the five kinds of record, and a decision is not one of them', () => {
-    expect(PROOF_TYPES.map((p) => p.label)).toEqual(['A company', 'A contract', 'A person on your list', 'An invoice receipt', 'A bill', 'An offer', 'A checklist paper', 'An immigration petition', 'A posted notice', 'A public access file', 'A submission confirmation'])
+    expect(PROOF_TYPES.map((p) => p.label)).toEqual(['A company', 'A contract', 'A person on your list', 'An invoice receipt', 'A bill', 'An offer', 'A checklist paper', 'An immigration petition', 'A posted notice', 'A public access file', 'A submission confirmation', 'A job', 'A contact'])
     expect(readOpenAsk(openBody({ ...typed, proofLinks: [{ recordType: 'Invoice', recordId: 'i1' }] }), false).ok).toBe(true)
     expect(readOpenAsk(openBody({ ...typed, proofLinks: [{ recordType: 'DecisionItem', recordId: 'd1' }] }), false).ok).toBe(false)
     expect(readOpenAsk({ ...openBody(typed), proofLinks: [{ recordType: 'Timesheet', recordId: 't1' }] }, false).ok).toBe(false)
@@ -87,10 +96,10 @@ describe('the three acts', () => {
 })
 
 describe('agent control', () => {
-  it('the thirteen agents each read off, a count of actions as the meter, and no cap until the Owner sets one', () => {
+  it('the fourteen agents each read off, a count of actions as the meter, and no cap until the Owner sets one', () => {
     const rows = agentRows([{ agentKey: 'digest-scanner', count: 2 }, { agentKey: null, count: 9 }])
     expect(rows.map((r) => r.name)).toEqual(FIRM_AGENTS.map((a) => a.name))
-    expect(rows).toHaveLength(13)
+    expect(rows).toHaveLength(14)
     expect(rows.every((r) => (r.state === 'Off' || r.state === 'Not live yet') && r.cap.endsWith('today · no cap'))).toBe(true)
     expect(rows.find((r) => r.key === 'digest-scanner')).toMatchObject({ actionsToday: 2, meter: '2 actions' })
     expect(rows.find((r) => r.key === 'census-keeper')).toMatchObject({ actionsToday: 0, meter: '0 actions' })
@@ -153,7 +162,7 @@ describe('how the queue’s pages are framed and drawn (the walk of Flow A)', ()
   it('an offer, a checklist paper, a petition, a posted notice, an access file and a confirmation are records the record view opens, each for the seat that reads its own list', () => {
     for (const t of ['Offer', 'ChecklistItem', 'Petition', 'NoticePosting', 'PublicAccessFile', 'SubmissionConfirmation'] as const) expect(isRecordType(t), t).toBe(true)
     expect([readNeeds('Offer'), readNeeds('SubmissionConfirmation')]).toEqual(['submissions.read', 'submissions.read'])
-    expect([readNeeds('ChecklistItem'), readNeeds('Petition'), readNeeds('NoticePosting'), readNeeds('PublicAccessFile')]).toEqual(Array(4).fill('consultants.write'))
+    expect([readNeeds('ChecklistItem'), readNeeds('Petition'), readNeeds('NoticePosting'), readNeeds('PublicAccessFile')]).toEqual(Array(4).fill('governance.read'))
   })
 
   it('a payroll draft is a record the record view opens for a seat that reads payroll, and is never picked as proof by hand', () => {
@@ -233,7 +242,48 @@ describe('the words on a card', () => {
   })
   it('a path to a job inside a card’s proof is drawn as a link', () => {
     const parts = proofParts('open the job at /dashboard/requirements/abc-1, where each person has the ask.')
-    expect(parts.find((p) => p.href)).toEqual({ text: '/dashboard/requirements/abc-1', href: '/dashboard/requirements/abc-1' })
+    expect(parts.find((p) => p.href)).toEqual({ text: 'Open the job', href: '/dashboard/requirements/abc-1' })
+  })
+  it('a card’s proof says Open the job as the link’s words and never prints the path', () => {
+    const words = proofParts('Each person has the ask on the job’s page: /dashboard/requirements/abc-1. A person puts them forward.').map((p) => p.text).join('')
+    expect(words).not.toContain('/dashboard')
+    expect(words).toContain('Open the job')
+  })
+  it('a ledger row links its record only for a seat that may open it', () => {
+    expect(mayOpenRecordKind('Requirement', ['requirements.read'])).toBe(true)
+    expect(mayOpenRecordKind('Requirement', ['invoices.read'])).toBe(false)
+    expect(mayOpenRecordKind('Offer', ['assignments.read'])).toBe(false)
+    expect(mayOpenRecordKind('Petition', ['consultants.write'])).toBe(false)
+    expect(mayOpenRecordKind('Company', [])).toBe(true)
+    expect(mayOpenRecordKind('NotARecord', ['*'])).toBe(false)
+  })
+  it('the compliance officer opens a petition and its access file in the record view', () => {
+    const officer = ['governance.read']
+    for (const t of ['Petition', 'PublicAccessFile', 'NoticePosting', 'ChecklistItem'] as const) expect(mayOpenRecordKind(t, officer), t).toBe(true)
+  })
+  it('a proof link to an agent task is named by the task, never by the question its card asks', () => {
+    expect(proofLabelOf('AgentTask')).toBe('The agent’s task')
+    expect(proofLabelOf('Company')).toBe('A company')
+  })
+  it('an agent task is named by what it is about, once, and by the agent alone where nothing more is known', () => {
+    expect(agentTaskName('money-owed-chase', 'Chase of bill IN-204')).toBe('Chase of bill IN-204 (Money-owed chase)')
+    expect(agentTaskName('timesheet-chase', 'Timesheet chase for Rosa Delgado, week of Nov 9 to Nov 15')).toBe('Timesheet chase for Rosa Delgado, week of Nov 9 to Nov 15 (Timesheet chase)')
+    expect(agentTaskName('money-owed-chase', null)).toBe('Money-owed chase')
+    expect(agentTaskName('money-owed-chase', null)).not.toMatch(/by/)
+  })
+  it('a record\u2019s own-page button is drawn only for a seat its page lets in', () => {
+    expect(ownPageNeeds('Petition')).toEqual(['governance.read'])
+    expect(mayOpenOwnPage('Petition', ['governance.read'])).toBe(true)
+    expect(mayOpenOwnPage('Petition', ['requirements.read'])).toBe(false)
+    expect(mayOpenOwnPage('ChecklistItem', ['assignments.read'])).toBe(false)
+    expect(mayOpenOwnPage('Offer', ['submissions.read'])).toBe(true)
+    expect(mayOpenOwnPage('SubmissionConfirmation', ['submissions.create'])).toBe(true)
+    expect(mayOpenOwnPage('Offer', ['invoices.read'])).toBe(false)
+    expect(mayOpenOwnPage('Invoice', ['invoices.read'])).toBe(true)
+    const route = readFileSync(join(process.cwd(), 'src/app/api/records/[type]/[id]/route.ts'), 'utf8')
+    expect(route).toContain('mayOpenOwnPage(type, seat.caller.permissions)')
+    const page = readFileSync(join(process.cwd(), 'src/app/dashboard/records/[type]/[id]/page.tsx'), 'utf8')
+    expect(page).toContain('data.ownPage ?')
   })
 })
 })

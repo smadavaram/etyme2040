@@ -3,6 +3,7 @@
 import { readJson } from '@/lib/read-response'
 import { AwardDialog } from './award-dialog'
 import { OfferDialog } from './offer-dialog'
+import { offerLine, mayRecordHerAnswer, rowStatusWord, type RowOffer } from './offer-words'
 import { ConfirmationDialog } from './confirmation-dialog'
 import { sendOnRefusalSays } from './send-on-words'
 import { centsTyped, typedFromCents } from '@/app/dashboard/requisitions/facts'
@@ -70,6 +71,8 @@ interface Submission {
   status: string
   /** Whether the confirmations route would take a record from this seat for this row. */
   confirm?: { open: boolean }
+  /** The live offer, only for the two firms on its rung. */
+  offer?: RowOffer | null
   submittedAt: string
   forwardedAt: string | null
   forwardedVia: string | null
@@ -1271,7 +1274,7 @@ export default function SubmissionsPage() {
       label: 'Status',
       render: (row) => (
         <div className="flex items-center gap-2">
-          <span className={`chip ${statusChipClass(row.status)}`}>{submissionStatusWord(row.status)}</span>
+          <span className={`chip ${statusChipClass(row.status)}`}>{rowStatusWord(row.status, row.offer)}</span>
           {/* Placing is the award, and the route said whether this reader
               may do it for this row — the same answer it would give on
               the click. Once placed, the row leads to the placement. */}
@@ -1285,6 +1288,21 @@ export default function SubmissionsPage() {
               className="text-[10px] font-medium text-etyme-action border border-etyme-action/40 rounded px-2 py-0.5 whitespace-nowrap"
             >
               Offer
+            </button>
+          )}
+          {offerLine(row.offer) && (
+            <span className="text-[11px] text-etyme-muted whitespace-nowrap">{offerLine(row.offer)}</span>
+          )}
+          {mayRecordHerAnswer(row.offer) && !row.award?.open && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setOfferSubmission(row)
+              }}
+              title="Record what she answered to the offer"
+              className="text-[10px] font-medium text-etyme-action border border-etyme-action/40 rounded px-2 py-0.5 whitespace-nowrap"
+            >
+              Record her answer
             </button>
           )}
           {row.confirm?.open && (
@@ -1433,7 +1451,7 @@ export default function SubmissionsPage() {
     row.fromCompany.name.toLowerCase().includes(q) ||
     row.toCompany.name.toLowerCase().includes(q) ||
     submissionKindWord(row.kind, direction, row.came).toLowerCase().includes(q) ||
-    submissionStatusWord(row.status).toLowerCase().includes(q)
+    rowStatusWord(row.status, row.offer).toLowerCase().includes(q)
 
   // ── Status filter options ──────────────────────────
   // The filter says what the row's chip says — "Turned down" on both,

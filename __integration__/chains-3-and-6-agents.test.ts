@@ -18,6 +18,9 @@ import * as notice from '@/app/api/compliance/notice-postings/[id]/route'
 import * as itemsList from '@/app/api/compliance/checklist-items/route'
 import * as accessFiles from '@/app/api/compliance/access-files/route'
 import * as accessFile from '@/app/api/compliance/access-files/[id]/route'
+import * as decide from '@/app/api/decision-items/[id]/route'
+import * as activateRoute from '@/app/api/contracts/[id]/activate/route'
+import { decideBody } from '@/lib/decision-queue'
 
 const tag = `c36${Date.now()}`
 const mail = (n: string) => `${n}.${tag}@example.invalid`
@@ -80,11 +83,36 @@ describe('the contracts checklist agent', () => {
     expect(await cards(w.firm.id)).toHaveLength(0)
   })
 
-  it('a placement whose line matches its agreement lists its items as met and opens no card', async () => {
+  it('a bill rate with no signed paper recorded reads as open, not drift, and opens no card on the first run or any later run', async () => {
     await switchOn(w.firm.id, CONTRACTS_CHECKLIST_AGENT, 'ON')
     await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    await prisma.sellContract.update({ where: { id: w.matched.id }, data: { billRate: 12_800 } })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    await prisma.sellContract.update({ where: { id: w.matched.id }, data: { billRate: 12_500 } })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
     const items = await prisma.checklistItem.findMany({ where: { ownerId: w.matched.id } })
-    expect(items.map((i) => [i.label, i.state, i.agreedValue, i.actualValue])).toEqual([['Bill rate', 'MET', '$125.00 an hour', '$125.00 an hour']])
+    expect(items.map((i) => [i.label, i.state, i.agreedValue, i.actualValue])).toEqual([['Bill rate', 'OPEN', null, '$125.00 an hour']])
+    expect((await cards(w.firm.id)).filter((x) => x.question.includes('Bill rate'))).toHaveLength(0)
+  })
+
+  it('a bill rate item listed before this change keeps its stored agreed value when the agent runs again', async () => {
+    const old = await line()
+    await prisma.checklistItem.create({ data: { companyId: w.firm.id, ownerType: 'SellContract', ownerId: old.id, kind: 'CONTRACT_TERM', label: 'Bill rate', agreedValue: '$125.00 an hour', actualValue: '$125.00 an hour', state: 'MET' } })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    const item = await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: old.id, label: 'Bill rate' } })
+    expect([item.state, item.agreedValue]).toEqual(['MET', '$125.00 an hour'])
+    await prisma.checklistItem.deleteMany({ where: { ownerId: old.id } })
+    await prisma.sellContract.update({ where: { id: old.id }, data: { state: 'ENDED' } })
+  })
+
+  it('once a person records the signed paper and the line matches, the bill rate reads as met', async () => {
+    as(w.cm.primaryEmail)
+    const item = await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: w.matched.id, label: 'Bill rate' } })
+    const r = await json(await itemRoute.POST(req('POST', `/api/compliance/checklist-items/${item.id}`, { action: 'RECORD_SIGNED', paperReference: 'Rate letter of Sep 1' }), p(item.id)))
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    const after = await prisma.checklistItem.findUniqueOrThrow({ where: { id: item.id } })
+    expect([after.state, after.agreedValue]).toEqual(['MET', '$125.00 an hour'])
   })
 
   it('payment terms that differ from the agreement are a drift and open one card to the Contract Manager', async () => {
@@ -103,12 +131,14 @@ describe('the contracts checklist agent', () => {
     expect((await cards(w.firm.id)).length).toBe(before)
   })
 
-  it('a rate changed on the line is a drift and the agreed value does not move by itself', async () => {
+  it('a line rate that later differs from the recorded signed paper opens one decision to the contract manager and changes nothing', async () => {
     await prisma.sellContract.update({ where: { id: w.matched.id }, data: { billRate: 13_000 } })
     await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
     const item = await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: w.matched.id, label: 'Bill rate' } })
     expect([item.state, item.agreedValue, item.actualValue]).toEqual(['DRIFT', '$125.00 an hour', '$130.00 an hour'])
-    expect((await cards(w.firm.id)).filter((x) => x.question.includes('Bill rate'))).toHaveLength(1)
+    const d = (await cards(w.firm.id)).filter((x) => x.question.includes('Bill rate'))
+    expect(d).toHaveLength(1)
+    expect(d[0].ownerPersonId).toBe(w.cm.id)
     w.rateItem = item
   })
 
@@ -131,7 +161,7 @@ describe('the contracts checklist agent', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     const item = await prisma.checklistItem.findUniqueOrThrow({ where: { id: w.rateItem.id } })
     expect([item.state, item.agreedValue, item.decidedById]).toEqual(['MET', '$130.00 an hour', w.cm.id])
-    const row = (await ledger(w.firm.id, 'AGREED_VALUE_RECORDED'))[0]
+    const row = (await ledger(w.firm.id, 'AGREED_VALUE_RECORDED')).find((r) => r.summary.includes('Rate amendment of Nov 20'))!
     expect(row.personId).toBe(w.cm.id)
     expect(row.agentKey).toBeNull()
     expect(row.summary).toMatch(/Rate amendment of Nov 20/)
@@ -154,12 +184,80 @@ describe('the contracts checklist agent', () => {
   })
 })
 
+describe('the statement of work item', () => {
+  const sowCards = async (lineId: string) => (await cards(w.firm.id)).filter((x) => x.question.includes('statement of work') && JSON.stringify(x.proofLinks).includes(lineId))
+
+  it('a placement with no engagement or an empty statement of work has no statement of work item', async () => {
+    w.noSow = await line({ engagementId: null })
+    w.emptySow = await line({ engagementId: (await prisma.engagement.create({ data: { title: `Empty ${tag}`, statementOfWork: '  ' } })).id })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    expect(await prisma.checklistItem.count({ where: { ownerId: { in: [w.noSow.id, w.emptySow.id] }, label: 'Statement of work' } })).toBe(0)
+  })
+
+  it('a written statement of work with no signature date reads as drift and opens one card to the contract manager that says the agent changed nothing', async () => {
+    w.sowEng = await prisma.engagement.create({ data: { title: `Sow ${tag}`, statementOfWork: 'Build the data platform in three phases.' } })
+    w.unsigned = await line({ engagementId: w.sowEng.id })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    const item = await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: w.unsigned.id, label: 'Statement of work' } })
+    expect([item.state, item.agreedValue, item.actualValue]).toEqual(['DRIFT', 'Signed', 'Not signed'])
+    const d = await sowCards(w.unsigned.id)
+    expect(d).toHaveLength(1)
+    expect(d[0].ownerPersonId).toBe(w.cm.id)
+    expect(d[0].question).toMatch(/The statement of work for Worker \d+ at C36 Client .* is written and not signed\. Look at it\?/)
+    expect(d[0].proof).toMatch(/changed nothing/)
+  })
+
+  it('running the contracts checklist twice opens the statement of work card only once', async () => {
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    expect(await sowCards(w.unsigned.id)).toHaveLength(1)
+  })
+
+  it('a statement of work cannot be agreed by recording a paper on its line, so an unsigned one never reads as agreed', async () => {
+    as(w.cm.primaryEmail)
+    const item = await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: w.unsigned.id, label: 'Statement of work' } })
+    const r = await json(await itemRoute.POST(req('POST', `/api/compliance/checklist-items/${item.id}`, { action: 'RECORD_SIGNED', paperReference: 'SOW v1' }), p(item.id)))
+    expect(r.status).toBe(422)
+    expect(JSON.stringify(r.body)).toMatch(/signed on its engagement/)
+    expect((await prisma.checklistItem.findUniqueOrThrow({ where: { id: item.id } })).state).toBe('DRIFT')
+  })
+
+  it('the checklist list says an unsigned statement of work is not signed, offers no paper to record on it, and says a rate with no paper has none', async () => {
+    as(w.cm.primaryEmail)
+    const r = await json(await itemsList.GET(req('GET', '/api/compliance/checklist-items')))
+    const all = r.body.data.placements.flatMap((x: any) => x.items)
+    const sow = all.find((i: any) => i.label === 'Statement of work' && i.state === 'DRIFT')
+    expect(sow.recordable).toBe(false)
+    expect(sow.says).toBe('The statement of work is written and not signed.')
+    const open = all.find((i: any) => i.label === 'Bill rate' && i.state === 'OPEN')
+    expect(open.recordable).toBe(true)
+    expect(open.says).toMatch(/No signed paper is recorded yet\.$/)
+  })
+
+  it('a signed statement of work reads as met and opens no card', async () => {
+    const signedEng = await prisma.engagement.create({ data: { title: `Signed ${tag}`, statementOfWork: 'Run the help desk.', sowSignedAt: day('2026-08-20') } })
+    const l = await line({ engagementId: signedEng.id })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    expect((await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: l.id, label: 'Statement of work' } })).state).toBe('MET')
+    expect(await sowCards(l.id)).toHaveLength(0)
+  })
+
+  it('a placement reaches its statement of work through its own engagement first and its order’s engagement second', async () => {
+    const orderEng = await prisma.engagement.create({ data: { title: `Order ${tag}`, statementOfWork: 'Order level scope.', sowSignedAt: day('2026-08-21') } })
+    const order = await prisma.workOrder.create({ data: { issuedById: w.client.id, issuedToId: w.firm.id, recordedById: w.firm.id, number: `PO-S-${tag}`, amount: '100000.00', startDate: day('2026-09-01'), engagementId: orderEng.id } as any })
+    const viaOrder = await line({ engagementId: null, workOrderId: order.id })
+    const own = await line({ engagementId: w.sowEng.id, workOrderId: order.id })
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+    expect((await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: viaOrder.id, label: 'Statement of work' } })).state).toBe('MET')
+    expect((await prisma.checklistItem.findFirstOrThrow({ where: { ownerId: own.id, label: 'Statement of work' } })).state).toBe('DRIFT')
+  })
+})
+
 describe('the onboarding pack', () => {
   it('a placement starting in three days with papers missing opens one card to HR naming them', async () => {
     w.soon = await line({ state: 'DRAFT', startDate: day('2026-11-26'), endDate: day('2027-05-31') })
     await line({ state: 'DRAFT', startDate: day('2026-12-20'), endDate: day('2027-05-31') })
     await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
-    const d = (await cards(w.firm.id)).filter((x) => JSON.stringify(x.proofLinks).includes(w.soon.id))
+    const d = (await cards(w.firm.id)).filter((x) => x.question.includes('starts at') && JSON.stringify(x.proofLinks).includes(w.soon.id))
     expect(d).toHaveLength(1)
     expect(d[0].ownerPersonId).toBe(w.hr.id)
     expect(d[0].question).toMatch(/starts at C36 Client .* in 3 days, and \d+ papers? (is|are) still missing: /)
@@ -263,6 +361,45 @@ describe('the immigration checklist', () => {
     const gone = await prisma.petition.create({ data: { companyId: w.firm.id, personId: w.worker.id, kind: 'SPECIALTY_OCCUPATION', stage: 'WITHDRAWN', employerCompanyId: w.firm.id } })
     await runs(IMMIGRATION_CHECKLIST_AGENT, registerImmigrationChecklist, w.firm.id)
     expect(await prisma.checklistItem.count({ where: { ownerId: gone.id } })).toBe(0)
+  })
+
+  it('starting a TN petition lists its type’s papers without a labor condition application and says the list is not yet confirmed by regulatory', async () => {
+    as(w.hr.primaryEmail)
+    const r = await json(await petitions.POST(req('POST', '/api/compliance/immigration-petitions', { personId: w.worker.id, kind: 'TN' })))
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    w.tn = await prisma.petition.findUniqueOrThrow({ where: { id: r.body.data.id } })
+    const lines = await prisma.checklistItem.findMany({ where: { ownerId: w.tn.id }, orderBy: { createdAt: 'asc' } })
+    expect(lines.map((l) => l.label).sort()).toEqual(['Approval notice copy', 'Petition form', 'Representation form'])
+    const row = (await ledger(w.firm.id, 'PETITION_STARTED')).find((x) => x.recordId === w.tn.id)!
+    expect(row.summary).toMatch(/3 papers from the general list/)
+    expect(row.summary).toMatch(/regulatory has not confirmed it/)
+  })
+
+  it('a TN petition’s signature lines are the ones the screen offers a signer for, and the list says it is unconfirmed', async () => {
+    as(w.hr.primaryEmail)
+    const r = await json(await petitions.GET(req('GET', '/api/compliance/immigration-petitions')))
+    const tn = r.body.data.petitions.find((x: any) => x.id === w.tn.id)
+    expect(tn.listConfirmed).toBe(false)
+    expect(tn.lines.map((l: any) => [l.label, l.needsSignature])).toEqual([['Petition form', true], ['Representation form', true], ['Approval notice copy', false]])
+  })
+
+  it('the agent lists a TN petition’s papers rather than the H-1B four, and the route and the agent draw the same lines for the same kind', async () => {
+    const bare = await prisma.petition.create({ data: { companyId: w.firm.id, personId: w.worker.id, kind: 'TN', stage: 'PREPARING', employerCompanyId: w.firm.id } })
+    await runs(IMMIGRATION_CHECKLIST_AGENT, registerImmigrationChecklist, w.firm.id)
+    const agentLines = (await prisma.checklistItem.findMany({ where: { ownerId: bare.id } })).map((l) => l.label).sort()
+    const routeLines = (await prisma.checklistItem.findMany({ where: { ownerId: w.tn.id } })).map((l) => l.label).sort()
+    expect(agentLines).toEqual(routeLines)
+    expect(agentLines).not.toContain('Labor condition application')
+    expect((await ledger(w.firm.id, 'PETITION_CHECKLIST_LISTED')).some((x) => x.recordId === bare.id && /regulatory has not confirmed/.test(x.summary))).toBe(true)
+  })
+
+  it('a petition listed under the old four papers is topped up, no line is deleted or relabeled, and a line on hand stays on hand', async () => {
+    const old = await prisma.petition.create({ data: { companyId: w.firm.id, personId: w.worker.id, kind: 'TN', stage: 'PREPARING', employerCompanyId: w.firm.id } })
+    await prisma.checklistItem.create({ data: { companyId: w.firm.id, ownerType: 'Petition', ownerId: old.id, kind: 'PETITION_PAPER', label: 'Labor condition application', state: 'MET', actualValue: 'LCA copy 1' } })
+    await runs(IMMIGRATION_CHECKLIST_AGENT, registerImmigrationChecklist, w.firm.id)
+    const lines = await prisma.checklistItem.findMany({ where: { ownerId: old.id } })
+    expect(lines.map((l) => l.label).sort()).toEqual(['Approval notice copy', 'Labor condition application', 'Petition form', 'Representation form'])
+    expect(lines.find((l) => l.label === 'Labor condition application')!.state).toBe('MET')
   })
 })
 
@@ -555,5 +692,288 @@ describe('who keeps petitions, notices and public access files', () => {
     const r = await json(await petitions.GET(req('GET', '/api/compliance/immigration-petitions')))
     const mine = r.body.data.petitions.find((x: any) => x.id === w.keptPetition)
     expect(mine.lines.map((l: any) => l.label)).toEqual(['Labor condition application', 'Petition form', 'Representation form', 'Approval notice copy'])
+  })
+})
+
+describe('the notice timing check', () => {
+  const post = async (postedOn: string, extra: Record<string, unknown> = {}) => {
+    as(w.hr.primaryEmail)
+    const r = await json(await notices.POST(req('POST', '/api/compliance/notice-postings', { kind: 'Timing notice', locationId: w.site.id, postedOn, ...extra })))
+    return r
+  }
+  const timingCards = async () => (await cards(w.firm.id)).filter((c) => c.question.includes('Timing notice') && c.question.includes('filing day it is measured against'))
+
+  it('a notice with no filing day entered is saved and has no timing verdict', async () => {
+    const r = await post('2026-11-02')
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    const list = await json(await notices.GET(req('GET', '/api/compliance/notice-postings')))
+    const row = list.body.data.notices.find((x: any) => x.id === r.body.data.id)
+    expect([row.measuredFromOn, row.timing]).toEqual([null, null])
+    expect(list.body.data.rules).toMatchObject({ noticeLeadDays: 30, confirmed: false })
+  })
+
+  it('a filing day typed in a way that is not a day is refused in a sentence on that field', async () => {
+    const r = await post('2026-11-02', { measuredFromOn: 'next week' })
+    expect(r.status).toBe(422)
+    expect(r.body.error.field).toBe('measuredFromOn')
+  })
+
+  it('a notice posted late is still saved, and the late timing is shown beside it', async () => {
+    const r = await post('2026-11-05', { measuredFromOn: '2026-11-03' })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    w.lateNotice = r.body.data.id
+    const list = await json(await notices.GET(req('GET', '/api/compliance/notice-postings')))
+    const row = list.body.data.notices.find((x: any) => x.id === w.lateNotice)
+    expect([row.measuredFromOn, row.timing]).toEqual(['2026-11-03', 'LATE'])
+  })
+
+  it('a notice posted before its filing day opens no card, and neither does one with no filing day', async () => {
+    const ok = await post('2026-11-03', { measuredFromOn: '2026-11-10' })
+    expect(ok.status).toBe(201)
+    w.onTime = ok.body.data.id
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id)
+    expect((await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(w.onTime))).toHaveLength(0)
+  })
+
+  it('the compliance watch opens one card to HR or the compliance officer for a notice dated after its filing day, and says the agent posted, removed and changed nothing', async () => {
+    const mine = (await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(w.lateNotice))
+    expect(mine).toHaveLength(1)
+    expect(mine[0].ownerPersonId).toBe(w.hr.id)
+    expect(mine[0].question).toBe('The Timing notice notice posted at Lakewood HQ on Nov 5, 2026 is dated after the filing day it is measured against, Nov 3, 2026. Check the days on the record?')
+    expect(mine[0].proof).toMatch(/proposed rule, not confirmed by regulatory/i)
+    expect(mine[0].proof).toMatch(/posted, removed and changed nothing/)
+    expect(await ledger(w.firm.id, 'NOTICE_TIMING_FLAGGED')).toHaveLength(1)
+  })
+
+  it('running the compliance watch twice opens the late-notice card once', async () => {
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id)
+    expect((await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(w.lateNotice))).toHaveLength(1)
+  })
+
+  it('the late-notice card and the period-ended card for the same notice are two separate cards', async () => {
+    const own = (await cards(w.firm.id)).filter((c) => JSON.stringify(c.proofLinks).includes(w.lateNotice))
+    expect(own.some((c) => c.question.includes('filing day it is measured against'))).toBe(true)
+    expect(own.some((c) => c.question.includes('has been up its required time'))).toBe(true)
+    expect(own).toHaveLength(2)
+  })
+
+  it('a late-notice card opened first never stops the take-down card when the notice’s period ends later', async () => {
+    const r = await post('2026-11-20', { measuredFromOn: '2026-11-10' })
+    const id = r.body.data.id
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id, MON)
+    const mine = async () => (await cards(w.firm.id)).filter((c) => JSON.stringify(c.proofLinks).includes(id))
+    expect((await mine()).map((c) => c.question.includes('filing day it is measured against'))).toEqual([true])
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id, new Date('2026-12-15T12:00:00Z'))
+    const after = await mine()
+    expect(after).toHaveLength(2)
+    expect(after.some((c) => c.question.includes('has been up its required time'))).toBe(true)
+  })
+
+  it('a late notice can still be taken down and recorded, and is still flagged once it is down', async () => {
+    as(w.hr.primaryEmail)
+    const r = await json(await notice.PATCH(req('PATCH', `/api/compliance/notice-postings/${w.lateNotice}`, { takenDownOn: '2026-11-23' }), p(w.lateNotice)))
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    const list = await json(await notices.GET(req('GET', '/api/compliance/notice-postings')))
+    expect(list.body.data.notices.find((x: any) => x.id === w.lateNotice).timing).toBe('LATE')
+  })
+
+  it('the filing day can be entered later on a notice already on file, with a line on the record, and a day that is not a day is refused', async () => {
+    const r = await post('2026-09-01')
+    const id = r.body.data.id
+    as(w.hr.primaryEmail)
+    const bad = await json(await notice.PATCH(req('PATCH', `/api/compliance/notice-postings/${id}`, { measuredFromOn: 'soon' }), p(id)))
+    expect(bad.status).toBe(422)
+    expect(bad.body.error.field).toBe('measuredFromOn')
+    const ok = await json(await notice.PATCH(req('PATCH', `/api/compliance/notice-postings/${id}`, { measuredFromOn: '2026-08-15' }), p(id)))
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200)
+    expect((await prisma.noticePosting.findUniqueOrThrow({ where: { id } })).measuredFromOn?.toISOString().slice(0, 10)).toBe('2026-08-15')
+    expect((await ledger(w.firm.id, 'NOTICE_FILING_DAY_RECORDED')).some((x) => x.recordId === id && /2026-08-15/.test(x.summary))).toBe(true)
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id)
+    expect((await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(id))).toHaveLength(1)
+  })
+
+  it('a notice taken down on time but dated late is still flagged', async () => {
+    const r = await post('2026-11-02', { measuredFromOn: '2026-11-01' })
+    const id = r.body.data.id
+    as(w.hr.primaryEmail)
+    await json(await notice.PATCH(req('PATCH', `/api/compliance/notice-postings/${id}`, { takenDownOn: '2026-11-23' }), p(id)))
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id)
+    expect((await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(id))).toHaveLength(1)
+  })
+
+  it('a notice dated more than thirty days before its filing day opens a card that says so', async () => {
+    const r = await post('2026-09-01', { measuredFromOn: '2026-11-10' })
+    await runs(COMPLIANCE_WATCH_AGENT, registerComplianceWatch, w.firm.id)
+    const mine = (await timingCards()).filter((c) => JSON.stringify(c.proofLinks).includes(r.body.data.id))
+    expect(mine).toHaveLength(1)
+    expect(mine[0].question).toMatch(/more than 30 days before the filing day it is measured against, Nov 10, 2026/)
+  })
+})
+
+describe('the placement record and the complete pack: cards for a person to read (record 112, chain 3)', () => {
+  const placementCards = async (companyId: string, lineId: string) => (await cards(companyId)).filter((x) => x.question.startsWith('Confirm the placement record') && JSON.stringify(x.proofLinks).includes(lineId))
+  const packCards = async (companyId: string, lineId: string) => (await cards(companyId)).filter((x) => /starts at|are on file|is on file/.test(x.question) && JSON.stringify(x.proofLinks).includes(lineId))
+  const runCm = () => runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, w.firm.id)
+  const say = async (email: string, id: string) => { as(email); return json(await decide.POST(req('POST', `/api/decision-items/${id}`, decideBody('APPROVE', '', '')), p(id))) }
+
+  it('the agent opens one card to the Contract Manager to confirm the placement record for a line that has not started', async () => {
+    await switchOn(w.firm.id, CONTRACTS_CHECKLIST_AGENT, 'ON')
+    w.fresh = await line({ state: 'PENDING_VERIFICATION', startDate: day('2026-12-14'), endDate: day('2027-06-30') })
+    await runCm(); await runCm()
+    const c = await placementCards(w.firm.id, w.fresh.id)
+    expect(c).toHaveLength(1)
+    expect(c[0].ownerPersonId).toBe(w.cm.id)
+    expect(c[0].question).toMatch(/^Confirm the placement record for Worker \d+ at C36 Client /)
+    expect((c[0].proofLinks as any[])[0]).toEqual({ recordType: 'PlacementRecord', recordId: w.fresh.id })
+    expect((c[0].proofLinks as any[]).slice(1)).toEqual([{ recordType: 'SellContract', recordId: w.fresh.id }])
+  })
+
+  it('the decision page opens the line from the placement card and draws no link for the dedupe label', async () => {
+    const [c] = await placementCards(w.firm.id, w.fresh.id)
+    as(w.cm.primaryEmail)
+    const r = await json(await decide.GET(req('GET', `/api/decision-items/${c.id}`), p(c.id)))
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    const links = r.body.data.proofLinks as { recordType: string; name: string | null; href: string }[]
+    expect(links.find((l) => l.recordType === 'PlacementRecord')?.name).toBeNull()
+    const opened = links.find((l) => l.recordType === 'SellContract')
+    expect(opened?.name).toMatch(/^Worker \d+ at C36 Client/)
+    expect(opened?.href).toContain(`/dashboard/records/SellContract/${w.fresh.id}`)
+  })
+
+  it('the placement card names the customer, the bill rate, the start and end days and the suppliers on the firm’s own chain', async () => {
+    const sub = await prisma.company.create({ data: { name: `C36 Sub ${tag}`, slug: `c36-sub-${tag}`, kind: 'VENDOR' } })
+    const who = await person('Chain Person')
+    const bc = await prisma.buyContract.create({ data: { companyId: w.firm.id, vendorCompanyId: sub.id, contractType: 'W2', state: 'PENDING_VERIFICATION', startDate: day('2026-12-14') } as any })
+    await prisma.buyContractCandidate.create({ data: { buyContractId: bc.id, personId: who.id, payRate: 7_700, state: 'ACTIVE', startDate: day('2026-12-14') } })
+    w.chained = await prisma.sellContract.create({ data: { companyId: w.firm.id, clientCompanyId: w.client.id, personId: who.id, billRate: 12_500, startDate: day('2026-12-14'), endDate: day('2027-06-30'), engagementId: w.engagement.id, state: 'DRAFT' } as any })
+    await runCm()
+    const [c] = await placementCards(w.firm.id, w.chained.id)
+    expect(c.proof).toContain(`Customer: C36 Client ${tag}.`)
+    expect(c.proof).toContain('Bill rate: $125.00 an hour.')
+    expect(c.proof).toContain('Starts Dec 14, 2026 and ends Jun 30, 2027.')
+    expect(c.proof).toContain(`Suppliers on this firm’s own chain: C36 Sub ${tag}.`)
+  })
+
+  it('the placement card shows no buy rate', async () => {
+    const [c] = await placementCards(w.firm.id, w.chained.id)
+    expect(c.proof).not.toMatch(/77\.00|7,?700/)
+  })
+
+  it('the placement card names the worksite only where it differs from the customer, and otherwise says the customer’s own site', async () => {
+    const [own] = await placementCards(w.firm.id, w.fresh.id)
+    expect(own.proof).toContain('Worksite: the customer’s own site.')
+    const plant = await prisma.company.create({ data: { name: `C36 Plant ${tag}`, slug: `c36-plant-${tag}`, kind: 'CLIENT' } as any })
+    const there = await line({ state: 'DRAFT', startDate: day('2026-12-15'), endClientCompanyId: plant.id })
+    await runCm()
+    const [c] = await placementCards(w.firm.id, there.id)
+    expect(c.proof).toContain(`Worksite: C36 Plant ${tag}.`)
+    const same = await line({ state: 'DRAFT', startDate: day('2026-12-16'), endClientCompanyId: w.client.id })
+    await runCm()
+    expect((await placementCards(w.firm.id, same.id))[0].proof).toContain('Worksite: the customer’s own site.')
+  })
+
+  it('the placement card and the onboarding pack card for the same line do not block each other', async () => {
+    const near = await line({ state: 'DRAFT', startDate: day('2026-11-25'), endDate: day('2027-05-31') })
+    await runCm()
+    expect(await placementCards(w.firm.id, near.id)).toHaveLength(1)
+    const pack = await packCards(w.firm.id, near.id)
+    expect(pack).toHaveLength(1)
+    expect(pack[0].ownerPersonId).toBe(w.hr.id)
+    expect((pack[0].proofLinks as any[])[0]).toEqual({ recordType: 'SellContract', recordId: near.id })
+    w.near = near
+  })
+
+  it('the same line gets no second placement card while one is open, or after one was decided on the same words', async () => {
+    const [c] = await placementCards(w.firm.id, w.fresh.id)
+    as(w.cm.primaryEmail)
+    const r = await say(w.cm.primaryEmail, c.id)
+    expect(r.status, JSON.stringify(r.body)).toBeLessThan(300)
+    await runCm()
+    expect(await placementCards(w.firm.id, w.fresh.id)).toHaveLength(1)
+  })
+
+  it('the agent changes nothing on the line when it opens the placement card, and the ledger says so', async () => {
+    const row = await prisma.sellContract.findUniqueOrThrow({ where: { id: w.chained.id } })
+    expect([row.state, row.billRate, row.startDate.toISOString().slice(0, 10)]).toEqual(['DRAFT', 12_500, '2026-12-14'])
+    const [act] = await ledger(w.firm.id, 'PLACEMENT_RECORD_ASSEMBLED').then((r) => r.filter((x) => x.recordId === w.chained.id))
+    expect(act.summary).toMatch(/Nothing was changed/)
+    expect(act.agentKey).toBe(CONTRACTS_CHECKLIST_AGENT)
+  })
+
+  it('a line already in progress or ended gets neither card', async () => {
+    const running = await line({ state: 'IN_PROGRESS' })
+    const over = await line({ state: 'ENDED', startDate: day('2026-01-05'), endDate: day('2026-11-20') })
+    await runCm()
+    for (const l of [running, over]) {
+      expect(await placementCards(w.firm.id, l.id)).toHaveLength(0)
+      expect(await packCards(w.firm.id, l.id)).toHaveLength(0)
+    }
+  })
+
+  it('with the switch Off no placement card and no pack card are opened', async () => {
+    await switchOn(w.firm.id, CONTRACTS_CHECKLIST_AGENT, 'OFF')
+    const off = await line({ state: 'DRAFT', startDate: day('2026-11-26') })
+    await runCm()
+    expect(await placementCards(w.firm.id, off.id)).toHaveLength(0)
+    expect(await packCards(w.firm.id, off.id)).toHaveLength(0)
+    await switchOn(w.firm.id, CONTRACTS_CHECKLIST_AGENT, 'ON')
+  })
+
+  it('a placement starting within five days with papers missing names them and asks to get them on file, not to chase them', async () => {
+    const [c] = await packCards(w.firm.id, w.near.id)
+    expect(c.question).toMatch(/still missing: .*\. Get them on file before day one\.$/)
+    expect(c.question).not.toMatch(/Chase/)
+  })
+
+  it('a placement starting in more than five days opens no pack card', async () => {
+    expect(await packCards(w.firm.id, w.fresh.id)).toHaveLength(0)
+  })
+
+  it('HR’s yes on the pack card does not start the person, and Activate still refuses without the I-9', async () => {
+    const [c] = await packCards(w.firm.id, w.near.id)
+    as(w.hr.primaryEmail)
+    const r = await say(w.hr.primaryEmail, c.id)
+    expect(r.status, JSON.stringify(r.body)).toBeLessThan(300)
+    as(w.cm.primaryEmail)
+    const a = await json(await activateRoute.POST(req('POST', `/api/contracts/${w.near.id}/activate`, { action: 'activate' }), p(w.near.id)))
+    expect(a.status).toBeGreaterThanOrEqual(400)
+    expect((await prisma.sellContract.findUniqueOrThrow({ where: { id: w.near.id } })).state).toBe('DRAFT')
+  })
+
+  it('a placement starting within five days with every paper on file opens one card to HR that names each paper', async () => {
+    const who = await person('Complete Person')
+    const done = await prisma.sellContract.create({ data: { companyId: w.firm.id, clientCompanyId: w.client.id, personId: who.id, billRate: 12_500, startDate: day('2026-11-26'), endDate: day('2027-05-31'), engagementId: w.engagement.id, state: 'DRAFT' } as any })
+    const preview = (await import('@/app/api/compliance/clearance/ask')).previewFor
+    const before = await preview(done.id, MON)
+    expect(before?.preview.blocking.length, 'the papers the start needs').toBeGreaterThan(0)
+    // Every paper the start rule asks for is put on file by the person's record.
+    for (const item of [...before!.preview.blocking, ...before!.preview.chasing]) {
+      await prisma.verification.create({ data: { personId: who.id, type: (item.key === 'I9' ? 'I9_EVERIFY' : item.key) as any, status: 'CLEAR', provider: 'Test', issuedAt: day('2026-01-02'), uploadedById: w.hr.id, verifiedById: w.hr.id, verifiedAt: day('2026-01-02') } })
+    }
+    const after = await preview(done.id, MON)
+    expect([...after!.preview.blocking, ...after!.preview.chasing].map((i) => i.label), 'nothing left to ask for').toEqual([])
+    await runCm(); await runCm()
+    const c = await packCards(w.firm.id, done.id)
+    expect(c).toHaveLength(1)
+    expect(c[0].ownerPersonId).toBe(w.hr.id)
+    expect(c[0].question).toMatch(/ on file, and they start at C36 Client .* in 3 days\. Confirm ready\?$/)
+    for (const label of after!.preview.items.filter((i) => i.required).map((i) => i.label)) expect(c[0].proof).toContain(label)
+    expect((c[0].proofLinks as any[])[0]).toEqual({ recordType: 'OnboardingPack', recordId: done.id })
+  })
+
+  it('the placement card goes to the Account Manager when no Contract Manager has a working seat, and to the Owner when neither does', async () => {
+    const small = await prisma.company.create({ data: { name: `C36 Small ${tag}`, slug: `c36-small-${tag}`, kind: 'VENDOR' } })
+    const am = await person('Alma Accounts')
+    const own = await person('Olga Owner')
+    await seat(small.id, own, (await prisma.role.create({ data: { companyId: small.id, name: 'Owner', permissions: ['*'] } })).id)
+    await switchOn(small.id, CONTRACTS_CHECKLIST_AGENT, 'ON')
+    const mk = async (n: string) => prisma.sellContract.create({ data: { companyId: small.id, clientCompanyId: w.client.id, personId: (await person(n)).id, billRate: 9_000, startDate: day('2026-12-21'), engagementId: w.engagement.id, state: 'DRAFT' } as any })
+    const first = await mk('Small One')
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, small.id)
+    expect((await placementCards(small.id, first.id))[0].ownerPersonId).toBe(own.id)
+    await seat(small.id, am, (await prisma.role.create({ data: { companyId: small.id, name: 'Account Manager', permissions: ['assignments.read'] } })).id)
+    const second = await mk('Small Two')
+    await runs(CONTRACTS_CHECKLIST_AGENT, registerContractsChecklist, small.id)
+    expect((await placementCards(small.id, second.id))[0].ownerPersonId).toBe(am.id)
   })
 })
