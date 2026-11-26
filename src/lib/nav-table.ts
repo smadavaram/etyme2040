@@ -198,6 +198,16 @@ const TRAINING: NavItem = {
 }
 
 /**
+ * Project teams (record 120, pods): named teams a firm sells as a project.
+ * A plugin, drawn only where PODS is on. A tab of Jobs, because a team is
+ * sold against work, not kept like a candidate. Supplier and integrator only.
+ */
+const PODS: NavItem = {
+  label: 'Project teams', href: '/dashboard/pods', icon: '⊞',
+  needs: ['requirements.read'], pageCalls: ['pods', 'pods/**'],
+}
+
+/**
  * The firm's paperwork: its templates, and asking somebody on its books
  * for a document. Who may be asked is read off the bench and the payroll
  * (`askTheBooks` in lib/document-request, which reads /api/bench), so a
@@ -346,7 +356,7 @@ export const ASK_ETYME_HREF = '/dashboard/conversations/etyme'
 /** The icon value the sidebar draws as the Etyme mark (components/logo), not an emoji. */
 export const ETYME_MARK_ICON = 'etyme-mark'
 // Its page reads the seat's saved thread and its greeting from one route.
-export const ASK_ETYME: NavItem = { label: 'Ask Etyme', href: ASK_ETYME_HREF, icon: ETYME_MARK_ICON, api: ['conversations/twin'] }
+export const ASK_ETYME: NavItem = { label: 'Ask Etyme', href: ASK_ETYME_HREF, icon: ETYME_MARK_ICON, api: ['conversations/twin', 'conversations/one-card'] }
 const CONVERSATIONS: NavItem = { label: 'Conversations', href: '/dashboard/conversations', icon: '💬' }
 const ASK_ETYME_SECTION: NavSection = { label: 'Ask Etyme', tabbed: true, items: [ASK_ETYME, CONVERSATIONS] }
 
@@ -692,7 +702,7 @@ const VENDOR_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
   tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
-  tabbed('Jobs', [JOBS, LEADS, QUESTIONS, SHARED_WITH_YOU]),
+  tabbed('Jobs', [JOBS, LEADS, QUESTIONS, SHARED_WITH_YOU, PODS]),
   tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
   tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
@@ -714,7 +724,7 @@ const GSI_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
   tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
-  tabbed('Jobs', [JOBS, SHARED_WITH_YOU]),
+  tabbed('Jobs', [JOBS, SHARED_WITH_YOU, PODS]),
   tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
   tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
@@ -1070,6 +1080,11 @@ export type SeatFacts = {
    * permission: the route answers each person about themselves.
    */
   earnsCommission?: boolean
+  /**
+   * The plugins the seat's company has on (`Company.pluginsOn`, record 120).
+   * Undefined is off: Training is drawn only where TRAIN_TO_BENCH is here.
+   */
+  plugins?: readonly string[]
 }
 
 /**
@@ -1343,14 +1358,6 @@ export function viewOf(pathname: string | null | undefined): ShellView {
   return p === '/dashboard/conversations' || p.startsWith('/dashboard/conversations/') ? 'ask' : 'dashboard'
 }
 
-/**
- * The roles that clear a queue all day and open on Dashboard (founder's
- * sketch, 2026-11-08, a coordinator's call reversible in a sentence): the
- * AP clerk, AP & Payroll, and the coordinator. Everybody else opens on
- * Ask Etyme.
- */
-export const QUEUE_ROLES: readonly string[] = ['AP Clerk', 'AP & Payroll', 'Coordinator']
-
 /** Where this person's last choice is kept on the device, per person. */
 export function tabKey(personId: string | null | undefined): string {
   return `etyme_tab:${personId ?? 'anyone'}`
@@ -1363,12 +1370,14 @@ export function readTab(value: string | null | undefined): ShellView | null {
 
 /**
  * The tab a person opens on: their last choice on this device, else
- * Dashboard for a role that clears a queue all day, else Ask Etyme.
+ * Ask Etyme, for every role (record 130: Ask Etyme is every end user's
+ * harness; the AP clerk, AP & Payroll and the coordinator no longer open
+ * on Dashboard).
  */
 export function firstTabFor(roleName: string | null | undefined, remembered: ShellView | null | undefined): ShellView {
   if (remembered) return remembered
-  const role = (roleName ?? '').trim().toLowerCase()
-  return QUEUE_ROLES.some((r) => r.toLowerCase() === role) ? 'dashboard' : 'ask'
+  void roleName
+  return 'ask'
 }
 
 /**
@@ -1531,7 +1540,26 @@ export function mayOpen(href: string, permissions: readonly string[] | null | un
   return true
 }
 
+/** The pages a plugin draws, which are not drawn while it is off. */
+const PLUGIN_PAGES: Record<string, string> = { TRAIN_TO_BENCH: TRAINING.href, PODS: PODS.href }
+
+/**
+ * The menu for a seat, less the pages of any plugin its company has off
+ * (record 120). The menu, the + button and search all read this one answer.
+ */
 export function getNavForKind(
+  kind: CompanyKind | null | undefined,
+  isConsultant: boolean,
+  seat: SeatFacts = {}
+): NavSection[] {
+  const off = Object.entries(PLUGIN_PAGES).filter(([key]) => !seat.plugins?.includes(key)).map(([, href]) => href)
+  const sections = navForKind(kind, isConsultant, seat)
+  return sections
+    .map((s) => ({ ...s, items: s.items.filter((i) => !off.includes(i.href)) }))
+    .filter((s) => s.items.length > 0)
+}
+
+function navForKind(
   kind: CompanyKind | null | undefined,
   isConsultant: boolean,
   seat: SeatFacts = {}
@@ -1819,10 +1847,13 @@ export function routeMatches(apiPath: string, pattern: string): boolean {
  * would read "Sell contracts". Null where no link names it.
  */
 export function pageNameOf(apiPath: string, kind: CompanyKind | null | undefined): string | null {
-  const own = kind ? getNavForKind(kind, false) : []
+  // A page keeps its name whether or not its plugin is on: a refusal on
+  // /api/training says "Training", plugin off included (record 120).
+  const all = { plugins: Object.keys(PLUGIN_PAGES) }
+  const own = kind ? getNavForKind(kind, false, all) : []
   const rest = (['CLIENT', 'VENDOR', 'GSI', 'MSP', 'CONSULTANT_CORP'] as const)
     .filter((k) => k !== kind)
-    .map((k) => getNavForKind(k, false))
+    .map((k) => getNavForKind(k, false, all))
   for (const nav of [own, ...rest]) {
     let best: { label: string; weight: number } | null = null
     for (const s of nav) {

@@ -11,7 +11,7 @@ import { termsGate } from '@/lib/award/terms-on-record'
 import { siteSay, startSays } from './words'
 import { startPapers, i9DoorAtStart } from './papers'
 import { hasPermission } from '@/lib/permissions'
-import { gateRefusal, whoMay, seatedRoles, TRANSITIONS, VALID_ACTIONS, DOING, NEEDS, type Action, type GateRefusal } from './gate'
+import { gateRefusal, whoMay, seatedRoles, TRANSITIONS, VALID_ACTIONS, CHOOSE_AN_ACT, DOING, NEEDS, type Action, type GateRefusal } from './gate'
 import { whoHereMaySays } from '@/lib/money/who-raises-bills'
 import { isSent } from '@/lib/money/bill-state'
 import { formatDay } from '@/lib/format-date'
@@ -81,6 +81,8 @@ const ACTION_SUMMARIES: Record<Action, string> = {
  * Nothing is written but the access log: the papers' verdict is a read of
  * the person's file.
  */
+const TERMS_PENDING_FIX = 'The firm that pays the person states the terms on the placement’s terms page, and the person agrees them on their own page.'
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -105,9 +107,12 @@ export async function GET(
 
   const gated = gateRefusal(caller, contract, 'activate')
   const refused = gated && (await seatedRefusal(caller, gated, 'activate'))
-  if (refused?.error.code === 'NOT_A_PARTY') {
+  if (refused?.error.code === 'NOT_A_PARTY' || refused?.error.code === 'NOT_FOUND') {
     await recordRefusal([contract.personId], {
-      ...accessActor(caller), action: 'COMPLIANCE_CHECK', reason: 'Asked whether a placement may start, at a firm not party to it.',
+      ...accessActor(caller), action: 'COMPLIANCE_CHECK',
+      reason: refused.error.code === 'NOT_FOUND'
+        ? 'A client asked whether the line between its supplier and a firm below it may start.'
+        : 'Asked whether a placement may start, at a firm not party to it.',
     })
     return NextResponse.json({ error: refused.error }, { status: refused.status })
   }
@@ -143,7 +148,7 @@ export async function GET(
       code: null,
       says: null,
       who,
-      terms: terms.blocks ? { blocks: true, says: terms.says } : null,
+      terms: terms.blocks ? { blocks: true, says: terms.says, fix: TERMS_PENDING_FIX } : null,
       papers: { outcome: papers.outcome, says: papers.says, fix: papers.fix, door: i9?.door ?? null, whoRecords: i9?.whoRecords ?? null },
     },
   })
@@ -162,7 +167,7 @@ export async function POST(
 
   if (!action || !VALID_ACTIONS.includes(action)) {
     return NextResponse.json(
-      { error: { code: 'VALIDATION', message: `action must be one of: ${VALID_ACTIONS.join(', ')}`, field: 'action' } },
+      { error: { code: 'VALIDATION', message: CHOOSE_AN_ACT, field: 'action' } },
       { status: 422 }
     )
   }
@@ -210,6 +215,14 @@ export async function POST(
   const gated = gateRefusal(caller, contract, action as Action)
   if (gated) {
     const refused = await seatedRefusal(caller, gated, action as Action)
+    if (refused.error.code === 'NOT_FOUND' || refused.error.code === 'NOT_A_PARTY') {
+      await recordRefusal([contract.personId], {
+        ...accessActor(caller), action: 'CONTRACT_VIEW',
+        reason: refused.error.code === 'NOT_FOUND'
+          ? 'A client tried to change the line between its supplier and a firm below it.'
+          : 'A firm not party to a placement tried to change it.',
+      })
+    }
     return NextResponse.json({ error: refused.error }, { status: refused.status })
   }
   const side = contractSide(caller, contract)!
@@ -242,7 +255,7 @@ export async function POST(
           error: {
             code: 'TERMS_PENDING',
             message: terms.says,
-            fix: 'The firm that pays the person states the terms on the placement’s terms page, and the person agrees them on their own page.',
+            fix: TERMS_PENDING_FIX,
           },
         },
         { status: 409 }

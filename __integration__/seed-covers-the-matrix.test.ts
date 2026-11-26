@@ -61,6 +61,7 @@ import { standsAsAcceptanceSays } from '@/app/api/timesheets/chain-turn'
  * route runs. It crosses no edge with the outside world.
  */
 const RUNTIME: Record<string, string> = {
+  skillTarget: 'Written when the Owner sets a target for a skill or an agent; a seeded row would claim a number the Owner never chose.',
   submissionConfirmation: 'Written when a person or the confirmation tracker records that the other side confirmed a submission; a seeded row would claim a confirmation nobody gave.',
   offer: 'Written when a person drafts, proposes or answers an offer on a submission; a seeded row would claim an offer nobody made.',
   checklistItem: 'Written when a contract or a petition checklist is opened and a person records a value; a seeded row would claim a paper was checked.',
@@ -73,6 +74,16 @@ const RUNTIME: Record<string, string> = {
   recordAction: 'Written when a person acts on a record after the ledger began (2026-11-21); the seed acts through no screen.',
   decisionItem: 'Opened by an Owner or an Admin on the decision queue, or by a disputed month; the real questions are a firm\'s own and are never seeded.',
   agentSwitch: 'Written when the Owner switches an agent on, off or to drafts only; every agent is off until then, and a seeded switch would claim the Owner chose.',
+  pluginSwitch: 'Written when an Owner or Etyme staff switches a plugin; every plugin starts off, so the seeded world has none.',
+  cohort: 'Train to bench is a plugin, off by default; a firm writes a cohort only after its Owner switches it on.',
+  assessment: 'Written by a cohort’s trainer after the Train to bench plugin is on; off by default.',
+  certification: 'Issued by a cohort’s trainer or assessor after the Train to bench plugin is on; off by default.',
+  benchAsk: 'Written when a firm asks a trainee onto its bench, inside the Train to bench plugin; off by default.',
+  pod: 'Project teams is a plugin, off by default; a firm writes a team only after its Owner switches it on.',
+  podRole: 'Written with a team, inside the Project teams plugin; off by default.',
+  podMember: 'Written when a firm puts a person on a team, inside the Project teams plugin; off by default.',
+  podProject: 'Written when a client says yes to a sold team, inside the Project teams plugin; off by default.',
+  podDeliverable: 'Written with a sold team\u2019s milestones, inside the Project teams plugin; off by default.',
   agentTask: 'Proposed by an agent that is switched on, and released by a person’s yes on the decision queue; no agent runs in the seeded world.',
   moneyChain: 'Opened when a seat that runs payroll opens a month; every amount on it is typed by a person.',
   // Record 102, item 1 (2026-11-21). A stranger's question from a firm's public page.

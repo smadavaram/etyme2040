@@ -14,7 +14,6 @@
 import { contractSide, type ContractSide } from '@/lib/resolve-client-company'
 import { hasPermission, desksHolding, type Permission } from '@/lib/permissions'
 import { refusalFor, type CallerContext } from '@/lib/api-context'
-import { partiesSay } from './words'
 import { seatedWhoMay } from '@/lib/refusal-words'
 import { readCompanySeats, type CompanySeat } from '@/lib/company-seats'
 
@@ -57,6 +56,8 @@ export const DOING: Record<Action, string> = {
 /** The parties a contract names, by id and by name. */
 export interface GateContract {
   state: string
+  /** Named in the refusal for a contract in the wrong state. */
+  person?: { name: string } | null
   companyId: string
   clientCompanyId: string
   endClientCompanyId: string | null
@@ -64,6 +65,30 @@ export interface GateContract {
   clientCompany: { name: string }
   endClientCompany: { name: string } | null
 }
+
+const STATE_IS: Record<string, string> = {
+  DRAFT: 'still a draft', PENDING_VERIFICATION: 'waiting for verification', VERIFIED: 'verified',
+  IN_PROGRESS: 'running', PAUSED: 'paused', ENDED: 'over', CANCELLED: 'canceled',
+}
+const STATE_ALREADY: Record<string, string> = {
+  PENDING_VERIFICATION: 'waiting for verification', IN_PROGRESS: 'running', PAUSED: 'paused', ENDED: 'over', CANCELLED: 'canceled',
+}
+const BE_DONE: Record<Action, string> = {
+  verify: 'sent for verification', activate: 'activated', pause: 'paused',
+  resume: 'resumed', complete: 'ended', cancel: 'canceled',
+}
+
+/** The refusal for an act the contract's state does not allow, in plain words. */
+export function wrongStateSays(name: string | null, action: Action, state: string): string {
+  const whose = name ? `${name}'s contract` : 'This contract'
+  if (TRANSITIONS[action].to === state && STATE_ALREADY[state]) {
+    return `${whose} is already ${STATE_ALREADY[state]}, so it cannot be ${BE_DONE[action]} again.`
+  }
+  return `${whose} is ${STATE_IS[state] ?? 'not in a state that allows this'}, so it cannot be ${BE_DONE[action]}.`
+}
+
+/** The choice of acts, said as a sentence. */
+export const CHOOSE_AN_ACT = `Choose ${VALID_ACTIONS.slice(0, -1).join(', ')} or ${VALID_ACTIONS[VALID_ACTIONS.length - 1]}.`
 
 /** A refusal, ready to send: the status and the route's own sentence. */
 export interface GateRefusal {
@@ -83,12 +108,20 @@ export function gateRefusal(
   action: Action,
 ): GateRefusal | null {
   const side: ContractSide | null = contractSide(caller as CallerContext, contract)
+  // Record 119: a client that is only the site on the line between its
+  // supplier and a firm below it never opens that line. It is told nothing
+  // is there, and the sentence names no firm.
+  // A client reading a line it does not pay, party or not, gets the same
+  // answer: a 403 would confirm the line exists.
+  if (side === 'END_CLIENT' || (!side && caller.company?.kind === 'CLIENT')) {
+    return { status: 404, error: { code: 'NOT_FOUND', message: 'Contract not found' } }
+  }
   if (!side) {
     return {
       status: 403,
       error: {
         code: 'NOT_A_PARTY',
-        message: `${caller.company?.name ?? 'Your company'} is not a party to this contract. Only ${partiesSay([contract.company.name, contract.clientCompany.name, contract.endClientCompany?.name])} can change it.`,
+        message: `${caller.company?.name ?? 'Your company'} is not a party to this contract, so it cannot change it.`,
       },
     }
   }
@@ -106,7 +139,7 @@ export function gateRefusal(
   if (!transition.from.includes(contract.state)) {
     return {
       status: 409,
-      error: { code: 'INVALID_TRANSITION', message: `Cannot ${action} a contract in state ${contract.state}. Allowed from: ${transition.from.join(', ')}` },
+      error: { code: 'INVALID_TRANSITION', message: wrongStateSays(contract.person?.name ?? null, action, contract.state) },
     }
   }
   return null

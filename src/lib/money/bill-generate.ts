@@ -31,6 +31,8 @@
 import type { Prisma } from '@prisma/client'
 import { reportError } from '@/lib/alerts'
 import { prisma } from '@/lib/db'
+import { waitsForAStart, waitingForStartSays, START_STEP_HREF, START_STEP_LABEL } from '@/lib/money/pod-waits-for-start'
+import { milestoneOnlyLines } from '@/lib/money/milestone-only-lines'
 import { payToOnBill } from '@/lib/money/pay-to'
 import { completeCycles } from '@/lib/cycle-complete'
 import { sortForBill, expenseLine, expenseTotal, type LeftOff } from '@/lib/expense-billing'
@@ -562,6 +564,16 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
   }
 
   if (engagement.sellContracts.length === 0) {
+    // A sold team's lines wait in draft until a member's start is confirmed
+    // (record 120). Say that step, with where it is done, not "nobody is placed".
+    const draftLines = await prisma.sellContract.findMany({
+      where: { engagementId, companyId: caller.company!.id, projectOrderId: { not: null } },
+      select: { state: true, person: { select: { name: true } } },
+    })
+    const team = draftLines.map((l) => ({ state: l.state as string, personName: l.person?.name ?? null }))
+    if (waitsForAStart(team)) {
+      return reply(422, { error: { code: 'WAITING_FOR_A_START', message: waitingForStartSays(team, 'SUPPLIER'), link: { href: START_STEP_HREF, label: START_STEP_LABEL } } })
+    }
     return reply(422, { error: { code: 'NO_CONTRACTS', message: 'Nobody is placed under this engagement, running or ended, so there is nothing it can bill.' } })
   }
 
@@ -633,13 +645,18 @@ export async function generateBill(caller: BillCaller, body: Record<string, any>
     timesheetWhere.periodStart = { lte: asked.end }
   }
 
-  const timesheets = sharedDays
+  const loadedWeeks = sharedDays
     ? weeksFromShared(await sharedWeeks(sharedDays), { contractIds, ownIds, asked })
     : await prisma.timesheet.findMany({
         where: timesheetWhere,
         include: BILL_WEEK_INCLUDE,
         orderBy: { periodStart: 'asc' },
       })
+
+  // A team sold on milestones or a fixed price bills its accepted deliverables
+  // and never its members' hours (record 120, pods).
+  const hoursNeverBill = await milestoneOnlyLines(prisma, [...new Set(loadedWeeks.map((ts) => billedBy.get(ts.sellContractId) ?? ts.sellContractId))])
+  const timesheets = loadedWeeks.filter((ts) => !hoursNeverBill.has(billedBy.get(ts.sellContractId) ?? ts.sellContractId))
 
   // Read through our own contract from here on.
   //

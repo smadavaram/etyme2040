@@ -168,6 +168,8 @@ export const DOMAINS: Domain[] = [
       'lib/order', 'lib/order-postings', 'lib/gl', 'lib/contract-links', 'lib/work-chain', 'lib/work-chain-read',
       'lib/profitability',
       'lib/pay-model', 'lib/bench-policy', 'lib/money', 'lib/money-display',
+      // What a sold team bills and earns (record 120, pods).
+      'lib/money/pod-sale', 'lib/money/pod-margin',
       // The generated world's rates: the pure bands and pairs the other three import, then the rows.
       'lib/seed-scale/rates',
       'lib/periods', 'lib/recurring', 'lib/cycle-generator', 'lib/cycle-kinds', 'lib/contract-cycles', 'lib/cycle-complete', 'lib/expense-billing', 'lib/commission', 'app/dashboard/payroll/commissions', 'lib/holidays',
@@ -261,6 +263,8 @@ export const DOMAINS: Domain[] = [
       'app/dashboard/decisions', 'app/dashboard/program',
       'app/api/requisitions', 'app/api/invitations', 'app/api/leads',
       'app/api/openings', 'app/api/decisions', 'app/api/program',
+      // The client's side of a sold team: its deliverables and its yes (record 120, pods).
+      'app/api/program/pods',
       'app/api/checks', 'app/api/why',
       'lib/openings', 'lib/lead-reader', 'lib/requirement-quality',
       // The generated world's jobs, invitations, submissions and interviews.
@@ -309,6 +313,8 @@ export const DOMAINS: Domain[] = [
       'app/dashboard/training', 'app/api/training',
       // Training that starts, finishes or stops.
       'lib/training',
+      // Project teams (record 120, pods): a plugin, off by default.
+      'lib/pods', 'app/api/pods', 'app/dashboard/pods',
       'app/api/alumni', 'app/api/releasing-soon', 'app/api/benchmark',
       'lib/match-engine', 'lib/candidate-fit', 'lib/bench-filter', 'lib/why',
       // Who a job request is matched against and what each viewer sees
@@ -402,6 +408,9 @@ export const DOMAINS: Domain[] = [
       // The model boundary (2026-10-13): the per-company switch and the
       // log of what left. The masking at the edge is conversation's.
       'lib/model-boundary',
+      // The skill layer and the model gateway (records 123, 125): the
+      // registry, the runner, the grader and the one door for model calls.
+      'lib/skills', 'lib/model-gateway',
       // Which model each kind of call uses, the one place an id is written;
       // Ask Etyme's allowance per person and company; and whether the key
       // and the ids are ready, for health and /ready (2026-11-11).
@@ -652,6 +661,9 @@ export const DOMAINS: Domain[] = [
       // so a server route may import it; the sidebar that draws it is a
       // client component and no route may import that.
       'lib/nav-table',
+      // The per-tenant plugin switch (record 120): the state, who may switch,
+      // and the one refusal every plugin's routes say. Every plugin reads it.
+      'lib/plugins', 'lib/plugin-gate',
       // One order, three names, and the rule for a counterparty that is
       // not on the system. Both are read by money, demand and the
       // platform's own routes at once, so they queue here with the

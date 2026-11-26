@@ -3,7 +3,8 @@ import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { hasPermission } from '@/lib/permissions'
 import { staffOnly } from '@/lib/seat'
-import { applyMove, type EnrollmentMove } from '@/lib/training'
+import { pluginGate } from '@/lib/plugin-gate'
+import { applyMove, mayFinishCourse, type EnrollmentMove } from '@/lib/training'
 
 /**
  * POST /api/training/enrollments/:id   { move: 'start' | 'complete' | 'drop', score?, certificateUrl?, reason? }
@@ -13,6 +14,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (error) return error
   const notStaff = staffOnly(caller, 'Training')
   if (notStaff) return notStaff
+  const off = await pluginGate(caller, 'TRAIN_TO_BENCH')
+  if (off) return off
   if (!hasPermission(caller.permissions, 'consultants.write')) {
     return NextResponse.json(
       { error: { code: 'FORBIDDEN', message: `Recording training is for whoever develops the bench at ${caller.company!.name}.` } },
@@ -28,12 +31,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const row = await prisma.enrollment.findFirst({
     where: { id, course: { companyId: caller.company!.id } },
-    select: { id: true, status: true, person: { select: { name: true } }, course: { select: { title: true } } },
+    select: { id: true, status: true, cohort: { select: { state: true } }, person: { select: { name: true } }, course: { select: { title: true } } },
   })
   if (!row) return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'That enrollment is not on your books.' } }, { status: 404 })
 
   const verdict = applyMove(row.status, move, { personName: row.person.name, courseTitle: row.course.title, score, reason })
   if (!verdict.ok) return NextResponse.json({ error: { code: verdict.code, message: verdict.message } }, { status: 409 })
+
+  if (move === 'complete') {
+    const may = mayFinishCourse({ cohortState: row.cohort?.state ?? null })
+    if (!may.ok) return NextResponse.json({ error: { code: 'COHORT_NOT_STARTED', message: may.message } }, { status: 409 })
+  }
 
   await prisma.enrollment.update({
     where: { id },

@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { readBench } from '@/lib/bench-filter'
-import { skillGap, fieldable, type SkillGapReading } from '@/lib/training'
+import { skillGap, fieldable, trainable, pickerLabels, type SkillGapReading } from '@/lib/training'
 import { amount } from '@/lib/money-display'
 import { usePageSection } from '@/components/page-section'
 import { RefusedState, LoadingState } from '@/components/ui'
+import { Cohorts } from './cohorts'
 
 /**
  * Training funnel — Talent section (vendor)
@@ -77,6 +78,7 @@ export default function TrainingPage() {
    * (sign-up walk round five, 11).
    */
   const [refused, setRefused] = useState<string | null>(null)
+  /** Where the Owner turns Training on, when it is off (record 120). Nobody else is sent there. */
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -86,7 +88,7 @@ export default function TrainingPage() {
       const gate = await fetch('/api/training')
       if (gate.status === 403) {
         const body = await gate.json().catch(() => ({}))
-        setRefused(body.error?.message ?? 'Training is not part of your seat. Ask your company\'s owner if you need it.')
+        setRefused(body.error?.message ?? 'This page is not part of your seat.')
         return
       }
       setRefused(null)
@@ -150,14 +152,14 @@ export default function TrainingPage() {
 
   if (loading) {
     return (
-      <LoadingState says="Opening training…" />
+      <LoadingState says="Opening…" />
     )
   }
 
   if (error) {
     return (
       <div className="animate-fade-in py-20 text-center">
-        <p className="text-etyme-attention font-medium mb-2">Unable to load training data</p>
+        <p className="text-etyme-attention font-medium mb-2">This page could not load.</p>
         <p className="text-sm text-etyme-muted mb-4">{error}</p>
         <button onClick={() => { setError(null); fetchData() }} className="btn-secondary">
           Retry
@@ -236,6 +238,9 @@ export default function TrainingPage() {
 
       {/* Courses, and who is on each. The thing to do about the gap. */}
       <Courses />
+
+      {/* Cohorts: a group taking one course, assessed, certified, and asked onto the bench. */}
+      <Cohorts />
 
       {/* Bench pipeline funnel */}
       {funnel.some(f => f.count > 0) && (
@@ -407,10 +412,13 @@ function Courses() {
       // not the people a course is for (`fieldable`).
       const listed = readBench(b)
       const roster: any[] = Array.isArray(payroll?.data?.roster) ? payroll.data.roster : []
-      setPeople(
-        fieldable(listed.rows, roster.filter((r) => r?.personId && r?.name), new Date())
-          .map((p) => ({ id: p.personId, name: p.name, kind: p.kind }))
-      )
+      const kept = trainable(listed.rows, listed.asked, roster.filter((r) => r?.personId && r?.name), new Date())
+      // Names first, an email only as a hint (the same labels as the cohort picker).
+      const emails = new Map<string, string>()
+      for (const r of [...listed.rows, ...listed.asked]) if (r.email) emails.set(r.personId, r.email)
+      for (const r of roster) if (r?.personId && (r.email || r.primaryEmail) && !emails.has(r.personId)) emails.set(r.personId, r.email ?? r.primaryEmail)
+      const label = pickerLabels(kept.map((p) => ({ personId: p.personId, name: p.name, email: emails.get(p.personId) ?? null })))
+      setPeople(kept.map((p) => ({ id: p.personId, name: label.get(p.personId) ?? p.name, kind: p.kind })))
     } catch (e: any) { setErr(e.message) }
   }, [])
   useEffect(() => { load() }, [load])
@@ -427,6 +435,8 @@ function Courses() {
     try {
       const j = await post('/api/training', newCourse)
       setSaid(j.data.says); setNewCourse({ title: '', category: 'TECH', duration: '', price: '' }); await load()
+      // The cohort form below keeps its own course list: tell it.
+      window.dispatchEvent(new Event('training:courses-changed'))
     } catch (e: any) { setErr(e.message) }
   }
   async function enrollSomebody(e: React.FormEvent) {
@@ -477,7 +487,7 @@ function Courses() {
               <span className="text-sm text-etyme-ink">{c.title}</span>
               <span className="text-xs text-etyme-muted">
                 {c.category ? c.category.replace('_', ' ').toLowerCase() : ''}{c.duration ? ` · ${c.duration} hours` : ''}
-                {' · '}{c.price != null ? `${amount(c.price, c.currency)} a seat` : 'no price set'}
+                {' · '}{c.price != null ? `${amount(c.price, c.currency)} a seat (catalog price)` : 'no price set'}
               </span>
               <span className="text-xs text-etyme-faint tabular-nums ml-auto">
                 {c.counts.completed} finished · {c.counts.inProgress} in progress · {c.counts.enrolled} enrolled
@@ -526,6 +536,7 @@ function Courses() {
             <span className="block text-[11px] text-etyme-muted mb-1">Price a seat ($)</span>
             <input value={newCourse.price} onChange={(e) => setNewCourse({ ...newCourse, price: e.target.value })} inputMode="decimal" className="w-24 border border-etyme-rule rounded px-2 py-2 text-sm bg-etyme-raised" />
           </label>
+          <p className="w-full text-[11px] text-etyme-faint">The catalog price, kept for your own books. Etyme does not bill or collect it.</p>
           <button type="submit" className="px-3 py-2 border border-etyme-rule rounded text-sm text-etyme-ink hover:bg-etyme-canvas">Add</button>
         </form>
         <form onSubmit={enrollSomebody} className="border border-etyme-rule rounded-lg p-3 flex flex-wrap gap-2 items-end">

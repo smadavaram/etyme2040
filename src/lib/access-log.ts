@@ -65,6 +65,7 @@ export type AccessAction =
   // them findable in a query: every read a firm made inside somebody
   // else's program, and nothing else.
   | 'PROGRAM_READ'        // read a client's program from a seat that client granted
+  | 'DELIVERABLE_DECIDE_REFUSED' // a deliverable decision (accept, reject) was refused
   // ── A person's own papers, opened or sent outside the company ──────
   //
   // These four were written by hand in their routes, outside this file,
@@ -189,6 +190,8 @@ export type AccessAction =
   | 'LOGIN_SUCCEEDED'           // a person signed in, and through which door
   | 'LOGIN_REFUSED_SSO_ONLY'    // a door was refused because the company signs in through its directory only
   | 'JOIN_REFUSED_BY_POLICY'    // a join was refused because the company admits people by invitation only
+  | 'PLUGIN_OFF_REFUSED'         // a request for a plugin's route was refused because the plugin is off for the firm (record 120)
+  | 'SUPERADMIN_PLUGIN_REFUSED'  // a staff plugin switch was refused (record 120)
   | 'INVITE_SENT'               // an Owner or Admin invited a person to a seat
   | 'INVITE_ACCEPTED'           // an invited person opened the seat for the first time
   | 'MEMBERSHIP_REVOKED'        // a person's seat at a company was ended
@@ -570,13 +573,37 @@ export async function recordRefusal(
       return true
     })
     const row = actorRow({ ...params, subjectId: '' })
+    // A refusal about a firm that does not exist is still a refusal: the
+    // foreign key would reject the row and the refusal would be lost, so
+    // such a row names no subject and keeps the attempted id in its reason.
+    const firmIds = subjects.map((s) => subjectColumns(s).subjectCompanyId).filter((id): id is string => !!id)
+    let missing = new Set<string>()
+    if (firmIds.length > 0) {
+      try {
+        const found = await prisma.company.findMany({ where: { id: { in: firmIds } }, select: { id: true } })
+        const have = new Set(found.map((c) => c.id))
+        missing = new Set(firmIds.filter((id) => !have.has(id)))
+      } catch {
+        // The lookup failing must not lose the refusal: write as named.
+      }
+    }
     const written = await prisma.accessLog.createMany({
-      data: subjects.map((subject) => ({
-        ...subjectColumns(subject),
-        ...row,
-        action: params.action,
-        allowed: false,
-      })),
+      data: subjects.map((subject) => {
+        const cols = subjectColumns(subject)
+        const gone = cols.subjectCompanyId && missing.has(cols.subjectCompanyId) ? cols.subjectCompanyId : null
+        if (gone) {
+          const note = `(company ${gone} does not exist)`
+          return {
+            subjectId: null,
+            subjectCompanyId: null,
+            ...row,
+            reason: row.reason ? `${row.reason} ${note}` : note,
+            action: params.action,
+            allowed: false,
+          }
+        }
+        return { ...cols, ...row, action: params.action, allowed: false }
+      }),
     })
     return written.count
   } catch (err) {

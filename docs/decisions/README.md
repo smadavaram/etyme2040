@@ -134,3 +134,15 @@ built, every release check, every walk and every deploy.
 | 116 | Agent outreach follows a mass-mail service's policy — 2026-11-24 | 289 | [116-agent-outreach-follows-a-mass-mail-service-policy-2026-11-24.md](116-agent-outreach-follows-a-mass-mail-service-policy-2026-11-24.md) |
 | 117 | Lean outreach to sell staffing and pods; the course module — 2026-11-25 | 539 | [117-lean-outreach-to-sell-staffing-and-pods-and-the-course-module-2026-11-25.md](117-lean-outreach-to-sell-staffing-and-pods-and-the-course-module-2026-11-25.md) |
 | 118 | Outreach to companies, built — 2026-11-25 | 509 | [118-outreach-to-companies-built-2026-11-25.md](118-outreach-to-companies-built-2026-11-25.md) |
+| 119 | A client never reaches below its supplier — 2026-11-25 | 223 | [119-a-client-never-reaches-below-its-supplier-2026-11-25.md](119-a-client-never-reaches-below-its-supplier-2026-11-25.md) |
+| 120 | Train-to-bench and pods are plugins, off by default — 2026-11-25 | 457 | [120-train-to-bench-and-pods-are-plugins-off-by-default-2026-11-25.md](120-train-to-bench-and-pods-are-plugins-off-by-default-2026-11-25.md) |
+| 121 | Website and content is a plugin, off by default — 2026-11-25 | 253 | [121-website-and-content-is-a-plugin-2026-11-25.md](121-website-and-content-is-a-plugin-2026-11-25.md) |
+| 122 | Outreach is a plugin, off by default — 2026-11-25 | 150 | [122-outreach-is-a-plugin-2026-11-25.md](122-outreach-is-a-plugin-2026-11-25.md) |
+| 123 | The tester decides architecture; agents draft and propose — 2026-11-25 | 316 | [123-pax-decides-architecture-and-agent-authority-2026-11-25.md](123-pax-decides-architecture-and-agent-authority-2026-11-25.md) |
+| 124 | Public-sector proposal creation is plugin 5 — 2026-11-26 | 155 | [124-public-sector-proposals-is-plugin-5-2026-11-26.md](124-public-sector-proposals-is-plugin-5-2026-11-26.md) |
+| 125 | The model layer is a gateway, tiered by the data — 2026-11-26 | 399 | [125-the-model-layer-is-a-gateway-tiered-by-data-2026-11-26.md](125-the-model-layer-is-a-gateway-tiered-by-data-2026-11-26.md) |
+| 126 | The enterprise edition is free for 60 days, then it pays — 2026-11-25 | 364 | [126-the-enterprise-edition-is-free-for-60-days-2026-11-25.md](126-the-enterprise-edition-is-free-for-60-days-2026-11-25.md) |
+| 127 | Pricing strategy, every number for approval — 2026-11-25 | 276 | [127-pricing-strategy-for-approval-2026-11-25.md](127-pricing-strategy-for-approval-2026-11-25.md) |
+| 128 | The competitive frame: flat-tier platforms — 2026-11-25 | 398 | [128-the-competitive-frame-flat-tier-platforms-2026-11-25.md](128-the-competitive-frame-flat-tier-platforms-2026-11-25.md) |
+| 129 | The affiliate model: spec, queued behind pricing — 2026-11-26 | 353 | [129-the-affiliate-model-spec-queued-2026-11-26.md](129-the-affiliate-model-spec-queued-2026-11-26.md) |
+| 130 | Ask Etyme: one job, one card — 2026-11-26 | 574 | [130-ask-etyme-one-job-one-card-2026-11-26.md](130-ask-etyme-one-job-one-card-2026-11-26.md) |

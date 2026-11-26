@@ -36,7 +36,7 @@ import { DEMO_MONTHLY_PAY, writeCyclesFor } from '@/lib/contract-cycles'
 // is on, and the due date from `dueOn` under what those terms count
 // from. See "the bills for those weeks" below for what it was before.
 import { periodFor, iso, type Period } from '@/lib/periods'
-import { periodTermsFor, termsFor } from '@/lib/money/order-terms'
+import { AGREEMENT_TERMS_SELECT, periodTermsFor, termsFor } from '@/lib/money/order-terms'
 import { dueOn } from '@/lib/billing-cascade'
 import { holidayKeys } from '@/lib/seed-calendar'
 import { rolesFor, RENAMED_ROLES } from '@/lib/company-defaults'
@@ -129,6 +129,19 @@ interface Placement {
   filesFromStart?: true
   /** The most recent invoice for the signed weeks, and where it got to. */
   invoice?: 'PAID' | 'SUBMITTED' | null
+  /**
+   * A week three back is signed by the client and waits on the firm that
+   * employs the person to accept it: the supplier's own accounts-payable
+   * decision, which nobody else at the supplier owes.
+   */
+  employerWaits?: true
+  /**
+   * Its bills were sent and fell due this morning, so each is overdue by
+   * the day and no more. Where a bill is days late it is the first card
+   * of every seat that reads bills; this one is AR's, and no other seat's
+   * own work is put behind it.
+   */
+  billsDueToday?: true
 }
 
 interface Candidate {
@@ -273,6 +286,23 @@ export const PROGRAMMES: Program[] = [
       { role: 'Data engineer', skills: ['Cloud data warehouse', 'dbt', 'Python'], loc: 'Tualatin, OR',
         via: ['nike', 'computer-systems'], rates: [12400, 9100],
         person: 'Kwame Mensah', workAuth: 'H1B', startedDaysAgo: 790, endsInDays: -50, state: 'ENDED', papers: 'CLEAR' },
+      // Rolls off in three weeks, and nobody has started the roll-off: the
+      // supplier's own decision, so no supplier seat opens on an empty
+      // queue (the photo walk, 2026-11-26: "Nothing needs you today" on
+      // every Brightmoor seat over a seeded book). Record 130 gives each
+      // Brightmoor seat its own next card on top of that one: the week
+      // three back is signed by the client and waits on Brightmoor to
+      // accept it (AP & Payroll), and the bill for the other two was sent
+      // and fell due this morning (AR).
+      { role: 'Integration test analyst', skills: ['Test automation', 'Node.js'], loc: 'Tualatin, OR',
+        via: ['nike', 'brightmoor'], rates: [9200, 7000],
+        person: 'Anil Rao', workAuth: 'USC', startedDaysAgo: 160, endsInDays: 21, state: 'IN_PROGRESS',
+        papers: 'CLEAR', weeks: { approved: 3, awaiting: 0 }, employerWaits: true, billsDueToday: true, invoice: 'SUBMITTED' },
+      // Awarded to Brightmoor and still a draft two days past its start: the
+      // contract manager's to send. Her I-9 arrived and nobody has examined it: HR's.
+      { role: 'Reporting analyst', skills: ['Reporting', 'SQL'], loc: 'Tualatin, OR',
+        via: ['nike', 'brightmoor'], rates: [8800, 6700],
+        person: 'Ilse Varga', workAuth: 'USC', startedDaysAgo: 2, endsInDays: 360, state: 'DRAFT', papers: 'NO_I9' },
       // Awarded, starting next week, and cannot: no I-9 on file.
       { role: 'Cybersecurity analyst', skills: ['SIEM', 'Log analytics', 'Incident response'], loc: 'Tualatin, OR',
         via: ['nike', 'pinnacle'], rates: [11500, 8600],
@@ -516,7 +546,7 @@ function firstWorkedDay(t: { periodStart: Date; days: unknown }): Date {
 }
 
 /** Shares each program's placements are cut into, one step each. */
-export const PROGRAM_SHARES = 2
+export const PROGRAM_SHARES = 3
 
 /**
  * Seed the three client programs — or one of them, or one share of one.
@@ -816,6 +846,18 @@ export async function seedProgrammes(
     }
 
     // ── The placements ─────────────────────────────────────────────
+    // The agreement answers before any copy on an order or a line, so a
+    // bill that must fall due today is set on the agreement: net 1 from
+    // the invoice date, and that bill is issued yesterday. Set before any
+    // placement bills, because every placement on the same pair of firms
+    // shares the agreement and is due by the same terms.
+    for (const pl of p.placements) {
+      if (!pl.billsDueToday) continue
+      const { msa } = await agreement(pl.via[1], p.client, pl.role)
+      await db.masterAgreement.update({
+        where: { id: msa.id }, data: { paymentTerms: 1, paymentTermsFrom: 'INVOICE_DATE' },
+      })
+    }
     for (const pl of shareOf(p.placements, pick.share)) {
       const [, ...chain] = pl.via
       const employerSlug = chain[chain.length - 1]
@@ -852,7 +894,7 @@ export async function seedProgrammes(
       // than inventing one out of the weeks that happen to be signed.
       const contracts: {
         id: string; billRate: number; engagementId: string | null
-        clientCompanyId: string; companyId: string
+        clientCompanyId: string; companyId: string; msaId: string | null
         billFrequency: string; billAnchor: string; billStraddle: string
         paymentTerms: number; paymentTermsFrom: string
         startDate: Date; endDate: Date | null
@@ -875,6 +917,13 @@ export async function seedProgrammes(
               data: { overtimeAfterHours: pl.overtimeAfterHours ?? null },
             })
           }
+          if (i === 0 && pl.billsDueToday && (existing.paymentTerms !== 1 || existing.paymentTermsFrom !== 'INVOICE_DATE')) {
+            Object.assign(existing, await db.sellContract.update({
+              where: { id: existing.id }, data: {
+                paymentTerms: 1, paymentTermsFrom: 'INVOICE_DATE',
+              },
+            }))
+          }
           supplierSellContractId = existing.id
           contracts.push(existing)
           continue
@@ -886,7 +935,15 @@ export async function seedProgrammes(
             companyId: seller.id, clientCompanyId: buyer.id, endClientCompanyId: client.id,
             personId: who.id, requirementId: requirement.id, engagementId: eng.id, msaId: msa.id,
             hiringManagerId: desk.hiring.personId, orgUnitId: unitByName.get('Apps')?.id ?? null,
-            billRate: pl.rates[i], billCurrency: 'USD', paymentTerms: 45, state: pl.state,
+            billRate: pl.rates[i], billCurrency: 'USD', state: pl.state,
+            // Net 45 from the end of the period, except the placement
+            // whose bill must fall due today: net 1 from the invoice
+            // date, and that bill is issued yesterday.
+            ...(i === 0 && pl.billsDueToday
+              ? {
+                paymentTerms: 1, paymentTermsFrom: 'INVOICE_DATE',
+              }
+              : { paymentTerms: 45 }),
             startDate: start, endDate: end,
             // Which hours may be claimed. What they are worth is decided
             // week by week by whoever signs the week, never here.
@@ -1082,6 +1139,9 @@ export async function seedProgrammes(
         const worked = week(w, longHours ?? 40, start)
         if (!worked) continue
         const { start: ws, end: we, days } = worked
+        // Signed by the client and not yet accepted by the firm that employs
+        // the person: this week is that firm's to accept, and bills nobody.
+        const waitsOnEmployer = !!pl.employerWaits && w === 3
         const sheetHours = Object.values(days).reduce((a, b) => a + b, 0)
         // Any sheet already on those days, not only one starting the same
         // day: a world seeded while weeks ran Monday to Friday keeps the
@@ -1106,11 +1166,13 @@ export async function seedProgrammes(
             // whose days disagree is a figure nobody can stand behind,
             // and the overtime split reads the days.
             totalHours: sheetHours,
-            status: awaiting ? 'SUBMITTED' : 'APPROVED', submittedAt: we,
+            status: awaiting || waitsOnEmployer ? 'SUBMITTED' : 'APPROVED', submittedAt: we,
             ...(awaiting ? {} : {
               approvedAt: signedAt(w, 0), approvedById: desk.hiring.personId,
               clientApprovedAt: signedAt(w, 0), clientApprovedById: desk.hiring.personId,
-              employerAcceptedAt: signedAt(w, chain.length), employerAcceptedById: seatBySlug.get(employerSlug)!.personId,
+              ...(waitsOnEmployer ? {} : {
+                employerAcceptedAt: signedAt(w, chain.length), employerAcceptedById: seatBySlug.get(employerSlug)!.personId,
+              }),
             }),
           },
         })
@@ -1125,12 +1187,14 @@ export async function seedProgrammes(
               state: 'LIVE', byId: desk.hiring.personId, at: signedAt(w, 0) },
           })
           await passThroughFor(ts.id, w, false, sheetHours)
-          await db.workAssertion.create({
-            data: { timesheetId: ts.id, companyId: employer.id, role: 'EMPLOYER_ACCEPTANCE', hours: sheetHours,
-              rateCents: pl.rates[pl.rates.length - 1], state: 'LIVE', byId: seatBySlug.get(employerSlug)!.personId,
-              at: signedAt(w, chain.length) },
-          })
-          signed.push(ts)
+          if (!waitsOnEmployer) {
+            await db.workAssertion.create({
+              data: { timesheetId: ts.id, companyId: employer.id, role: 'EMPLOYER_ACCEPTANCE', hours: sheetHours,
+                rateCents: pl.rates[pl.rates.length - 1], state: 'LIVE', byId: seatBySlug.get(employerSlug)!.personId,
+                at: signedAt(w, chain.length) },
+            })
+            signed.push(ts)
+          }
         }
       }
 
@@ -1229,7 +1293,14 @@ export async function seedProgrammes(
       if (!pl.invoice || signed.length === 0) continue
       const topContract = contracts[contracts.length - 1]
       const billTerms = periodTermsFor('SELL', topContract)
-      const billed = termsFor('SELL', topContract)
+      // Asked with the agreement the line sits under, because that is
+      // the document that answers first. Every placement on one pair of
+      // firms shares it, so every bill on the pair is due by the same
+      // terms and the stored date can never differ from the computed one.
+      const billedUnder = topContract.msaId
+        ? await db.masterAgreement.findUnique({ where: { id: topContract.msaId }, select: AGREEMENT_TERMS_SELECT })
+        : null
+      const billed = termsFor('SELL', { ...topContract, msa: billedUnder })
 
       /** The signed weeks of one billing period, oldest period first. */
       const byPeriod = new Map<string, { period: Period; weeks: typeof signed }>()
@@ -1275,7 +1346,7 @@ export async function seedProgrammes(
 
         // Raised once the period's hours are in, and never in the
         // future — a bill issued tomorrow is a date nobody can explain.
-        const issuedAt = earlier(plusDays(period.end, 2), day(-1))
+        const issuedAt = pl.billsDueToday ? day(-1) : earlier(plusDays(period.end, 2), day(-1))
 
         // The one due date, counted the way the contract says to count
         // it. The seed used to write issue + 45 while the contract said
@@ -1716,6 +1787,45 @@ export async function seedProgrammes(
             : []),
         ],
       })
+    }
+
+    // ── What Brightmoor's seats are each owed ──────────────────────
+    //
+    // Anil Rao's placement gives AP & Payroll a week to accept and AR a bill
+    // past due, and Ilse Varga's draft gives the contract manager one to
+    // send. Two more things are owed here, written once for Northbend's program: a candidate a
+    // firm below sent up to Brightmoor to put forward (the recruiter's),
+    // and the I-9 Ilse Varga uploaded that nobody has examined (HR's).
+    if (p.client === 'nike') {
+      const brightmoor = firmBySlug.get('brightmoor')
+      const below = firmBySlug.get('tecwyn')
+      const ilse = await db.person.findUnique({ where: { primaryEmail: emailOf('Ilse Varga') } })
+      if (brightmoor && below) {
+        const sender = await person('Pavel Novak')
+        await onBench(sender.id, p.open.skills, p.loc, 'USC', 'tecwyn')
+        if (!(await db.submission.findFirst({ where: { requirementId: open.id, personId: sender.id } }))) {
+          await db.submission.create({
+            data: {
+              requirementId: open.id, personId: sender.id, fromCompanyId: below.id, toCompanyId: brightmoor.id, kind: 'BENCH',
+              rate: 11800, status: 'SUBMITTED', checkState: 'SENT', screenState: 'READY', submittedAt: day(-8),
+            },
+          })
+        }
+        if (ilse) {
+          const name = 'Form I-9'
+          const template =
+            (await db.docTemplate.findFirst({ where: { companyId: brightmoor.id, name } })) ??
+            (await db.docTemplate.create({ data: { companyId: brightmoor.id, name, audience: 'EMPLOYEE', needsSignature: true } }))
+          if (!(await db.docInstance.findFirst({ where: { templateId: template.id, subjectType: 'PERSON', subjectId: ilse.id } }))) {
+            await db.docInstance.create({
+              data: {
+                templateId: template.id, subjectType: 'PERSON', subjectId: ilse.id,
+                status: 'UPLOADED', sentAt: day(-5), fileName: 'ilse-varga-i9.pdf',
+              },
+            })
+          }
+        }
+      }
     }
 
     void office

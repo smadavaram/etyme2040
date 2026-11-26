@@ -33,7 +33,7 @@ describe('the Activate button on a placement', () => {
     expect(gateRefusal(seat('northbend', ['assignments.write']), contract, 'activate')).toBeNull()
     expect(gateRefusal(seat('brightmoor', ['timesheets.read']), contract, 'activate')?.error.code).toBe('FORBIDDEN')
     expect(gateRefusal(seat('halcyon', ['assignments.write']), contract, 'activate')?.error.message)
-      .toBe('Halcyon Talent is not a party to this contract. Only Brightmoor Staffing or Northbend Athletic can change it.')
+      .toBe('Halcyon Talent is not a party to this contract, so it cannot change it.')
     expect(gateRefusal(seat('brightmoor', ['assignments.write']), { ...contract, state: 'IN_PROGRESS' }, 'activate')?.error.code).toBe('INVALID_TRANSITION')
     // And the panel draws from that answer: a button where it said yes, nothing where it said no.
     expect(viewBefore(may).button).toBe('Activate')
@@ -146,5 +146,28 @@ describe('the hiring manager’s No on who started', () => {
     expect(viewAfterRefusal(v.ok ? {} : v.error).box).toEqual({ answering: ['START_IDENTITY_WARN'] })
     expect(startIdentityWarning({ confirmed: true, personName: 'Rajesh Iyer', answeredBy: 'Marcus Oyelaran' })).toBeNull()
     expect(startIdentityWarning({ confirmed: null, personName: 'Rajesh Iyer', answeredBy: null })).toBeNull()
+  })
+})
+
+describe('a refusal for the wrong state is a plain sentence', () => {
+  const sub = seat('brightmoor', ['assignments.write', 'assignments.terminate'])
+  const named = { ...contract, person: { name: 'Priya Ramesh' } }
+
+  it('starting a running contract says it is already running and names her', () => {
+    expect(gateRefusal(sub, { ...named, state: 'IN_PROGRESS' }, 'activate')?.error.message)
+      .toBe("Priya Ramesh's contract is already running, so it cannot be activated again.")
+  })
+
+  it('pausing a draft says it is still a draft, with no state code in it', () => {
+    const says = gateRefusal(sub, named, 'pause')?.error.message
+    expect(says).toBe("Priya Ramesh's contract is still a draft, so it cannot be paused.")
+    expect(says).not.toMatch(/DRAFT|Allowed from/)
+  })
+
+  it('a client that is no party to the line is told it is not found, never that it is not a party', () => {
+    const client = { ...seat('northbend2', ['assignments.write']), company: { ...seat('x', []).company, id: 'northbend2', name: 'Other Client', kind: 'CLIENT' } }
+    const r = gateRefusal(client as any, contract, 'activate')
+    expect(r?.status).toBe(404)
+    expect(r?.error.message).toBe('Contract not found')
   })
 })

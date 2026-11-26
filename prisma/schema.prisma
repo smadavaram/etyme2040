@@ -27,6 +27,8 @@ model Person {
   createdAt    DateTime @default(now())
 
   credentials              Credential[]
+  podMemberships           PodMember[]
+  podProjectsAccepted      PodProject[]
   /// The record ledger (2026-11-21 → 107): acts this person did, and decisions she owes or made.
   recordActions            RecordAction[]
   decisionsOwed            DecisionItem[]            @relation("decisionOwner")
@@ -286,6 +288,7 @@ model Person {
   /// The identities a company's directory vouches for: issuer and subject.
   externalIdentities     ExternalIdentity[]
   signInPoliciesSet      CompanySignInPolicy[] @relation("signInPolicySetBy")
+  skillTargetsSet        SkillTarget[]         @relation("skillTargetSetBy")
   /// Owners (2026-11-12): asks this person made or decided, and the proofs
   /// about them or recorded by them.
   ownershipAsked         OwnershipRequest[]    @relation("ownershipAskedBy")
@@ -995,6 +998,16 @@ model Company {
   /// Where a signed-in seat at this firm lands. Null is the standing rule
   /// (lib/console-home); DECISIONS opens the decision queue (→ 107).
   homePage              HomePage?
+  /// Plugins switched on for this firm (record 120): TRAIN_TO_BENCH, PODS.
+  /// Empty is off. The ledger is PluginSwitch.
+  pluginsOn             String[]                @default([])
+  pluginSwitches        PluginSwitch[]
+  skillTargets          SkillTarget[]
+  /// Hides this firm's courses on its storefront whatever its plugin says
+  /// (record 120, answer 3). A per-tenant setting; Tapin's is true.
+  coursesHiddenOnStorefront Boolean @default(false)
+  cohorts               Cohort[]
+  pods                  Pod[]
   docTemplates          DocTemplate[]
   msasAsVendor          MasterAgreement[]       @relation("vendor")
   msasAsClient          MasterAgreement[]       @relation("client")
@@ -1557,6 +1570,7 @@ model OrderMilestone {
 
   invoiceLines    InvoiceLine[]
   vendorBillLines VendorBillLine[]
+  podDeliverable  PodDeliverable?
 
   @@index([orderId, status])
 }
@@ -2743,6 +2757,9 @@ model BenchListing {
   /// Set with `revokedAt` when the clock ended the listing rather than
   /// the person. Only a lapsed listing may be renewed from a reminder.
   lapsedAt       DateTime?
+  /// The cohort she finished before her yes made this row (record 120).
+  sourceCohortId String?
+  sourceCohort   Cohort? @relation(fields: [sourceCohortId], references: [id])
 
   // ── The person's own terms, where the firm stated them at listing ───
   //
@@ -2815,6 +2832,7 @@ model BenchListing {
   @@index([companyId, revokedAt])
   @@index([consultantId, state])
   @@index([termsStatedById])
+  @@index([sourceCohortId])
 }
 
 /// What a firm asks its partners to offer: "What we need", shown at the top
@@ -6167,6 +6185,7 @@ model ProjectOrder {
   buyContracts   BuyContract[]
   journalEntries JournalEntry[]
   vendorBills    VendorBill[]
+  podProject     PodProject?
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -7713,6 +7732,7 @@ model Course {
   updatedAt   DateTime @updatedAt
 
   enrollments Enrollment[]
+  cohorts     Cohort[]
 
   @@index([companyId, isPublic])
 }
@@ -7728,9 +7748,88 @@ model Enrollment {
   completedAt    DateTime?
   score          Int?
   certificateUrl String?
+  /// The cohort she took the course in, where there was one (record 120).
+  cohortId       String?
+  cohort         Cohort?   @relation(fields: [cohortId], references: [id])
+  assessments    Assessment[]
+  certifications Certification[]
+  benchAsks      BenchAsk[]
 
   @@unique([courseId, personId])
   @@index([personId, status])
+  @@index([cohortId])
+}
+
+/// A group taking one course together (record 120, train-to-bench).
+/// States: PLANNED, RUNNING, COMPLETE, CANCELLED.
+model Cohort {
+  id              String       @id @default(cuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  courseId        String
+  course          Course       @relation(fields: [courseId], references: [id])
+  name            String
+  startsOn        DateTime
+  endsOn          DateTime?
+  trainerPersonId String?
+  capacity        Int?
+  state           String       @default("PLANNED")
+  createdAt       DateTime     @default(now())
+  enrollments     Enrollment[]
+  benchListings   BenchListing[]
+
+  @@index([companyId, state])
+  @@index([courseId])
+}
+
+/// One scored attempt at one skill. Never changed: a retake is a new attempt.
+model Assessment {
+  id               String     @id @default(cuid())
+  enrollmentId     String
+  enrollment       Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  skill            String
+  score            Int
+  attempt          Int
+  assessorPersonId String
+  assessedAt       DateTime   @default(now())
+  note             String?
+
+  @@unique([enrollmentId, skill, attempt])
+}
+
+/// Issued by the assessor or the cohort's trainer, never a recruiter.
+model Certification {
+  id               String     @id @default(cuid())
+  enrollmentId     String
+  enrollment       Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  title            String
+  issuedAt         DateTime
+  expiresAt        DateTime?
+  issuedByPersonId String
+  evidenceUrl      String?
+
+  @@unique([enrollmentId, title])
+}
+
+/// The ledger of "Ask her onto the bench" and her answer (record 120).
+/// Append-only. The answer columns are written only by her own doors, once.
+/// EMAIL_LINK, OWN_PAGE or EMPLOYEE_TOLD (a firm's own W-2 is told, not asked).
+model BenchAsk {
+  id            String     @id @default(cuid())
+  companyId     String
+  enrollmentId  String
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id])
+  benchListingId String?
+  askedByPersonId String
+  askedAt       DateTime   @default(now())
+  method        String
+  /// YES or NO. Null until she answers; nothing is pre-filled.
+  answer        String?
+  answeredAt    DateTime?
+  answeredVia   String?
+
+  @@index([companyId, askedAt])
+  @@index([enrollmentId])
 }
 
 // ─────────────────────────────────────────────
@@ -8822,6 +8921,23 @@ model AgentRun {
   consideredCount Int?
   scoredCount     Int?
 
+  /// The skill layer (records 123, 125). All null on a row written before it,
+  /// and none is a foreign key.
+  /// The named skill this row ran, and the agent that ran it.
+  skillKey String?
+  agentKey String?
+  /// RULES · LOW · HIGH
+  tier     String?
+  /// A count only: the call went to the tenant's own model. Never a charge.
+  byTenantModel Boolean @default(false)
+  /// The model it fell back from, or the tier it escalated from.
+  fallbackFrom  String?
+  escalatedFrom String?
+  /// Planned is the agent's own in-scope count. Done is written only by the
+  /// grader, from what the checker re-read; never by the agent.
+  unitsPlanned Int?
+  unitsDone    Int?
+
   at DateTime @default(now())
 
   checks Check[]
@@ -8829,6 +8945,8 @@ model AgentRun {
   @@index([companyId, at])
   @@index([recordType, recordId])
   @@index([companyId, agent, at])
+  @@index([companyId, skillKey, at])
+  @@index([companyId, agentKey, at])
 }
 
 /// One check on one thing, and who did the checking.
@@ -11576,4 +11694,123 @@ model PublicAccessFile {
   @@index([companyId])
   @@index([petitionId])
   @@index([approvedById])
+}
+
+/// Who switched which plugin, and when (record 120). Append-only: a row is
+/// never changed or deleted. `byStaff` is Etyme's Superadmin, shown to the
+/// Owner as "Etyme staff". `byPersonId` is kept as text so the ledger
+/// outlives the person.
+model PluginSwitch {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plugin     String // TRAIN_TO_BENCH · PODS
+  on         Boolean
+  byPersonId String
+  byStaff    Boolean  @default(false)
+  reason     String?
+  at         DateTime @default(now())
+
+  @@index([companyId, plugin, at])
+}
+
+/// Project teams (record 120): a named team a firm sells as a project. A plugin, off by default; the tables exist for every tenant and stay empty until one switches it on.
+model Pod {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?
+  /// SPRINT_PRICE | RATE_CARD
+  pricing          String
+  sprintPriceCents Int?
+  sprintWeeks      Int?
+  currency         String   @default("USD")
+  archivedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  roles    PodRole[]
+  projects PodProject[]
+
+  @@unique([companyId, name])
+}
+
+model PodRole {
+  id        String @id @default(cuid())
+  podId     String
+  pod       Pod    @relation(fields: [podId], references: [id], onDelete: Cascade)
+  title     String
+  headcount Int    @default(1)
+  rateCents Int?
+  sortOrder Int    @default(0)
+
+  members PodMember[]
+
+  @@index([podId])
+}
+
+/// A person on a team: the same person record, a reference only.
+model PodMember {
+  id        String   @id @default(cuid())
+  podRoleId String
+  podRole   PodRole  @relation(fields: [podRoleId], references: [id], onDelete: Cascade)
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id])
+  addedAt   DateTime @default(now())
+
+  @@unique([podRoleId, personId])
+  @@index([personId])
+}
+
+/// A sold team: the project on ProjectOrder, and the one person at the client who accepts or rejects its deliverables.
+model PodProject {
+  id              String       @id @default(cuid())
+  podId           String
+  pod             Pod          @relation(fields: [podId], references: [id])
+  projectOrderId  String       @unique
+  projectOrder    ProjectOrder @relation(fields: [projectOrderId], references: [id])
+  acceptorPersonId String
+  acceptor        Person       @relation(fields: [acceptorPersonId], references: [id])
+  fulfilledAt     DateTime?
+  createdAt       DateTime     @default(now())
+
+  deliverables PodDeliverable[]
+
+  @@index([podId])
+  @@index([acceptorPersonId])
+}
+
+/// A deliverable is an OrderMilestone; this row says it belongs to a pod project.
+model PodDeliverable {
+  id           String         @id @default(cuid())
+  podProjectId String
+  podProject   PodProject     @relation(fields: [podProjectId], references: [id], onDelete: Cascade)
+  milestoneId  String         @unique
+  milestone    OrderMilestone @relation(fields: [milestoneId], references: [id])
+  startedAt    DateTime?
+
+  @@index([podProjectId])
+}
+
+/// The Owner's own number for a skill or an agent over a day, a week or a
+/// month (records 123, 125). Null until set: the screen shows a dash. A change
+/// is also a RecordAction (TARGET_SET), so there is no history table.
+model SkillTarget {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// SKILL · AGENT
+  subjectKind String
+  subjectKey  String
+  /// DAY · WEEK · MONTH
+  period      String
+  target      Int
+  setById     String
+  setBy       Person   @relation("skillTargetSetBy", fields: [setById], references: [id], onDelete: Restrict)
+  setAt       DateTime @default(now())
+
+  @@unique([companyId, subjectKind, subjectKey, period])
+  @@index([companyId])
+  @@index([setById])
 }

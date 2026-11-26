@@ -26,7 +26,7 @@ export interface ExtendFacts {
 
 export type ExtendGate =
   | { ok: true }
-  | { ok: false; status: 403 | 409; code: 'NOT_A_PARTY' | 'FORBIDDEN' | 'INVALID_STATE'; says: string }
+  | { ok: false; status: 403 | 404 | 409; code: 'NOT_FOUND' | 'NOT_A_PARTY' | 'FORBIDDEN' | 'INVALID_STATE'; says: string }
 
 /**
  * May this caller extend this placement now, before the new day, the
@@ -38,14 +38,17 @@ export function extendGate(
   contract: ExtendFacts,
 ): ExtendGate {
   const side = contractSide(caller, { ...contract, endClientCompanyId: contract.endClientCompanyId ?? null })
+  // Record 119: the client that is only the site on the line below its
+  // supplier never opens that line, and the sentence names no firm.
+  if (side === 'END_CLIENT' || (!side && caller.company?.kind === 'CLIENT')) {
+    return { ok: false, status: 404, code: 'NOT_FOUND', says: 'Contract not found' }
+  }
   if (!side) {
     return {
       ok: false,
       status: 403,
       code: 'NOT_A_PARTY',
-      says:
-        `${caller.company?.name ?? 'Your company'} is not a party to this contract. Only ${contract.company.name}, ` +
-        `${contract.clientCompany.name}${contract.endClientCompany ? ` or ${contract.endClientCompany.name}` : ''} can extend it.`,
+      says: `${caller.company?.name ?? 'Your company'} is not a party to this contract, so it cannot extend it.`,
     }
   }
   if (!hasPermission(caller.permissions, 'assignments.write')) {

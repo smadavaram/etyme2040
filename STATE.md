@@ -36,6 +36,49 @@ deploy.
 
 ## START HERE
 
+**2026-11-26: brief for the tester (Pax). Latest changes. Nothing is deployed since Nov 25.**
+
+| Area | Change | State | Record |
+|---|---|---|---|
+| Plugin switch | Train to bench, Project teams, Website, Outreach: off by default; the Owner switches, logged | Switch and train-to-bench walked green | 120 |
+| Client leaks | No name or id of a firm below reaches the client, across 9 routes | Done; rides Sat 28 Nov | 119 |
+| Pods | Team, offer, the client's named yes, project, deliverables, bill | Built; switch held until member lines stay supplier-side | 120 |
+| Pods rulings | Seller signs outcome weeks; client never reads member lines; on-site option | Recorded; member lines to build | 120 |
+| Pods PATV | PV · EV · AC · SV · CV · SPI · CPI; the client sees dates only | Recorded; built with member lines | 123 |
+| Delivery tools | One sync engine, an adapter per tool (spreadsheet, tracker, work management, service desk) | Recorded | 130 |
+| Website / Outreach flags | 2 storefronts grandfathered; 3 switch-on checks; outreach gates selling letters only | Planned | 121, 122, 123 |
+| Skill layer | 40 skills; a read-only checker per skill; PATV panel on Agent control | Building, steps 1–6 | 123 |
+| Model gateway | Tiers by data class; per step, per tenant, fallback; Lane C never sent | Planned, after skills | 125 |
+| Ask Etyme | One job, one card; score = urgency × value × confidence; it is the end user's harness | Prototypes approved; building | 130 |
+| Ask Etyme targets | Coverage 100% · Autonomy 100% · Accuracy ≥ 95% · Speed ≥ 90% in ≤ 2 s | Recorded | 130 |
+| Card targets | 1 card · 1 click · ≤ 12 words · ≤ 10 s · ≥ 95% pass | Recorded | 130 |
+| Pricing | Starter $19.99 a contractor + $1,000 a year (floor $199 a month); Enterprise $20 + $12,000 a year; 60 days free | Locked; build waits on 6 owner questions | 126, 127 |
+| Affiliates | 40% for 12 months, then 20% while the tenant pays | Locked; queued after pricing | 127, 129 |
+| Competitor frame | Flat-tier platforms; an importer; the switch offer; the sales gate unchanged | Recorded; importer needs a sample export | 128 |
+| Public sector | Plugin 5, with its own agent; a person submits | Queued after plugins 1–4 | 124 |
+
+**Open for the tester:**
+1. Languages the labels must serve, beyond English.
+2. Where a tenant's own model key is stored (needs a sealed store).
+3. Models per environment, for the approved list.
+4. Delivery-tool sync: which tool comes first.
+
+**Open for the owner (via the tester):** pricing questions 1–6 (active contractor, clock start, who marks paid, Enterprise definition, the sales gate, chases after day 61); day 61 for work in flight.
+
+
+**2026-11-25: train-to-bench built, walked green; rides the Saturday deploy (record 120).**
+- Head 80b208e11. Last full release check was on e5da68d45: type check, build and 18,417 unit tests green. The 5 database failures there were out-of-date tests, fixed in b0ee1f2ab and re-run green. The final picker fix re-ran its own tests.
+- Walks: walk-120, walk-120b, walk-120c (scratchpad). The short re-walk passed every item except the course picker's labels, fixed in 80b208e11.
+- Record 119 leaks closed: contracts list, program view, tenure, timesheets, compliance, people/[id], plus activate/extend/verify answering a client "not found". The contracts leak was live since 2026-09-19.
+- **Open for the tester:**
+  1. Does record 119 also cover an MSP seat working in a client's program?
+  2. The person page says "(and one firm below them)": is that allowed?
+  3. Where should a client read "Certified: title, issued, expires"?
+  4. Record 69 against record 120 on courses on storefronts.
+- **Open for the owner:** the website and outreach switches (records 121 and 122): Tapin's storefront going dark, the website switch before its three checks, and gating outreach sends.
+- **Next:** pods (module 2) through its plan gate.
+
+
 | # | Item | State | Evidence, or what it waits on |
 |---|---|---|---|
 | 1 | Sensitive numbers masked | DONE in part (claim) | See below. |
@@ -429,7 +472,22 @@ docs/security-posture.md, 106 to 108 of 424): type check; 18,056 unit
 tests; 4,102 database tests; build. Deploy then with
 `prepare-replay.sh <last replayed> 88c15dd23`.
 
-## LIVE LEAK found 2026-11-25 (NOT RELEASED): a sub-vendor's name can reach the client on a contract line
+## DEPLOYED Wed 2026-11-25 on the owner's word ("deploy now"): 6f91fe3cd, source 98617d23d
+
+Replayed from c8d8abaf7. Carries the sub-vendor leak fix (07710b0c6) and
+everything staged: records 115, the rest of 112, 116 and 117 steps 1-2,
+the Network tabs. DB_PUSH_ON_BUILD set on by the owner before the push
+(new table OutreachLetter; new columns NoticePosting.measuredFromOn,
+CompanyContact.outreachOptOutAt, AgentTask.payload); he turns it off
+after. Health: serving 6f91fe3c, database READY. Smoke: every public
+page and door 200, two old addresses 308, inbound email door 404, a bad
+unsubscribe or interest link 404, outreach routes 401 signed out. NOT
+proven: the new table and columns (no signed-in read here); the first
+open of Outreach, Notices or a contract line's papers in the retest
+proves them. No agent switched on. Last replayed source is now
+98617d23d. STOPPED for Pax's production retest.
+
+## LIVE LEAK found 2026-11-25 (RELEASED in 6f91fe3cd): a sub-vendor's name can reach the client on a contract line
 
 Found by walk X of the papers view. In production (72a7b313, source
 c8d8abaf7) GET /api/placements/[id] sends the checklist item `note` and

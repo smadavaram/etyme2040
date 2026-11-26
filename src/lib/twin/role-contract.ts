@@ -64,7 +64,19 @@ export interface Contract {
   actsAlone: readonly string[]
   needsApproval: readonly string[]
   neverTouches: readonly string[]
+  /** When the saved row was written. Absent on the default and on older fixtures. */
+  setAt?: Date | null
 }
+
+/**
+ * Acts introduced after contracts were already being saved, each with the
+ * day it was added. Only these are filled at their shipped tier, and only on
+ * a contract saved before that day: any other act missing from a saved
+ * contract was left out by the company and stays out.
+ */
+export const ACTS_ADDED_LATER: ReadonlyArray<{ act: string; addedOn: Date }> = [
+  { act: 'pod.sale.accept', addedOn: new Date('2026-11-25T00:00:00Z') },
+]
 
 /**
  * The shipped default for one twin, from each act's own properties in
@@ -87,8 +99,33 @@ export function defaultContractFor(kind: TwinKindName): Contract {
 /** The program manager's shipped default. */
 export const DEFAULT_CONTRACT: Contract = defaultContractFor('PROGRAM_MANAGER')
 
+/**
+ * A saved contract that predates an act (a row written before it existed)
+ * has no tier for it. Each such act reads at the shipped default tier; the
+ * stored row is never rewritten.
+ */
+export function withDefaultsForMissingActs(contract: Contract): Contract {
+  const placed = new Set([...contract.actsAlone, ...contract.needsApproval, ...contract.neverTouches])
+  const fillable = new Set(
+    ACTS_ADDED_LATER
+      .filter((x) => !contract.setAt || contract.setAt < x.addedOn)
+      .map((x) => x.act),
+  )
+  const d = defaultContractFor(contract.kind ?? 'PROGRAM_MANAGER')
+  const add = (list: readonly string[]) => list.filter((a) => fillable.has(a) && !placed.has(a))
+  const [a, n, v] = [add(d.actsAlone), add(d.needsApproval), add(d.neverTouches)]
+  if (!a.length && !n.length && !v.length) return contract
+  return {
+    ...contract,
+    actsAlone: [...contract.actsAlone, ...a],
+    needsApproval: [...contract.needsApproval, ...n],
+    neverTouches: [...contract.neverTouches, ...v],
+  }
+}
+
 /** The tier an act sits in on one contract. Unknown names are NEVER. */
-export function tierIn(contract: Contract, action: string): Tier {
+export function tierIn(stored: Contract, action: string): Tier {
+  const contract = withDefaultsForMissingActs(stored)
   if (!isTwinAct(action)) return 'NEVER'
   // Floor first: no stored row, however written, moves one of these.
   if (TWIN_ACTS[action].floor) return 'NEVER'
@@ -148,9 +185,9 @@ export async function contractFor(companyId: string, kind: TwinKindName = 'PROGR
   const row = await prisma.roleContract.findFirst({
     where: { companyId, twinKind: kind },
     orderBy: { version: 'desc' },
-    select: { id: true, version: true, actsAlone: true, needsApproval: true, neverTouches: true },
+    select: { id: true, version: true, setAt: true, actsAlone: true, needsApproval: true, neverTouches: true },
   })
-  return row ? { kind, ...row } : defaultContractFor(kind)
+  return row ? withDefaultsForMissingActs({ kind, ...row }) : defaultContractFor(kind)
 }
 
 /** The one door: which tier an act is in, for this company, today. */

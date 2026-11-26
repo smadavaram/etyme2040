@@ -495,6 +495,23 @@ Full text → 40, 11, 56, 68, 72.
   2026-11-22 → 111): template, branding, pages and content stored on
   the tenant's record, built once as an engine. No tenant's site is a
   one-off build. Not built yet.
+- **Train-to-bench and pods are plugins, off by default** (owner,
+  2026-11-25 → 120): a per-tenant switch, set by the Owner or by a
+  Superadmin as a staff tool on the switch alone, ledgered; off means no
+  menu and refused routes, never deleted data. No agent switches one.
+- **Website and content, and outreach, are plugins too** (owner,
+  2026-11-25 → 121, 122), off by default. A site goes public only after
+  the Owner's branding yes, the firm's own domain and any compliance pass;
+  off takes it dark and keeps its content. Outreach off sends nothing and
+  still drafts. Built third and fourth, after pods. Both flags ship
+  first (→ 123): the two live storefronts are grandfathered and the deploy
+  takes nothing dark; the website switch refuses to turn on until its
+  three checks hold; outreach off sends nothing outside a task already
+  running, which completes or pauses visibly.
+- **Public-sector proposals are plugin 5** (→ 124): its own agent drafts
+  and chases from the tenant's record, a person approves and submits.
+  Free to switch on, agent acts metered, heavy work is consulting. After
+  plugins 1 to 4.
 - **Etyme may run a client's program as a vendor-neutral MSP**, in a seat
   the client grants, under the client's rules, every read logged.
 - **When the training door is built**: a client's view never says
@@ -518,6 +535,9 @@ Full text → 44, 45, 38, 30, 39, 60, 61, 27, 28, 35, 52, 72, 73, 75, 77.
 - **A sub-vendor's name is the prime's to keep.** The client sees the
   rung it pays, and the standing (insured, authorized) of whoever employs
   the person on its site. Rates are closed at every rung.
+  No trace of a firm below reaches the client, not even its id, and a
+  client never opens the line between its supplier and a firm below it
+  (owner, 2026-11-25 → 119: the non-compete).
 - **One tenant is one domain name.** A legal entity and a site are layers
   under the tenant. The entity layer is not built; a group is never
   modeled as two companies. One firm, one tenant: a firm already on Etyme
@@ -855,6 +875,12 @@ Full text → 49, 31, 17, 34, 35, 37, 20, 13.
 
 Full text → 12, 14, 24, 32, 35.
 
+- **One job, one card** (tester, 2026-11-26 → 130): the screen shows the
+  next decision for the person's one job: a score bar, one card (a name,
+  a figure, Yes or Not now), the queue, one input. The queue is ordered by
+  urgency × value × confidence. A card has 12 words at most, and its detail
+  sits under "Why". No versions: each piece is built whole. Ask Etyme is
+  the end user's harness: the one place a person drives their own agents.
 - **It is called Ask Etyme, it is a chat, and it is the first screen
   after sign-in.** Conversations are kept and listed per seat. An answer
   that is a list or a figure is shown as data beside the chat, from the
@@ -881,6 +907,15 @@ Full text → 12, 14, 24, 32, 35.
   come first. A cheap model is the default, and a stronger model only on
   a validator's reason. Restricted data reaches no model. Built in its
   own order, never ahead of stabilization.
+- **The model layer is a gateway, tiered by data class** (→ 125): the
+  provider is a setting per environment and per step, never in code.
+  Non-sensitive drafting takes the cheapest credible route; tenant business
+  data goes only to a US-hosted provider under a data processing agreement;
+  Lane C data reaches no model, ever. A step that fails the verifier moves
+  to a stronger model for that step only. A missing key is not a
+  production gate. Steps name a tier, never a model; a tenant may bring its
+  own model and keys; a failed model falls back within its tier, logged.
+  The rate card prices the tier, never the model.
 - **The cheap tier does the clerical work** (founder, 2026-11-18 → 96):
   the stronger tier only when the cheap answer cannot be trusted, and a
   failure there goes to a person. Confidential data never goes to the
@@ -978,7 +1013,9 @@ Full text → 13, 22, 23, 53, 54, 58, 18, 21, 38, 46, 66, 73, 76.
   Governments are a configuration (OIDC, SAML), never a build per
   country.
 - **The ladder.** Superadmin (Etyme's staff, `ETYME_STAFF_EMAILS`,
-  support@etyme.com; platform tools only, never a company's data) above
+  support@etyme.com; platform tools only, never a company's data, except that
+  a Superadmin may switch a tenant's plugin, switch only, and the switch is
+  ledgered and shown to the Owner → 120) above
   Owner above Admin. An Admin never acts on an Owner. The last Owner is
   never removed. Admin is IT and people, not money or contracts. Passing
   ownership is one act with the new Owner's yes. Recovery is by proof of
@@ -1178,7 +1215,7 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins, Training → Candidates. Suppliers, Customers, Contacts, Outreach → Companies. Leads, Questions, Shared with you → Jobs. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins → Candidates. Training → Candidates, where the plugin is on. Suppliers, Customers, Contacts, Outreach → Companies. Leads, Questions, Shared with you → Jobs. Project teams → Jobs, where the plugin is on. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Customers, Contacts, Outreach → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
@@ -1277,6 +1314,21 @@ years, and never seen Etyme, do the right thing on the first try?
 
 ## Pricing — decided 2026-08-29
 
+**The enterprise edition is free for 60 days, then it pays** (owner,
+2026-11-25 → 126). Its suppliers use it free as users inside its record;
+a supplier's own tenant gets the same 60 days, then pays. Day 61 unpaid is
+read-only, nothing deleted, agents stopped. The rule is recursive: every
+company is a free user in another's record, a supplier's own clients
+included. The pricing strategy (→ 127) is for approval only; no agent
+quotes its numbers until locked. LOCKED Nov 25 (→ 127): $20 per active
+contractor a month for Enterprise, Starter $19.99 per contractor a month plus a $1,000
+annual platform fee with a floor of $199 a month, Enterprise the same rate
+plus a $12,000 annual platform fee, usage metered per
+action by capability tier, about 15% off usage for paying a year ahead.
+Editions at launch: User, Starter, Enterprise. Consulting is $200 an hour.
+Affiliates earn 40% of a referred tenant's subscription (per-contractor
+charges plus platform fee) for 12 months, then 20% for as long as it pays.
+
 **Free while testing; the price is set after five real vendors are using
 it.** Founding firms keep the terms agreed with them, in writing, when a
 price exists. Until then no agent invents a number, a range, or a unit —
@@ -1320,6 +1372,12 @@ founder only after the domain agents, run as read-only advisers, have
 answered it. What they settle the lead decides and records. What still
 reaches him is a brief: the choice, what the experts agree on, one
 recommendation.
+
+**The tester decides architecture** (owner, 2026-11-25 → 123):
+business and IT architecture questions go to the tester in session,
+are ruled and recorded, and building goes on. Only money, signing, a
+person and outside sends go back to the owner. Agents draft and
+propose; a person approves and sends.
 
 **Build questions stop at the lead** (owner, 2026-11-21 → 108).
 Release, batching, architecture and acceptance follow the tester's

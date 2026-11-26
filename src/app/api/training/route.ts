@@ -3,7 +3,9 @@ import { getCallerContext } from '@/lib/api-context'
 import { prisma } from '@/lib/db'
 import { hasPermission } from '@/lib/permissions'
 import { staffOnly } from '@/lib/seat'
-import { MOVES, MOVE_ACTIONS, statusWord } from '@/lib/training'
+import { pluginGate } from '@/lib/plugin-gate'
+import { logTraineeReads, traineeReadRefusal } from '@/lib/training/caller'
+import { MOVES, MOVE_ACTIONS, statusWord, mayFinishCourse } from '@/lib/training'
 
 /**
  * GET  /api/training     the company's courses, and who is on each
@@ -14,18 +16,23 @@ export async function GET(request: NextRequest) {
   if (error) return error
   const notStaff = staffOnly(caller, 'Training')
   if (notStaff) return notStaff
+  const off = await pluginGate(caller, 'TRAIN_TO_BENCH')
+  if (off) return off
+  const refused = await traineeReadRefusal(caller, request.nextUrl.pathname)
+  if (refused) return refused
 
   const courses = await prisma.course.findMany({
     where: { companyId: caller.company!.id },
     include: {
       enrollments: {
-        include: { person: { select: { id: true, name: true } } },
+        include: { person: { select: { id: true, name: true } }, cohort: { select: { state: true } } },
         orderBy: { enrolledAt: 'desc' },
       },
     },
     orderBy: { title: 'asc' },
   })
 
+  logTraineeReads(caller, courses.flatMap((c) => c.enrollments.map((e) => e.person.id)), 'the people on its courses')
   return NextResponse.json({
     data: {
       courses: courses.map((c) => ({
@@ -51,7 +58,7 @@ export async function GET(request: NextRequest) {
           completedAt: e.completedAt?.toISOString() ?? null,
           score: e.score,
           certificateUrl: e.certificateUrl,
-          moves: (MOVES[e.status] ?? []).map((m) => ({ move: m, word: MOVE_ACTIONS[m] })),
+          moves: (MOVES[e.status] ?? []).filter((m) => m !== 'complete' || mayFinishCourse({ cohortState: e.cohort?.state ?? null }).ok).map((m) => ({ move: m, word: MOVE_ACTIONS[m] })),
         })),
       })),
     },
@@ -63,6 +70,8 @@ export async function POST(request: NextRequest) {
   if (error) return error
   const notStaff = staffOnly(caller, 'Training')
   if (notStaff) return notStaff
+  const off = await pluginGate(caller, 'TRAIN_TO_BENCH')
+  if (off) return off
   if (!hasPermission(caller.permissions, 'consultants.write')) {
     return NextResponse.json(
       { error: { code: 'FORBIDDEN', message: `Adding a course is for whoever develops the bench at ${caller.company!.name}.` } },
