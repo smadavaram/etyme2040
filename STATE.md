@@ -36,6 +36,27 @@ deploy.
 
 ## START HERE
 
+**2026-11-27 (Fri): Tapin's home and the first course. Branch `claude/vigilant-keller-56h8t7`, re-branched from the build branch at c109f2b5c. Nothing deployed.**
+
+- **Built, function-ready, waiting on Pax's visual pass (record 134):** the Course first layout on the one engine; the Sora and Manrope pairing; Tapin's home after Pax's reference page; the hero picture in its slot; four track cards into `/learn/tapin`; the join form; the ask box; a count printed only at 10 or more; what a buyer's assistant reads.
+- **To make it live, three acts by people:** run `npx tsx scripts/tapin-home.ts --write` against production; Tapin's Owner approves the branding in Settings; Tapin's Owner turns Train to bench on. Until all three, `/site/tapin` keeps its standing page.
+- **IT — Upgrade, the first draft, is NOT accepted.** Three readers checked it against the content map:
+  1. Simple does not teach agent, skill or agentic; its own test forbids "agent" there. Skill and agentic are taught nowhere; Complex calls a tool a skill.
+  2. "Milo at Maple Mart" appears nowhere. The examples are product screens with seed names.
+  3. The agent's five steps (ask, check, decide, act, record) are absent; chapter 7 teaches plan, yes, act, check, and defines an agent as a fixed approved plan.
+  4. No lesson marks an animation slot; the level tests forbid motion.
+  5. 17 of 42 lessons are product screens with no AI idea. Most of the map's material on documents, running and checking is absent.
+  6. Clean: no source name anywhere in the repository, no copied sentence, no sentence over 25 words, no price wording, product claims match the code.
+- **Open, named and not built:**
+  1. The door a visitor came from is carried as `?from=door`; nothing reads or ledgers it yet.
+  2. The course site itself is still in Etyme's cream look, and its fallback accent is Etyme's purple.
+  3. `Company.siteHome` has no editor in Settings; a script writes it.
+  4. The standing storefront still prints counts below 10.
+  5. Three home-page lines say things the product does not do yet: badges, a mentor's cohort board, and pods (its switch is held closed). "One fixed scope, one price" names a price.
+  6. The reference's on-ramp animation loops for 9 seconds; the animation spec says no loops. Built as the reference has it.
+  7. Kids track rules (no sign-in, no record) are recorded and not built; that track is not live.
+  8. Database tests and the build were not run in this session.
+
 **2026-11-26 (Thu): DEPLOYED on the owner's word, "Deploy now".**
 - Production serves deploy commit c2caa7704, from source 2268b9c2a.
 - **Release check on 060faee59:** type check ok · 18,705 unit · 4,507 database · build ok.

@@ -1054,6 +1054,10 @@ model Company {
   sitePages                  Json?
   /// The fingerprint of the stored branding values (logo, colors, font) when the Owner said yes. The yes counts only while it equals the fingerprint of the values stored now.
   siteBrandingApprovedHash   String?
+  /// The Course first layout's own content (record 134): { palette, heroImage, words }.
+  /// Read only through `courseHomeOf` (lib/public-site/course-home). Drawn only
+  /// while the Owner's yes covers the two colors the palette is built on.
+  siteHome                   Json?
   proposals                  Proposal[]
   certifications             SupplierCertification[]
   ownershipAttestations      OwnershipAttestation[]
@@ -12078,6 +12082,8 @@ enum SiteTemplate {
   ASK_FIRST
   FEED
   BOARD
+  /// The firm's free course leads the page; the bench and project teams are reached from it.
+  COURSE_FIRST
 }
 
 enum ProposalState {

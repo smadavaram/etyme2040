@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { publicSite, describeSite, titleOf } from '@/lib/public-site'
 import { SiteView } from './site-view'
+import { CourseHomePage } from './course-home'
 
 /**
  * A company's public page.
@@ -37,5 +38,8 @@ export default async function CompanySite({ params }: { params: Promise<{ slug: 
   const { slug } = await params
   const site = await publicSite(slug)
   if (!site) notFound()
+  // Course first: the firm chose it, its Owner's yes covers the look, and its course site is on.
+  // With the course site off the standing page is drawn, so no link leads nowhere.
+  if (site.home && site.learnOpen) return <CourseHomePage site={site} home={site.home} />
   return <SiteView site={site} />
 }

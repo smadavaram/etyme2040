@@ -8,7 +8,7 @@ import { createHash } from 'crypto'
  * Pure. The routes read and write; this file decides.
  */
 
-export const SITE_TEMPLATES = ['ASK_FIRST', 'FEED', 'BOARD'] as const
+export const SITE_TEMPLATES = ['ASK_FIRST', 'FEED', 'BOARD', 'COURSE_FIRST'] as const
 export type SiteTemplateKey = (typeof SITE_TEMPLATES)[number]
 
 /** Plain names an Owner reads, never the machine key. */
@@ -16,6 +16,7 @@ export const SITE_TEMPLATE_NAMES: Record<SiteTemplateKey, string> = {
   ASK_FIRST: 'Ask first',
   FEED: 'Feed',
   BOARD: 'Board',
+  COURSE_FIRST: 'Course first',
 }
 
 /** The font pairings on offer: a headline face and a body face. The list is the whole choice. */
@@ -23,6 +24,7 @@ export const FONT_PAIRINGS = {
   SERIF_SANS: 'Serif headlines, sans-serif body',
   SANS_SANS: 'Sans-serif throughout',
   SERIF_SERIF: 'Serif throughout',
+  SORA_MANROPE: 'Sora headlines, Manrope body',
 } as const
 export type FontPairingKey = keyof typeof FONT_PAIRINGS
 

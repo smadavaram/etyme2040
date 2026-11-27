@@ -507,6 +507,11 @@ Full text → 40, 11, 56, 68, 72.
   the core gets a door only; each user has a micro dashboard there; the
   one record underneath, never forked. Courses are adopted across tenants,
   owned by their creator, free through the learning window, never priced.
+- **Tapin's home is centered on its free course** (owner, 2026-11-27 →
+  134): the Course first layout, drawn from Tapin's record in Tapin's
+  look. A public count is printed only at 10 or more. A self-paced
+  course earns a completion; only an assessor or trainer certifies. A
+  minor never signs in. The hero picture and animations are Pax's.
 - **Website and content, and outreach, are plugins too** (owner,
   2026-11-25 → 121, 122), off by default. A site goes public only after
   the Owner's branding yes, the firm's own domain and any compliance pass;

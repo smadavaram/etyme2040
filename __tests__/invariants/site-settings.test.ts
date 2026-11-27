@@ -9,8 +9,8 @@ const B = { logoRef: 'https://x.example/l.png', primaryColor: '#1B2A4A', seconda
 const d = (s: string) => new Date(s)
 
 describe('the template choice', () => {
-  it('a template is one of three layouts and nothing else', () => {
-    expect([...SITE_TEMPLATES]).toEqual(['ASK_FIRST', 'FEED', 'BOARD'])
+  it('a template is one of four layouts and nothing else', () => {
+    expect([...SITE_TEMPLATES]).toEqual(['ASK_FIRST', 'FEED', 'BOARD', 'COURSE_FIRST'])
     expect(isSiteTemplate('FEED')).toBe(true)
     expect(isSiteTemplate('GRID')).toBe(false)
   })

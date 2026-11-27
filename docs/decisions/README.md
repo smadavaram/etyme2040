@@ -149,3 +149,4 @@ built, every release check, every walk and every deploy.
 | 131 | Pax makes deployment decisions — 2026-11-27 | 193 | [131-pax-makes-deployment-decisions-2026-11-27.md](131-pax-makes-deployment-decisions-2026-11-27.md) |
 | 132 | Plugin 5 is public-sector proposals and supplier diversity — 2026-11-27 | 271 | [132-plugin-5-widened-to-supplier-diversity-2026-11-27.md](132-plugin-5-widened-to-supplier-diversity-2026-11-27.md) |
 | 133 | The training plugin runs on its own micro-site — 2026-11-27 | 476 | [133-training-plugin-on-its-own-micro-site-2026-11-27.md](133-training-plugin-on-its-own-micro-site-2026-11-27.md) |
+| 134 | Tapin's home is centered on its free course — 2026-11-27 | 674 | [134-tapins-home-is-centered-on-its-free-course-2026-11-27.md](134-tapins-home-is-centered-on-its-free-course-2026-11-27.md) |

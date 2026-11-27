@@ -45,6 +45,7 @@ const PAGES = [{ slug: 'about-us', title: 'About us', body: 'We place data engin
 
 function record(look: SiteLook, over: Partial<PublicSite> = {}): PublicSite {
   return {
+    home: null,
     name: 'Tapin', slug: 'tapin', does: 'supplies contract staff', kind: 'VENDOR', audience: 'TALENT_AND_BUYERS',
     locations: ['San Antonio, TX'],
     track: { placements: 4, activeNow: 2, clients: 2, isNew: false },

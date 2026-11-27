@@ -31,7 +31,8 @@ const FEED_ORDER: SectionKey[] = ['comingFree', 'openPositions', 'reputation', '
 
 /** The order a template reads the sections in. A template never removes one that is present. */
 export function orderFor(template: SiteTemplateKey, present: SectionKey[]): SectionKey[] {
-  const order = template === 'ASK_FIRST' ? ASK_FIRST_ORDER : FEED_ORDER
+  // Course first has its own page; where that page cannot be drawn, the sections read Ask first.
+  const order = template === 'ASK_FIRST' || template === 'COURSE_FIRST' ? ASK_FIRST_ORDER : FEED_ORDER
   return order.filter((k) => present.includes(k))
 }
 
@@ -47,11 +48,15 @@ export function layoutOf(template: SiteTemplateKey): Layout {
 const STACKS = {
   serif: "'Iowan Old Style', Palatino, Georgia, serif",
   sans: "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  // Loaded by `lib/public-site/site-fonts` on the pages that may use them.
+  sora: "var(--site-font-sora), Sora, system-ui, sans-serif",
+  manrope: "var(--site-font-manrope), Manrope, system-ui, sans-serif",
 }
 const FONTS: Record<keyof typeof FONT_PAIRINGS, { head: string; body: string }> = {
   SERIF_SANS: { head: STACKS.serif, body: STACKS.sans },
   SANS_SANS: { head: STACKS.sans, body: STACKS.sans },
   SERIF_SERIF: { head: STACKS.serif, body: STACKS.serif },
+  SORA_MANROPE: { head: STACKS.sora, body: STACKS.manrope },
 }
 
 export type SiteLook = {

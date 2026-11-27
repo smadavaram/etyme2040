@@ -1,3 +1,4 @@
+import { courseHomeOf, type CourseHome } from '@/lib/public-site/course-home'
 import { coursesShown } from '@/lib/training/courses-shown'
 import { learnOpen } from '@/lib/training/learn-gate'
 import { prisma } from '@/lib/db'
@@ -110,6 +111,8 @@ export interface PublicSite {
   learnOpen: boolean
   /** The tenant's stored template, branding and pages (record 111). The layout always applies; the look only while the Owner's yes covers it. */
   look: SiteLook
+  /** The Course first page's own content, or null where the standing page is drawn (`courseHomeOf`). */
+  home: CourseHome | null
 }
 
 const READABLE: Record<string, string> = {
@@ -287,6 +290,7 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
       showPeopleOnPage: true,
       siteTemplate: true, siteLogoRef: true, sitePrimaryColor: true, siteSecondaryColor: true,
       siteFontPairing: true, sitePages: true, siteBrandingApprovedAt: true, siteBrandingApprovedHash: true,
+      siteHome: true,
       peopleInCharge: { select: { duty: true, name: true, personId: true } },
       locations: {
         where: { isRemote: false },
@@ -390,6 +394,7 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
     courses: courseRows.map((c) => ({ title: c.title, hours: c.duration ?? null })),
     learnOpen: learnOpen(company),
     look: lookFor(company),
+    home: courseHomeOf(company.siteHome, lookFor(company)),
   }
 
   // ── Talking to suppliers ────────────────────────────────────────────
