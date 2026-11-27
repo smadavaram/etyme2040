@@ -22,13 +22,13 @@ import type { Level } from './types'
 
 /** Terms the Simple and Medium levels build and this level uses. */
 export const COMPLEX_BUILDS_ON: readonly string[] = [
-  'Etyme', 'routine step', 'record', 'timesheet', 'approval', 'model', 'rule', 'permission', 'describe, never act',
+  'record', 'approval', 'model', 'agent', 'tool', 'skill', 'check', 'rule', 'permission', 'describe, never act',
 ]
 
 /** The order this level builds its own terms in: one new idea a lesson. */
 export const COMPLEX_GLOSSARY: readonly string[] = [
-  'agent', 'task', 'plan', 'act', 'check',
-  'tool', 'role contract', 'approval route', 'segregation of duties', 'floor',
+  'switch', 'task', 'plan', 'act', 'performance line',
+  'tool list', 'role contract', 'approval route', 'segregation of duties', 'floor',
   'ledger entry', 'model tier', 'meter', 'fallback', 'escalation',
 ]
 
@@ -48,8 +48,8 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Behind the screen, an agent is software that does a routine step by itself, inside rules a person set. ' +
             'Each one starts at Off, and only the firm’s Owner changes that. ' +
             'Technical note: at Drafts only, it prepares its work and sends nothing.',
-          introduces: ['agent'],
-          uses: ['routine step', 'timesheet', 'rule'],
+          introduces: ['switch'],
+          uses: ['agent', 'rule'],
           example: {
             mono: true,
             text:
@@ -83,7 +83,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Each task asks one person for one yes before anything is sent. ' +
             'Technical note: nothing carries from one task to the next.',
           introduces: ['task'],
-          uses: ['record', 'timesheet', 'agent'],
+          uses: ['record', 'agent'],
           example: {
             mono: true,
             text:
@@ -115,7 +115,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'A yes releases that plan and nothing more. ' +
             'Technical note: a send outside the approved plan is refused, even after a yes.',
           introduces: ['plan'],
-          uses: ['timesheet', 'agent', 'task'],
+          uses: ['agent', 'task'],
           example: {
             mono: true,
             text:
@@ -148,7 +148,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Every act is written down as it happens, with the agent’s name and the version of its rules. ' +
             'Technical note: the agent writes only through one door, so no act goes unrecorded.',
           introduces: ['act'],
-          uses: ['record', 'timesheet', 'rule', 'describe, never act', 'agent', 'task', 'plan'],
+          uses: ['record', 'rule', 'describe, never act', 'agent', 'task', 'plan'],
           example: {
             mono: true,
             text:
@@ -184,8 +184,8 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'A check is a second piece of code that reads the record again and compares. ' +
             'It is never handed the agent’s own report. ' +
             'Technical note: where it cannot read, the line says “Not graded”, never a pass.',
-          introduces: ['check'],
-          uses: ['record', 'agent', 'plan', 'act'],
+          introduces: ['performance line'],
+          uses: ['record', 'agent', 'check', 'plan', 'act'],
           example: {
             mono: true,
             text:
@@ -223,9 +223,9 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Behind the screen, each of those is done with a tool. ' +
             'A tool is one named ability, such as read, draft, raise a question, write a row or send. ' +
             'An agent may use only the tools on its own list, and anything else is refused. ' +
-            'Technical note: in the code, Etyme calls a tool a skill.',
-          introduces: ['tool'],
-          uses: ['Etyme', 'timesheet', 'model', 'agent', 'task'],
+            'Technical note: a skill is the written steps for one job, and each skill names the tools it may use, its tool list.',
+          introduces: ['tool list'],
+          uses: ['model', 'agent', 'tool', 'skill', 'task'],
           example: {
             mono: true,
             text:
@@ -264,7 +264,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'A change is saved as a new version with a reason, and the old version stays. ' +
             'Technical note: code reads the columns as a plain list, and no model is asked.',
           introduces: ['role contract'],
-          uses: ['Etyme', 'approval', 'model', 'rule', 'agent', 'act'],
+          uses: ['approval', 'model', 'rule', 'agent', 'act'],
           example: {
             mono: true,
             text:
@@ -335,7 +335,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'The person the agent acts for may not answer it either, while somebody else at the firm can. ' +
             'Technical note: each refusal is written down, with the rule named.',
           introduces: ['segregation of duties'],
-          uses: ['Etyme', 'rule', 'agent', 'act'],
+          uses: ['rule', 'agent', 'act'],
           example: {
             mono: true,
             text:
@@ -367,7 +367,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Any other act that moves money always needs a person’s yes. ' +
             'Technical note: the floor is read first, before any saved role contract.',
           introduces: ['floor'],
-          uses: ['Etyme', 'model', 'agent', 'act', 'role contract'],
+          uses: ['model', 'agent', 'act', 'role contract'],
           example: {
             mono: true,
             text:
@@ -453,7 +453,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'Low is the everyday tier, and high is kept for answers the low one got wrong. ' +
             'Technical note: tax IDs, bank details and social security numbers reach no model at any tier.',
           introduces: ['model tier'],
-          uses: ['model', 'rule', 'agent', 'check'],
+          uses: ['model', 'rule', 'agent', 'check', 'performance line'],
           example: {
             mono: true,
             text:
@@ -486,7 +486,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'The 10 is a daily cap the Owner may set, and none is set at the start. ' +
             'Technical note: at the cap the agent stops cleanly and writes one line that says so.',
           introduces: ['meter'],
-          uses: ['record', 'timesheet', 'model', 'rule', 'agent', 'act', 'tool', 'model tier'],
+          uses: ['record', 'model', 'rule', 'agent', 'act', 'tool', 'model tier'],
           example: {
             mono: true,
             text:
@@ -521,7 +521,7 @@ export const IT_UPGRADE_COMPLEX: Level = {
             'It never drops to a lower model tier to get an answer. ' +
             'Technical note: with no model set up at all, nothing is sent and the rules answer.',
           introduces: ['fallback'],
-          uses: ['Etyme', 'model', 'rule', 'model tier'],
+          uses: ['model', 'rule', 'model tier'],
           example: {
             mono: true,
             text:
@@ -614,15 +614,15 @@ export const IT_UPGRADE_COMPLEX: Level = {
  */
 export const IT_UPGRADE_RECAP: { goodAt: string; youDid: string }[] = [
   {
-    goodAt: 'Explain how a client, a staffing firm and a consultant work on one job',
-    youDid: 'You named the three parties on one job and said what each one does.',
+    goodAt: 'Explain the difference between a helper that only answers and one that does the steps for you',
+    youDid: 'You compared a chat that only answers with a helper that looks things up and finishes a small job.',
   },
   {
-    goodAt: 'File a week of hours and follow it to pay day',
-    youDid: 'You filed a week of hours and saw who approves it before it is paid.',
+    goodAt: 'Write down one job as clear steps that a helper can follow',
+    youDid: 'You wrote one job as a short list of steps, like a recipe card.',
   },
   {
-    goodAt: 'Write a clear request to a chatbot and check what comes back',
+    goodAt: 'Write a clear request and look closely at what comes back',
     youDid: 'You wrote prompts that name the task and the reader. You checked each reply before you trusted it.',
   },
   {

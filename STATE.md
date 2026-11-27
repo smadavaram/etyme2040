@@ -47,6 +47,8 @@ deploy.
   4. No lesson marks an animation slot; the level tests forbid motion.
   5. 17 of 42 lessons are product screens with no AI idea. Most of the map's material on documents, running and checking is absent.
   6. Clean: no source name anywhere in the repository, no copied sentence, no sentence over 25 words, no price wording, product claims match the code.
+- **IT — Upgrade, Simple level REWRITTEN, waiting on Pax's check before Medium is touched:** 13 lessons in three chapters, one term each: chatbot, prompt, model, reply, limit, agent; tool, skill, approval; goal, check, record, agentic. Milo at Maple Mart throughout. Two animation slots marked. Medium and Complex are still the first draft, patched only so no term is built twice.
+- **Removed from Simple and waiting for a place:** the three parties on a job, filing a week of hours and its approval, the bench, and Ask Etyme's details. Medium and Complex still say Etyme, timesheet and routine step, and no lesson builds those words now.
 - **Open, named and not built:**
   1. The door a visitor came from is carried as `?from=door`; nothing reads or ledgers it yet.
   2. The course site itself is still in Etyme's cream look, and its fallback accent is Etyme's purple.

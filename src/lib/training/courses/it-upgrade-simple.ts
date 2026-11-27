@@ -1,33 +1,37 @@
 import type { Level } from './types'
 
 /**
- * IT — Upgrade, level 1: Simple (chapters 1 to 3). Who Tapin is and how a
- * consultant's work is changing; the record, a week of hours and the bench
- * as a worker sees them on Etyme; then a first chatbot: the prompt, the
- * model, the reply and its limits.
+ * IT — Upgrade, level 1: Simple (chapters 1 to 3). What it is, in plain
+ * words: a chatbot answers and an agent does; a skill is one job written
+ * down as steps; agentic work goes step by step toward a goal, checking
+ * as it goes, and every step is written on a record.
  *
- * Every screen described here is read from the code as it stands:
- * `app/site/[slug]` (a firm's public page), `app/dashboard/my-work/page.tsx`
- * (Your work, "File your hours", the stages of a week), `app/api/me/work`
- * (the filing route and its refusals), `app/dashboard/my-benches/page.tsx`
- * (Who has you), `lib/bench-stay` (how long a yes lasts) and
- * `app/api/conversations/twin/worker.ts` (a worker's Ask Etyme: its ready
- * questions, its sentences, and that nothing she types leaves to a model).
- * A lesson that claims more than those files do is a bug.
+ * The one running example is the course's own: Milo, who works the help
+ * counter at a store named Maple Mart, and the store's help chat. At this
+ * level the chatbot has never seen the store's own papers.
+ *
+ * Each lesson is a walkthrough in one order: what is on the screen, what
+ * happens behind it, and one technical note. The single product fact kept
+ * here is read from `app/api/conversations/twin/worker.ts`: nothing a
+ * worker types in her Etyme chat is sent to a model.
  */
 
 /** The order this level builds its terms in: one new idea a lesson. */
 export const SIMPLE_GLOSSARY: readonly string[] = [
-  'staffing firm', 'Etyme', 'routine step',
-  'record', 'timesheet', 'approval', 'bench',
-  'chatbot', 'prompt', 'model', 'reply', 'limit',
+  'chatbot', 'prompt', 'model', 'reply', 'limit', 'agent',
+  'tool', 'skill', 'approval',
+  'goal', 'check', 'record', 'agentic',
 ]
 
-/** "What you will be good at": plain verbs. Opens the track and is recapped at its end. */
+/**
+ * "What you will be good at": plain verbs and everyday words only. No line
+ * uses a term that needs a lesson. The Complex level's recap repeats these
+ * lines word for word.
+ */
 export const IT_UPGRADE_GOOD_AT: string[] = [
-  'Explain how a client, a staffing firm and a consultant work on one job',
-  'File a week of hours and follow it to pay day',
-  'Write a clear request to a chatbot and check what comes back',
+  'Explain the difference between a helper that only answers and one that does the steps for you',
+  'Write down one job as clear steps that a helper can follow',
+  'Write a clear request and look closely at what comes back',
   'Find the answer to a question in your firm’s own documents',
   'Say what software may do alone and what needs a person’s yes',
 ]
@@ -37,413 +41,134 @@ export const IT_UPGRADE_SIMPLE: Level = {
   title: 'Simple',
   chapters: [
     {
-      key: 'it-ch1-tapin-and-your-work',
-      title: 'Tapin and how your work is changing',
+      key: 'it-ch1-a-chatbot-answers-an-agent-does',
+      title: 'A chatbot answers. An agent does.',
       lessons: [
         {
           key: 'it-1-1-1',
-          title: 'Three parties, one job',
+          title: 'A chatbot: a chat that answers',
           intro:
-            'Tapin is a staffing firm: it connects consultants with clients who need their skills. ' +
-            'A consultant is a person who works on contract. A client is the company that needs the work. ' +
-            'On the screen, Tapin’s public page shows the firm’s name, a short line about it, and the skills it offers. ' +
-            'Behind the screen, the opening words are saved once, and the facts below them are read fresh on every visit. ' +
-            'No person’s name and no pay rate is printed there. ' +
-            'Technical note: your browser sends one HTTPS GET, and a firm with no page answers “not found”.',
-          introduces: ['staffing firm'],
+            'A chatbot is a program that answers typed questions in a chat. ' +
+            'On the screen, a customer types a question into Maple Mart’s help chat and reads an answer. ' +
+            'Behind the screen, the program reads the question and writes words back. ' +
+            'Technical note: it only writes words. Nothing in the store changes.',
+          introduces: ['chatbot'],
           uses: [],
           example: {
             mono: true,
             text:
-              'A client needs a data engineer for six months.\n' +
-              'A consultant has that skill and is free next month.\n' +
-              'A staffing firm knows both, and introduces them.',
+              'Milo works the help counter at a store named Maple Mart.\n' +
+              'The store also has a help chat on its website.\n\n' +
+              'Customer   What time do you open on Sunday?\n' +
+              'Help chat  Many stores open later on Sunday. Ask the store to be sure.',
           },
           tryIt: {
-            prompt: 'In one sentence, say what a staffing firm does. Use the words consultant and client.',
-            starter: 'A staffing firm ',
+            prompt: 'A customer wants to know where her order is. Type the question she sends to Maple Mart’s help chat.',
+            starter: '',
             rules: [
-              { kind: 'contains', value: 'consultant', says: 'It names the consultant.' },
-              { kind: 'contains', value: 'client', says: 'It names the client.' },
-              { kind: 'minWords', value: 7, says: 'It is a whole sentence.' },
+              { kind: 'contains', value: '?', says: 'It is a question.' },
+              { kind: 'contains', value: 'order', says: 'It asks about her order.' },
+              { kind: 'maxWords', value: 12, says: 'It asks one thing, in a few words.' },
             ],
-            expected: 'Yes. The firm stands between the person with the skill and the company with the job.',
+            expected: 'A good question for a chat: short, and about one thing.',
           },
           exercise: {
-            question: 'A hospital needs a database expert for three months. Which party is the hospital?',
-            choices: ['The consultant', 'The client', 'The staffing firm'],
-            correctIndex: 1,
-            reason: 'The client is the company that needs the work done.',
+            question: 'What does a chatbot do?',
+            choices: ['It answers typed questions in a chat', 'It packs orders in the store', 'It repairs the store’s computers'],
+            correctIndex: 0,
+            reason: 'A chatbot is a program that answers what you type.',
           },
           video: null,
         },
         {
           key: 'it-1-1-2',
-          title: 'Etyme: the system under the firm',
+          title: 'The prompt: what you send',
           intro:
-            'Tapin runs its daily work on Etyme. Etyme is the system that keeps the facts of contract work in one place. ' +
-            'On the screen, a new consultant opens Your work and reads “There is no work here yet.” ' +
-            'A box lists what will appear later, such as where you work and what you are owed. ' +
-            'Behind the screen, Etyme looks for your jobs, finds none, and says so in words. ' +
-            'Technical note: the page calls GET /api/me/work over HTTPS and reads JSON. Without a sign-in, the call is refused.',
-          introduces: ['Etyme'],
-          uses: ['staffing firm'],
+            'The text you send to a chatbot is a prompt. ' +
+            'A clear prompt asks one thing and names its subject. ' +
+            'On the screen, a Maple Mart customer types in the box and presses Send. ' +
+            'Behind the screen, the chatbot receives her prompt as plain text. ' +
+            'Technical note: the chatbot gets only those words. It cannot see the customer or the store.',
+          introduces: ['prompt'],
+          uses: ['chatbot'],
           example: {
             mono: true,
             text:
-              'Your work, on day one\n' +
-              '  There is no work here yet.\n\n' +
-              'Your work, with a job\n' +
-              '  Where you work\n' +
-              '  Hours this month\n' +
-              '  What you are owed',
+              'Vague prompt   Help with my thing.\n' +
+              'Clear prompt   Where is my order of two blue mugs?',
           },
           tryIt: {
-            prompt: 'A friend asks why your page is empty on day one. Answer in one sentence.',
-            starter: 'My page is empty because ',
+            prompt: 'This prompt is vague: “Tell me about returns.” Rewrite it to ask one thing about returning a pair of shoes.',
+            starter: '',
             rules: [
-              { kind: 'containsAny', values: ['no work', 'no job', 'no placement', 'not placed', 'yet'], says: 'It says there is no job yet.' },
-              { kind: 'minWords', value: 8, says: 'It is a whole sentence.' },
+              { kind: 'contains', value: 'return', says: 'It says what it is about: a return.' },
+              { kind: 'contains', value: '?', says: 'It asks a question.' },
+              { kind: 'maxWords', value: 14, says: 'It asks one thing.' },
             ],
-            expected: 'Yes. The page fills from real work, so it stays empty until a job exists.',
+            expected: 'A clear prompt: one question, about one thing.',
           },
           exercise: {
-            question: 'A new consultant opens Your work and it is empty. Why?',
-            choices: ['Etyme lost her data', 'No firm has put her on a job yet', 'She typed the wrong password'],
+            question: 'Which is the clearer prompt?',
+            choices: ['Order stuff?', 'Where is the order I placed on Monday?'],
             correctIndex: 1,
-            reason: 'The page fills from real work, and she has none yet.',
+            reason: 'It asks one thing and says which order.',
           },
           video: null,
         },
         {
           key: 'it-1-1-3',
-          title: 'What software does now, and what stays yours',
+          title: 'The model: where the words come from',
           intro:
-            'A consultant’s day used to hold many small chores: add up hours, count days, chase a date. ' +
-            'A routine step is a task done the same way every time. Software now does those. ' +
-            'On the screen, Your work shows “Hours this month” and “Ending within 60 days” without you counting anything. ' +
-            'Behind the screen, Etyme adds up your hours and counts the days to each contract’s end. ' +
-            'Technical note: the totals come from your saved weeks, so a wrong week gives a wrong total. ' +
-            'What stays yours is judgment: which job to take, whether your hours are right, when to say yes.',
-          introduces: ['routine step'],
-          uses: ['Etyme'],
-          example: {
-            mono: true,
-            text:
-              'Software does\n' +
-              '  add up the hours in a week\n' +
-              '  count the days to a contract’s end\n\n' +
-              'You do\n' +
-              '  check that the hours are right\n' +
-              '  choose which job to take',
-          },
-          tryIt: {
-            prompt: 'Type one routine step from your own job today. Say how often you do it.',
-            starter: 'Every week I ',
-            rules: [
-              { kind: 'containsAny', values: ['every', 'each', 'always', 'daily', 'weekly'], says: 'It says how often: the same way each time.' },
-              { kind: 'minWords', value: 5, says: 'It is a whole sentence.' },
-            ],
-            expected: 'Yes. A task done the same way each time is a routine step.',
-          },
-          exercise: {
-            question: 'Which of these is a routine step?',
-            choices: ['Choosing between two job offers', 'Adding up the hours in a week', 'Explaining a design to a client'],
-            correctIndex: 1,
-            reason: 'It is done the same way every time, so software can do it.',
-          },
-          video: null,
-        },
-      ],
-    },
-    {
-      key: 'it-ch2-record-week-bench',
-      title: 'The record, your week and the bench',
-      lessons: [
-        {
-          key: 'it-1-2-1',
-          title: 'One record, read by each party',
-          intro:
-            'Etyme keeps one record of each job. The record is the shared set of facts: who works where, which weeks, which papers. ' +
-            'On the screen, “Where you work” names your site and every firm between you and the client. ' +
-            'You see your own pay rate, and no other firm’s rate. ' +
-            'Behind the screen, each party reads the same record, and the server sends each reader only its own part. ' +
-            'Technical note: every read of another person’s facts is written to a log, and so is every refused read.',
-          introduces: ['record'],
-          uses: ['Etyme', 'staffing firm'],
-          example: {
-            mono: true,
-            text:
-              'One week on the record: 40 hours\n\n' +
-              'You read\n  your hours, your pay\n' +
-              'Your firm reads\n  your hours, your pay, its bill\n' +
-              'The client reads\n  your hours, what it pays',
-          },
-          tryIt: {
-            prompt: 'A firm you never worked with asks to read your pay. Write what happens.',
-            starter: 'The read is ',
-            rules: [
-              { kind: 'containsAny', values: ['refus', 'denied', 'cannot', 'not allowed', 'may not'], says: 'It says the read is refused.' },
-              { kind: 'containsAny', values: ['log', 'written down', 'recorded'], says: 'It says the refusal is logged.' },
-            ],
-            expected: 'Yes. The read is refused, and the refusal itself is logged.',
-          },
-          exercise: {
-            question: 'Three parties work on your week. How many copies of it does Etyme keep?',
-            choices: ['Three, one for each party', 'One, and each party reads its own part', 'None'],
-            correctIndex: 1,
-            reason: 'One record means one set of facts, so the parties cannot disagree.',
-          },
-          video: null,
-        },
-        {
-          key: 'it-1-2-2',
-          title: 'A week of hours',
-          intro:
-            'You report your hours on a timesheet. A timesheet is one week of hours, from Sunday to Saturday. ' +
-            'On the screen, “File your hours” shows a week picker, one box for each day, and a running total. ' +
-            'The line above it reads “Only you can file your hours.” ' +
-            'Behind the screen, the screen sends the week’s first day and the hours for each day, and the record keeps them. ' +
-            'Technical note: a week that is already filed is refused in a sentence, so nothing is saved twice.',
-          introduces: ['timesheet'],
-          uses: ['record'],
-          example: {
-            mono: true,
-            text:
-              'POST /api/me/work\n' +
-              '{\n' +
-              '  "contractId": "…",\n' +
-              '  "periodStart": "2026-12-06",\n' +
-              '  "hours": { "2026-12-07": 8, "2026-12-08": 8, "2026-12-09": 8 }\n' +
-              '}',
-          },
-          tryIt: {
-            prompt: 'You worked 8 hours on each day from Monday to Friday. Type the total for the week.',
-            starter: '',
-            rules: [
-              { kind: 'contains', value: '40', says: 'Five days of eight hours make 40.' },
-              { kind: 'maxWords', value: 3, says: 'It is just the total.' },
-            ],
-            expected: '40 hours. The screen keeps the same running total as you type.',
-          },
-          exercise: {
-            question: 'Who may file your timesheet?',
-            choices: ['Your recruiter', 'Only you', 'The client'],
-            correctIndex: 1,
-            reason: 'They are your hours, so the screen takes them only from you.',
-          },
-          video: null,
-        },
-        {
-          key: 'it-1-2-3',
-          title: 'Approval: who says the week is right',
-          intro:
-            'A filed week is only a claim until somebody confirms it. Approval is the client’s yes that the hours are right. ' +
-            'On the screen, one button reads “Send for approval”. The week then reads “Waiting for” and the client’s name. ' +
-            'Later it reads “Owed to you”, and at last “Paid”. ' +
-            'Behind the screen, the client approves the week, and the firm that pays you accepts it. ' +
-            'Only after both does the record call the money owed. ' +
-            'Technical note: a week holds one status at a time, and the screen reads that status from the record.',
-          introduces: ['approval'],
-          uses: ['timesheet', 'record'],
-          example: {
-            mono: true,
-            text:
-              'The usual path of one week\n\n' +
-              'You file the week\n' +
-              '  ↓\n' +
-              'Waiting for the client      (the client approves)\n' +
-              '  ↓\n' +
-              'Waiting for your employer   (your employer accepts)\n' +
-              '  ↓\n' +
-              'Owed to you\n' +
-              '  ↓\n' +
-              'Paid',
-          },
-          tryIt: {
-            prompt: 'The client approved your week. Your employer has not accepted it yet. Type the missing word: the money is not yet ____.',
-            starter: '',
-            rules: [
-              { kind: 'contains', value: 'owed', says: 'The word is “owed”.' },
-              { kind: 'maxWords', value: 3, says: 'It is just the one word.' },
-            ],
-            expected: 'Owed. The money is owed to you once your employer accepts the week.',
-          },
-          exercise: {
-            question: 'The client approved your week this morning. Is the money owed to you now?',
-            choices: ['Yes, at once', 'Not until the firm that pays you accepts the week', 'Only after a month'],
-            correctIndex: 1,
-            reason: 'Owed means your employer accepted the week, not only the client.',
-          },
-          video: null,
-        },
-        {
-          key: 'it-1-2-4',
-          title: 'The bench, and your own yes',
-          intro:
-            'Between jobs, a firm can offer you to new jobs. The bench is a firm’s list of people it may put forward. ' +
-            'On the screen, “Who has you” lists every firm that holds your yes, and how long you chose to stay. ' +
-            'A firm that asks to market you waits there for your yes or your no. ' +
-            'Behind the screen, a firm that does not employ you cannot put you forward without that yes on the record. ' +
-            'Each firm sees only its own listing, and you can take a yes back at any time. ' +
-            'Technical note: a stay can have an end date. After it, nobody can put you forward through that firm.',
-          introduces: ['bench'],
-          uses: ['staffing firm', 'record'],
-          example: {
-            mono: true,
-            text:
-              'A firm asks to market you.\n' +
-              'You say yes, for 60 days.\n' +
-              'The firm may now put you forward to jobs.\n' +
-              'After 60 days the yes ends by itself, unless you renew it.',
-          },
-          tryIt: {
-            prompt: 'A firm asks to market you. Type your yes and how long it lasts: a number of days, or “until I cancel”.',
-            starter: 'Yes, ',
-            rules: [
-              { kind: 'contains', value: 'yes', says: 'It says yes.' },
-              { kind: 'containsAny', values: ['days', 'until i cancel'], says: 'It says how long the yes lasts.' },
-            ],
-            expected: 'Recorded as your own choice. The firm may put you forward for that long, and no longer.',
-          },
-          exercise: {
-            question: 'Who decides that you are on a firm’s bench?',
-            choices: ['The firm', 'The client', 'You'],
-            correctIndex: 2,
-            reason: 'A firm that does not employ you needs your own yes first.',
-          },
-          video: null,
-        },
-      ],
-    },
-    {
-      key: 'it-ch3-a-first-chatbot',
-      title: 'A first chatbot',
-      lessons: [
-        {
-          key: 'it-1-3-1',
-          title: 'A chat that answers',
-          intro:
-            'A chatbot is a program that answers typed questions in a chat. Etyme has one, named Ask Etyme. ' +
-            'On the screen, you see a greeting about your own work, a text box, and a few ready questions. ' +
-            'One ready question is “Is my week signed?” ' +
-            'Behind the screen, the chatbot reads your question and answers from your own record. ' +
-            'Technical note: each conversation is kept for the person who had it, and nobody else may open it.',
-          introduces: ['chatbot'],
-          uses: ['Etyme', 'record'],
-          example: {
-            mono: true,
-            text:
-              'Ready questions in a worker’s chat\n' +
-              '  What needs me today?\n' +
-              '  Is my week signed?\n' +
-              '  What am I owed?\n' +
-              '  What papers are due?\n' +
-              '  Who has my consent?',
-          },
-          tryIt: {
-            prompt: 'Pick one thing about your own work you would ask a chatbot. Type it as a question.',
-            starter: '',
-            rules: [
-              { kind: 'contains', value: '?', says: 'It is a question.' },
-              { kind: 'containsAny', values: ['my ', ' i ', ' me'], says: 'It is about your own work.' },
-              { kind: 'maxWords', value: 12, says: 'It asks one thing, in a few words.' },
-            ],
-            expected: 'A good question: short, and about your own work.',
-          },
-          exercise: {
-            question: 'What is a chatbot?',
-            choices: ['A person who answers by phone', 'A program that answers typed questions in a chat', 'A page of settings'],
-            correctIndex: 1,
-            reason: 'It is software, and you talk to it by typing.',
-          },
-          video: null,
-        },
-        {
-          key: 'it-1-3-2',
-          title: 'The prompt: what you send',
-          intro:
-            'The text you send to a chatbot is a prompt. A clear prompt asks one thing and says what it is about. ' +
-            'On the screen, you type in the box and press Send. Your prompt appears in the chat. ' +
-            'Behind the screen, the prompt travels to the server as plain text. The server keeps it in your conversation. ' +
-            'Technical note: it is one HTTPS POST with a small JSON body, and one answer comes back for it.',
-          introduces: ['prompt'],
-          uses: ['chatbot'],
-          example: {
-            mono: true,
-            text: 'POST /api/conversations/twin\n{ "text": "Is my week signed?" }',
-          },
-          tryIt: {
-            prompt: 'This prompt is vague: “Tell me about stuff.” Rewrite it to ask one thing about your week.',
-            starter: '',
-            rules: [
-              { kind: 'contains', value: 'week', says: 'It says what it is about: your week.' },
-              { kind: 'contains', value: '?', says: 'It asks a question.' },
-              { kind: 'maxWords', value: 12, says: 'It asks one thing.' },
-            ],
-            expected: 'A clear prompt: one question, about one week.',
-          },
-          exercise: {
-            question: 'Which is the clearer prompt?',
-            choices: ['Stuff about pay?', 'What am I owed for last week?'],
-            correctIndex: 1,
-            reason: 'It asks one thing and says which week.',
-          },
-          video: null,
-        },
-        {
-          key: 'it-1-3-3',
-          title: 'The model: where many chatbots get their words',
-          intro:
-            'Many chatbots pass your prompt to a model. ' +
+            'Many chatbots get their words from a model. ' +
             'A model is a program that learned the patterns of language from a great deal of text. ' +
-            'It writes an answer by choosing likely next words, one after another. ' +
-            'On the screen, you cannot tell: a model’s answer and a coded answer look the same. ' +
-            'Behind the screen, the difference is large. A model has not read your record unless someone puts it in the prompt. ' +
-            'Technical note: in a worker’s Ask Etyme, nothing you type is sent to a model. Its answers come from code.',
+            'On the screen, an answer appears. ' +
+            'Behind the screen, the model wrote it by choosing likely next words. ' +
+            'Technical note: not every chat uses a model. ' +
+            'On Etyme, the platform Tapin runs on, a worker’s chat sends her words to none.',
           introduces: ['model'],
-          uses: ['chatbot', 'prompt', 'record'],
+          uses: ['chatbot', 'prompt'],
           example: {
             mono: true,
             text:
-              'A chatbot with a model\n' +
-              '  prompt → model → words chosen one by one\n\n' +
-              'A worker’s Ask Etyme\n' +
-              '  prompt → code reads your record → a sentence built from facts',
+              'Prompt         The store opens at\n' +
+              'Likely words   nine, ten, eight\n\n' +
+              'The model picks a likely word.\n' +
+              'It did not look at the door of Maple Mart.',
           },
           tryIt: {
             prompt: 'Finish the sentence: say what a model learned from.',
             starter: 'A model learned from ',
             rules: [
               { kind: 'containsAny', values: ['text', 'writing', 'words', 'language'], says: 'It names what the model learned from.' },
-              { kind: 'minWords', value: 5, says: 'It is a whole sentence.' },
+              { kind: 'minWords', value: 6, says: 'It is a whole sentence.' },
             ],
-            expected: 'Yes. A model learned from text, not from your own files.',
+            expected: 'Yes. A model learned from text, not from the store’s own papers.',
           },
           exercise: {
-            question: 'Has a model read your timesheets?',
-            choices: ['Yes, it reads everything', 'No, unless someone puts them in the prompt', 'Only on weekdays'],
+            question: 'Has a model read Maple Mart’s list of orders?',
+            choices: ['Yes, it reads everything', 'No, it learned from other text', 'Only on weekdays'],
             correctIndex: 1,
-            reason: 'A model knows its learning text and the prompt, nothing else.',
+            reason: 'A model knows the text it learned from and the prompt, nothing else.',
           },
           video: null,
         },
         {
-          key: 'it-1-3-4',
+          key: 'it-1-1-4',
           title: 'The reply: what comes back',
           intro:
             'The text a chatbot sends back is a reply. One prompt gets one reply. ' +
-            'On the screen, the reply appears under your prompt, and some replies carry a link to the right page. ' +
-            'Behind the screen, a model’s reply can change from one try to the next, because it chooses likely words. ' +
-            'A reply built by code from your record is the same every time the facts are the same. ' +
-            'Technical note: the reply returns in the same HTTPS response, as JSON holding the sentence and any links.',
+            'On the screen, the reply appears under the customer’s prompt. ' +
+            'Behind the screen, a model’s reply can change from one try to the next. ' +
+            'Technical note: it chooses likely words, so the same prompt may get different words.',
           introduces: ['reply'],
-          uses: ['prompt', 'model', 'chatbot', 'record'],
+          uses: ['chatbot', 'prompt', 'model'],
           example: {
             mono: true,
             text:
-              'Prompt   File my week.\n' +
-              'Reply    Etyme never files your week; you file it on Your work.',
+              'Maple Mart’s help chat, asked twice\n\n' +
+              'Prompt    What time do you open on Sunday?\n' +
+              'Reply 1   Many stores open at ten on Sunday.\n' +
+              'Reply 2   Sunday hours are often shorter. Ask the store.',
           },
           tryIt: {
             prompt: 'You send the same prompt twice to a chatbot that uses a model. Are the two replies always the same? Type yes or no.',
@@ -455,45 +180,380 @@ export const IT_UPGRADE_SIMPLE: Level = {
             expected: 'No. Ask twice and you may read two different replies.',
           },
           exercise: {
-            question: 'You ask a coded chatbot the same question twice, and your record has not changed. What comes back?',
-            choices: ['Two different replies', 'The same reply', 'Nothing'],
+            question: 'A customer sends one prompt. How many replies come back?',
+            choices: ['None', 'One', 'Ten'],
             correctIndex: 1,
-            reason: 'The same facts through the same code give the same sentence.',
+            reason: 'One prompt gets one reply.',
           },
           video: null,
         },
         {
-          key: 'it-1-3-5',
-          title: 'Its limits',
+          key: 'it-1-1-5',
+          title: 'The limit: what a chatbot cannot do',
           intro:
-            'Every chatbot has limits. A limit is something it cannot do, or must not do. ' +
-            'A model can sound sure and be wrong, because it writes likely words, not checked facts. ' +
-            'On the screen, Ask Etyme states a limit under the box: “It never files, signs or sends anything for you.” ' +
-            'Behind the screen, a question outside your own work gets a refusal in one sentence, not a guess. ' +
-            'Technical note: that refusal is decided before your record is read, so nothing is fetched for it. ' +
-            'The next level removes one limit: a chatbot reads documents before it replies.',
+            'A limit is something a chatbot cannot do. ' +
+            'It cannot look anything up, and it cannot do anything in the store. ' +
+            'On the screen, its reply still reads smooth and sure. ' +
+            'Behind the screen, the model wrote likely words, with no facts from Maple Mart. ' +
+            'Technical note: this is a common failure: a sure reply that is wrong.',
           introduces: ['limit'],
-          uses: ['chatbot', 'model', 'prompt', 'reply', 'record'],
+          uses: ['chatbot', 'model', 'reply'],
           example: {
             mono: true,
             text:
-              'Prompt   What is another consultant’s pay?\n' +
-              'Reply    I answer only about your own work, never another person’s pay or a firm’s rates.',
+              'Customer   Where is my order?\n' +
+              'Help chat  Orders often arrive in three to five days.\n\n' +
+              'The chat did not look at her order. It cannot.\n' +
+              'Milo opens the order list and finds it.',
           },
           tryIt: {
-            prompt: 'Ask Etyme refuses “Tell me another consultant’s pay.” Rewrite the prompt so it asks about your own pay.',
-            starter: '',
+            prompt: 'Name one thing Maple Mart’s help chat cannot do for a customer.',
+            starter: 'It cannot ',
             rules: [
-              { kind: 'containsAny', values: ['my pay', 'am i owed', 'i owed', 'my rate', 'i paid'], says: 'It asks about your own pay.' },
-              { kind: 'maxWords', value: 12, says: 'It asks one thing.' },
+              { kind: 'contains', value: 'cannot', says: 'It names something the chat cannot do.' },
+              { kind: 'containsAny', values: ['look', 'find', 'see', 'open', 'send', 'change', 'know', 'pack', 'bring'], says: 'It names an action, such as look up or send.' },
+              { kind: 'minWords', value: 5, says: 'It is a whole sentence.' },
             ],
-            expected: 'Inside the limit: a question about your own pay can be answered from your record.',
+            expected: 'Yes. A chatbot writes words. It cannot look up or change anything.',
           },
           exercise: {
-            question: 'A chatbot answers fast and sounds sure. Is the answer checked?',
-            choices: ['Yes, sure means right', 'Not always: check it where the fact is kept', 'It is always wrong'],
+            question: 'The help chat sounds sure about the opening time. Is it right?',
+            choices: ['Yes, sure means right', 'Maybe not: it never saw the store’s hours', 'It is always wrong'],
             correctIndex: 1,
-            reason: 'A model writes likely words, so you check a fact against the record.',
+            reason: 'A model writes likely words, so a sure reply can still be wrong.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-1-6',
+          title: 'An agent: a helper that does the steps',
+          // Animation slot (Pax): on-ramp step 1, the chatbot
+          intro:
+            'An agent is a helper that does not just answer. ' +
+            'It does steps for you: it looks things up and finishes a small job. ' +
+            'On the screen, the customer reads the real status of her order. ' +
+            'Behind the screen, the agent opened the order list and read it. ' +
+            'Technical note: any step can fail, so each one needs care.',
+          introduces: ['agent'],
+          uses: ['chatbot'],
+          example: {
+            mono: true,
+            text:
+              'Customer   Where is my order?\n\n' +
+              'The chatbot\n' +
+              '  writes a likely answer, and stops\n\n' +
+              'The agent\n' +
+              '  1. reads her question\n' +
+              '  2. looks up her order in Maple Mart’s order list\n' +
+              '  3. picks the answer: it left the store today\n' +
+              '  4. tells her\n' +
+              '  5. writes down what it did',
+          },
+          tryIt: {
+            prompt: 'A customer asks Maple Mart where her order is. Write the first thing an agent does after it reads her question.',
+            starter: 'First, it ',
+            rules: [
+              { kind: 'containsAny', values: ['look', 'open', 'find', 'read', 'search'], says: 'It does a step, not only an answer.' },
+              { kind: 'contains', value: 'order', says: 'It names what it looks at: her order.' },
+              { kind: 'minWords', value: 5, says: 'It is a whole sentence.' },
+            ],
+            expected: 'Yes. An agent does the step. A chatbot would only write an answer.',
+          },
+          exercise: {
+            question: 'Which one is an agent?',
+            choices: [
+              'A helper that writes a likely answer and stops',
+              'A helper that looks up the order and tells the customer its status',
+              'A page that lists the store’s phone number',
+            ],
+            correctIndex: 1,
+            reason: 'An agent does the steps of a small job, not just an answer.',
+          },
+          video: null,
+        },
+      ],
+    },
+    {
+      key: 'it-ch2-a-skill-one-job-written-as-steps',
+      title: 'A skill: one job, written down as steps',
+      lessons: [
+        {
+          key: 'it-1-2-1',
+          title: 'A tool: something the agent can use',
+          intro:
+            'A tool is something an agent can use to do a step. ' +
+            'Milo’s tools are the order list and the phone. ' +
+            'On the screen, the customer sees only the answer. ' +
+            'Behind the screen, the agent asks for a tool by name, and the store’s system runs it. ' +
+            'Technical note: an agent can use only the tools on its list.',
+          introduces: ['tool'],
+          uses: ['chatbot', 'reply', 'agent'],
+          example: {
+            mono: true,
+            text:
+              'The agent’s tools at Maple Mart\n' +
+              '  look up an order\n' +
+              '  read the opening hours\n' +
+              '  send a message to Milo\n\n' +
+              'Not on its list\n' +
+              '  give money back',
+          },
+          tryIt: {
+            prompt: 'A customer asks what time Maple Mart opens. Type the tool the agent uses: “look up an order” or “read the opening hours”.',
+            starter: '',
+            rules: [
+              { kind: 'contains', value: 'hours', says: 'It names the tool that reads the hours.' },
+              { kind: 'maxWords', value: 5, says: 'It names one tool, not both.' },
+            ],
+            expected: 'Right tool. The agent reads the hours and does not guess them.',
+          },
+          exercise: {
+            question: 'What is a tool?',
+            choices: ['Something the agent can use to do a step', 'A reply the chatbot wrote', 'A customer’s question'],
+            correctIndex: 0,
+            reason: 'A tool is a thing the agent uses, as Milo uses the order list.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-2-2',
+          title: 'A skill: a recipe card for one job',
+          intro:
+            'A skill is one job the agent knows how to do well, written down as steps, like a recipe card. ' +
+            'More skills mean more jobs it can do. ' +
+            'On the screen, each return at Maple Mart is handled the same way. ' +
+            'Behind the screen, the agent follows the skill’s steps. ' +
+            'Technical note: a skill is plain text, so a person can read and correct it.',
+          introduces: ['skill'],
+          uses: ['agent', 'tool'],
+          example: {
+            mono: true,
+            text:
+              'Skill: answer a return question\n' +
+              '  1. Ask for the order and the item.\n' +
+              '  2. Look up the order.\n' +
+              '  3. Tell the customer how to bring or send the item back.\n' +
+              '  4. Pass the rest to Milo.\n\n' +
+              'The tool is the order list. The skill is the card of steps.',
+          },
+          tryIt: {
+            prompt: 'Write the first step of a skill for this job at Maple Mart: tell a customer where an order is.',
+            starter: 'Step 1: ',
+            rules: [
+              { kind: 'containsAny', values: ['ask', 'look', 'find', 'read', 'open'], says: 'It is a step the agent can do.' },
+              { kind: 'contains', value: 'order', says: 'It names the order.' },
+              { kind: 'minWords', value: 6, says: 'It is a whole step.' },
+            ],
+            expected: 'A good first step: clear, small, and written down.',
+          },
+          exercise: {
+            question: 'How is a skill different from a tool?',
+            choices: [
+              'They are the same thing',
+              'A tool is something the agent uses; a skill is the written steps for one job',
+              'A skill is a faster tool',
+            ],
+            correctIndex: 1,
+            reason: 'The tool does one action, and the skill says how to do the whole job.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-2-3',
+          title: 'Approval: what a person still decides',
+          intro:
+            'Approval is a person’s yes before something important happens. ' +
+            'An agent drafts and answers. ' +
+            'A person decides money, signing and anything about a person. ' +
+            'On the screen, Milo sees a request with Yes and Not now. ' +
+            'Behind the screen, the agent has stopped and waits. ' +
+            'Technical note: without his yes, the step does not run.',
+          introduces: ['approval'],
+          uses: ['agent'],
+          example: {
+            mono: true,
+            text:
+              'A customer wants her money back for a coat.\n\n' +
+              'The agent\n' +
+              '  looks up the order\n' +
+              '  drafts a note for Milo: what she bought, and when\n' +
+              '  stops\n\n' +
+              'Milo\n' +
+              '  reads the note and decides\n' +
+              '  says Yes or Not now',
+          },
+          tryIt: {
+            prompt: 'The agent at Maple Mart has a request to give a customer her money back. Type who decides.',
+            starter: '',
+            rules: [
+              { kind: 'containsAny', values: ['milo', 'person', 'human', 'staff'], says: 'A person decides about money.' },
+              { kind: 'maxWords', value: 8, says: 'It names who decides, in a few words.' },
+            ],
+            expected: 'Yes. The agent drafts, and a person decides about money.',
+          },
+          exercise: {
+            question: 'Which of these may an agent do alone?',
+            choices: ['Give a customer her money back', 'Draft an answer about opening hours', 'Sign a contract for the store'],
+            correctIndex: 1,
+            reason: 'An agent drafts and answers, and a person decides money and signing.',
+          },
+          video: null,
+        },
+      ],
+    },
+    {
+      key: 'it-ch3-agentic-work-step-by-step',
+      title: 'Agentic work: step by step, checking as you go',
+      lessons: [
+        {
+          key: 'it-1-3-1',
+          title: 'A goal: the result you want',
+          intro:
+            'A goal is the result you want at the end of a job. ' +
+            'An agent needs a clear goal, or it cannot know when to stop. ' +
+            'On the screen, the customer says what she wants. ' +
+            'Behind the screen, the agent keeps that goal and chooses each step toward it. ' +
+            'Technical note: a vague goal is a common cause of wrong steps.',
+          introduces: ['goal'],
+          uses: ['agent'],
+          example: {
+            mono: true,
+            text:
+              'Vague goal   Help the customer.\n' +
+              'Clear goal   Tell the customer where her Maple Mart order is, in one message.',
+          },
+          tryIt: {
+            prompt: 'This goal is vague: “Deal with the customer.” Write a clear goal for a customer who asks when Maple Mart opens.',
+            starter: 'Tell the customer ',
+            rules: [
+              { kind: 'containsAny', values: ['open', 'hours', 'time'], says: 'It names the result: the opening time.' },
+              { kind: 'minWords', value: 6, says: 'It is a whole sentence.' },
+            ],
+            expected: 'A clear goal: the agent knows what done looks like.',
+          },
+          exercise: {
+            question: 'Why does an agent need a clear goal?',
+            choices: ['So it knows which steps to take and when to stop', 'So it can type faster', 'So the chat looks nicer'],
+            correctIndex: 0,
+            reason: 'The goal tells the agent what result ends the job.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-3-2',
+          title: 'A check: look at each result',
+          intro:
+            'A check is a look at a result before the next step. ' +
+            'Did the step work? Is the result the right one? ' +
+            'On the screen, the customer sees none of this. ' +
+            'Behind the screen, the agent reads what each tool gave back. ' +
+            'Technical note: a wrong result that nobody checks is carried into every later step.',
+          introduces: ['check'],
+          uses: ['agent', 'tool'],
+          example: {
+            mono: true,
+            text:
+              'Step     look up the order in Maple Mart’s order list\n' +
+              'Result   no order with that number\n' +
+              'Check    the result is empty, so do not guess\n' +
+              'Next     ask the customer to read the number again',
+          },
+          tryIt: {
+            prompt: 'The agent looks up an order and nothing comes back. Type what it does next: “guess the status” or “ask for the number again”.',
+            starter: '',
+            rules: [
+              { kind: 'contains', value: 'ask', says: 'It asks, and does not guess.' },
+              { kind: 'maxWords', value: 6, says: 'It names one next step.' },
+            ],
+            expected: 'Yes. The check found an empty result, so the agent asks and does not guess.',
+          },
+          exercise: {
+            question: 'When does an agent check?',
+            choices: ['Only at the very end', 'After each step, before the next one', 'Never, to save time'],
+            correctIndex: 1,
+            reason: 'A wrong result found early does not spread into later steps.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-3-3',
+          title: 'A record: every step written down',
+          intro:
+            'A record is a written list of what happened, kept to be read later. ' +
+            'On the screen, Milo opens it and reads each line. ' +
+            'Behind the screen, the agent adds a line for every step: what it did and what came back. ' +
+            'Technical note: when an answer is wrong, the record shows which step failed.',
+          introduces: ['record'],
+          uses: ['model', 'agent'],
+          example: {
+            mono: true,
+            text:
+              'Record of one job at Maple Mart\n' +
+              '  10:02  customer asked where her order is\n' +
+              '  10:02  looked up the order: found\n' +
+              '  10:02  status read: left the store today\n' +
+              '  10:03  told the customer\n' +
+              '  10:03  job closed',
+          },
+          tryIt: {
+            prompt: 'The agent told a customer her order left the store today. Write the line it adds to the record.',
+            starter: '',
+            rules: [
+              { kind: 'containsAny', values: ['told', 'sent', 'answered', 'said'], says: 'It says what the agent did.' },
+              { kind: 'containsAny', values: ['customer', 'her', 'order'], says: 'It says who or what the step was about.' },
+              { kind: 'minWords', value: 4, says: 'It is a whole line.' },
+            ],
+            expected: 'A good line: what was done, and for whom.',
+          },
+          exercise: {
+            question: 'A customer got a wrong answer yesterday. Where does Milo look first?',
+            choices: ['In the record of that job', 'In the text the model learned from', 'Nowhere: it cannot be found'],
+            correctIndex: 0,
+            reason: 'The record holds every step, so the failed one can be found.',
+          },
+          video: null,
+        },
+        {
+          key: 'it-1-3-4',
+          title: 'Agentic: step by step toward a goal',
+          // Animation slot (Pax): the five steps ask, check, decide, act, record
+          intro:
+            'Agentic means working step by step toward a goal and checking as you go. ' +
+            'It is how an agent does a whole job, not just one answer. ' +
+            'On the screen, the customer asks once and the job gets done. ' +
+            'Behind the screen, five steps run: ask, check, decide, act, record. ' +
+            'Technical note: after a set number of tries, it stops and hands over to a person.',
+          introduces: ['agentic'],
+          uses: ['reply', 'agent', 'approval', 'goal', 'check', 'record'],
+          example: {
+            mono: true,
+            text:
+              'A customer asks Maple Mart to take back a lamp.\n\n' +
+              '  Ask      the agent reads her message\n' +
+              '  Check    it looks up her order and the date\n' +
+              '  Decide   it picks the next step: a note for Milo\n' +
+              '  Act      it drafts the note and tells her Milo will answer\n' +
+              '  Record   it writes down each step\n\n' +
+              'The money needs Milo’s approval.',
+          },
+          tryIt: {
+            prompt: 'Type the five steps of agentic work in order, with a comma and a space between them.',
+            starter: 'ask, ',
+            rules: [
+              { kind: 'contains', value: 'ask, check, decide, act, record', says: 'The order is ask, check, decide, act, record.' },
+              { kind: 'maxWords', value: 5, says: 'It is the five steps and nothing more.' },
+            ],
+            expected: 'Yes. Ask, check, decide, act, record: every job, in that order.',
+          },
+          exercise: {
+            question: 'Which is agentic work?',
+            choices: [
+              'Writing one reply and stopping',
+              'Working step by step toward a goal, checking after each step',
+              'Doing every step at once with no checks',
+            ],
+            correctIndex: 1,
+            reason: 'Agentic work moves toward a goal in steps and checks as it goes.',
           },
           video: null,
         },
@@ -502,70 +562,33 @@ export const IT_UPGRADE_SIMPLE: Level = {
   ],
   project: {
     key: 'it-simple-project',
-    title: 'Follow one week from your hours to a reply',
+    title: 'Run one help-counter job by hand, the way an agent would',
     checklist: [
-      'Drew the three parties of one job and named each',
-      'Wrote a sample week of hours, Sunday to Saturday, with its total',
-      'Marked who approves the week and who accepts it',
-      'Named one routine step software would do for that week',
-      'Wrote three prompts about the week, each asking one thing',
-      'Wrote the reply you expect for each prompt, using only facts from your sample week',
-      'Wrote one prompt a chatbot must refuse, and the one sentence it should say',
-      'Named one limit of a chatbot that uses a model',
+      'Chose one customer question for Maple Mart’s help chat and wrote it as a clear prompt',
+      'Wrote the reply a chatbot might give, and named one limit of that reply',
+      'Listed two tools an agent would need for the job',
+      'Wrote a skill for the job: three to five steps, like a recipe card',
+      'Marked the step that needs Milo’s approval, and said why',
+      'Wrote the goal of the job in one sentence',
+      'Walked the job through ask, check, decide, act, record',
+      'Wrote the record of the job, one line for each step',
     ],
   },
 }
 
 /** For each try-it: one input its rules accept and one they refuse. Read by the content test, and by a hint later. */
 export const SIMPLE_TRY_SAMPLES: Record<string, { right: string; wrong: string }> = {
-  'it-1-1-1': { right: 'A staffing firm connects a consultant with a client who needs her skill.', wrong: 'A staffing firm sells software to banks and shops.' },
-  'it-1-1-2': { right: 'My page is empty because no firm has put me on a job yet.', wrong: 'My page is empty because the system is broken today.' },
-  'it-1-1-3': { right: 'Every week I copy my hours into a spreadsheet.', wrong: 'I design things.' },
-  'it-1-2-1': { right: 'The read is refused, and the refusal is written to the log.', wrong: 'The firm reads my pay.' },
-  'it-1-2-2': { right: '40 hours', wrong: '45' },
-  'it-1-2-3': { right: 'owed', wrong: 'paid' },
-  'it-1-2-4': { right: 'Yes, for 60 days.', wrong: 'Maybe later.' },
-  'it-1-3-1': { right: 'When is my week due?', wrong: 'Tell the weather today' },
-  'it-1-3-2': { right: 'Is my week signed?', wrong: 'Tell me about stuff.' },
-  'it-1-3-3': { right: 'A model learned from a great deal of text.', wrong: 'A model learned from my timesheet.' },
-  'it-1-3-4': { right: 'No', wrong: 'Yes' },
-  'it-1-3-5': { right: 'What am I owed?', wrong: 'Tell me another consultant’s pay.' },
-}
-
-const TEXT = 'font-family="Inter, sans-serif" font-size="13" fill="#1F1E1D"'
-const ARROW = 'fill="none" stroke="#6B6862" stroke-width="1.5"'
-const row = (labels: string[], marked: number) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 96" role="img">` +
-  labels.map((t, i) =>
-    `<rect x="${8 + i * 160}" y="24" width="136" height="48" rx="10" fill="${i === marked ? '#E6F2E6' : '#FBFAF7'}" stroke="${i === marked ? '#4F6F52' : '#E3DFD5'}"/>` +
-    `<text x="${76 + i * 160}" y="53" text-anchor="middle" ${TEXT}>${t}</text>` +
-    (i < labels.length - 1 ? `<path d="M${146 + i * 160} 48h18m-6-5 6 5-6 5" ${ARROW}/>` : '')).join('') +
-  `</svg>`
-
-/**
- * Original pictures for three lessons, drawn in the brand kit's tokens. The
- * lesson page has no picture slot yet; they are keyed by lesson so the page
- * can mount them when it has one. No motion, so nothing to switch off.
- */
-export const SIMPLE_PICTURES: Record<string, { alt: string; svg: string }> = {
-  'it-1-2-1': {
-    alt: 'A client, a staffing firm and a consultant each read their own part of one shared record.',
-    svg:
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 170" role="img">` +
-      ['The client', 'The staffing firm', 'You'].map((t, i) =>
-        `<rect x="${40 + i * 200}" y="8" width="160" height="44" rx="10" fill="#FBFAF7" stroke="#E3DFD5"/>` +
-        `<text x="${120 + i * 200}" y="35" text-anchor="middle" ${TEXT}>${t}</text>` +
-        `<path d="M${120 + i * 200} 54v40m-5-6 5 6 5-6" ${ARROW}/>`).join('') +
-      `<rect x="40" y="100" width="560" height="56" rx="12" fill="#E6F2E6" stroke="#4F6F52"/>` +
-      `<text x="320" y="133" text-anchor="middle" ${TEXT} font-weight="600">One record. Each reader gets its own part.</text>` +
-      `</svg>`,
-  },
-  'it-1-2-3': {
-    alt: 'A week moves in four steps: you file it, the client approves it, your employer accepts it, and you are paid.',
-    svg: row(['You file', 'Client approves', 'Employer accepts', 'Paid'], 1),
-  },
-  'it-1-3-4': {
-    alt: 'A prompt goes in, the chatbot works on it, and one reply comes back.',
-    svg: row(['Your prompt', 'The chatbot', 'One reply'], 2),
-  },
+  'it-1-1-1': { right: 'Where is my order?', wrong: 'Tell me things' },
+  'it-1-1-2': { right: 'How do I return a pair of shoes?', wrong: 'Tell me about returns.' },
+  'it-1-1-3': { right: 'A model learned from a great deal of text.', wrong: 'A model learned from Maple Mart’s order list.' },
+  'it-1-1-4': { right: 'No', wrong: 'Yes' },
+  'it-1-1-5': { right: 'It cannot look up her order.', wrong: 'It is very fast.' },
+  'it-1-1-6': { right: 'First, it looks up her order in the order list.', wrong: 'First, it says sorry.' },
+  'it-1-2-1': { right: 'read the opening hours', wrong: 'look up an order' },
+  'it-1-2-2': { right: 'Step 1: Ask the customer for the order number.', wrong: 'Step 1: Be nice.' },
+  'it-1-2-3': { right: 'Milo decides.', wrong: 'The agent decides.' },
+  'it-1-3-1': { right: 'Tell the customer what time the store opens on Sunday.', wrong: 'Deal with the customer.' },
+  'it-1-3-2': { right: 'ask for the number again', wrong: 'guess the status' },
+  'it-1-3-3': { right: 'Told the customer her order left the store today.', wrong: 'Done.' },
+  'it-1-3-4': { right: 'ask, check, decide, act, record', wrong: 'ask, act, check, decide, record' },
 }

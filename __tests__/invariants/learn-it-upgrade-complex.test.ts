@@ -93,9 +93,10 @@ describe('IT — Upgrade, the Complex level: one new idea a step, in glossary or
     })
     expect(gaps).toEqual([])
   })
-  it('the system steps come in order: an agent first, then its plan, its act and its check', () => {
+  it('the system steps come in order: the agent’s switch first, then its task, its plan, its act and the line that shows its check', () => {
     expect(COMPLEX_BUILDS_ON).toContain('describe, never act')
-    expect(COMPLEX_GLOSSARY.slice(0, 5)).toEqual(['agent', 'task', 'plan', 'act', 'check'])
+    for (const t of ['agent', 'tool', 'skill', 'check']) expect(COMPLEX_BUILDS_ON, t).toContain(t)
+    expect(COMPLEX_GLOSSARY.slice(0, 5)).toEqual(['switch', 'task', 'plan', 'act', 'performance line'])
     expect(MEDIUM_GLOSSARY).toContain('document lookup')
     expect(SIMPLE_GLOSSARY).toContain('reply')
   })

@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { IT_UPGRADE_SIMPLE as LEVEL, IT_UPGRADE_GOOD_AT, SIMPLE_GLOSSARY, SIMPLE_TRY_SAMPLES, SIMPLE_PICTURES } from '@/lib/training/courses/it-upgrade-simple'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { IT_UPGRADE_SIMPLE as LEVEL, IT_UPGRADE_GOOD_AT, SIMPLE_GLOSSARY, SIMPLE_TRY_SAMPLES } from '@/lib/training/courses/it-upgrade-simple'
+import { MEDIUM_BUILDS_ON } from '@/lib/training/courses/it-upgrade-medium'
 import { trackOf, lessonsOf } from '@/lib/training/courses/index'
-import { lessonGaps, termGaps, mentionsPrice, videoSlotWords } from '@/lib/training/courses/shape'
+import { lessonGaps, termGaps, shapeGaps, mentionsPrice, videoSlotWords } from '@/lib/training/courses/shape'
 import { evaluateTryIt, checkExercise } from '@/lib/training/courses/try-it'
 import type { Lesson, Track } from '@/lib/training/courses/types'
-import { WORKER_QUESTIONS, WORKER_FOOTER, FILE_IT_YOURSELF, NOT_ANOTHER_PERSON, readWorkerAsk } from '@/app/api/conversations/twin/worker'
-import { STAY_CHOICES } from '@/lib/bench-stay'
+import { WORKER_BOUNDARY } from '@/app/api/conversations/twin/worker'
 import { britishSpellings, wordsNobodyUses } from '@/lib/positioning'
 
 const lessons: Lesson[] = LEVEL.chapters.flatMap((c) => c.lessons)
@@ -16,38 +18,53 @@ const proseOf = (l: Lesson): string[] => [
   l.title, l.intro, ...(l.example.mono ? [] : [l.example.text]), l.tryIt.prompt, l.tryIt.expected,
   ...l.tryIt.rules.map((r) => r.says), l.exercise.question, ...l.exercise.choices, l.exercise.reason,
 ]
+/** Every word a learner reads on one lesson. */
 const allOf = (l: Lesson): string => [...proseOf(l), l.example.text, l.tryIt.starter].join('\n')
 const sentences = (text: string): string[] => text.split(/(?<=[.?!]|[.?!]”)\s+/).map((s) => s.trim()).filter(Boolean)
-const says = (term: string) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i')
-const everyWord = [...IT_UPGRADE_GOOD_AT, LEVEL.project.title, ...LEVEL.project.checklist, ...LEVEL.chapters.map((c) => c.title), ...lessons.map(allOf)].join('\n')
+const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
+const closing = [LEVEL.project.title, ...LEVEL.project.checklist]
+const lessonWords = lessons.map(allOf).join('\n')
+const everyWord = [...IT_UPGRADE_GOOD_AT, ...closing, ...LEVEL.chapters.map((c) => c.title), lessonWords].join('\n')
 
-/** How each glossary term shows up in a sentence, where the plain plural is not enough. */
+/** How each built term shows up in a sentence, in any of its forms. "Agentic" is not "agent". */
 const SAID: Record<string, RegExp> = {
-  approval: /\bapprov/i,
+  chatbot: /\bchatbots?\b/i,
+  prompt: /\bprompt/i,
+  model: /\bmodels?\b/i,
   reply: /\brepl(y|ies|ied)\b/i,
-  'routine step': /\broutine\b/i,
+  limit: /\blimit/i,
+  agent: /\bagents?\b/i,
+  tool: /\btools?\b/i,
+  skill: /\bskills?\b/i,
+  approval: /\bapprov/i,
+  goal: /\bgoals?\b/i,
+  check: /\bcheck/i,
+  record: /\brecord/i,
+  agentic: /\bagentic\b/i,
 }
-/** Terms the Medium and Complex levels build. The Simple level never says them. */
-const BUILT_LATER = ['rule', 'lookup', 'chunk', 'citation', 'ledger', 'placeholder', 'permission', 'agent', 'tool']
+const said = (term: string, text: string) => SAID[term].test(text)
+const builderOf = (term: string) => lessons.find((l) => l.introduces[0] === term)!
+const chapterOf = (term: string) => LEVEL.chapters.findIndex((c) => c.lessons.some((l) => l.introduces[0] === term)) + 1
 
 describe('IT — Upgrade, the Simple level: its shape', () => {
-  it('has three chapters, numbered one to three, each with lessons', () => {
+  it('has three chapters, numbered one to three, each with at least three lessons', () => {
     expect(LEVEL.key).toBe('simple')
     expect(LEVEL.chapters.map((c) => c.key.slice(0, 6))).toEqual(['it-ch1', 'it-ch2', 'it-ch3'])
     for (const c of LEVEL.chapters) expect(c.lessons.length, c.title).toBeGreaterThanOrEqual(3)
   })
-  it('every lesson has an intro, an example, a try-it with rules and an exercise with a one-line reason', () => {
+  it('every lesson has its four parts: a short intro, an example, a try it yourself and an exercise with a one-line reason', () => {
     expect(lessonGaps(asTrack)).toEqual([])
     for (const l of lessons) {
-      expect(l.exercise.choices.length, l.key).toBeGreaterThanOrEqual(2)
       expect(l.tryIt.prompt.trim(), l.key).not.toBe('')
+      expect(l.exercise.question.trim(), l.key).not.toBe('')
+      expect(l.exercise.choices.length, l.key).toBeGreaterThanOrEqual(2)
     }
   })
-  it('every lesson is a screen: it says what is on the screen, what happens behind it, and a technical note', () => {
+  it('every lesson is a walkthrough in one order: what is on the screen, what happens behind it, then one technical note', () => {
     for (const l of lessons) {
-      expect(l.intro, l.key).toContain('On the screen, ')
-      expect(l.intro, l.key).toContain('Behind the screen, ')
-      expect(l.intro, l.key).toContain('Technical note: ')
+      const at = ['On the screen, ', 'Behind the screen, ', 'Technical note: '].map((mark) => l.intro.indexOf(mark))
+      expect(at.every((n) => n >= 0), l.key).toBe(true)
+      expect([...at].sort((a, b) => a - b), l.key).toEqual(at)
     }
   })
   it('no two lessons share a key, and every key says level one', () => {
@@ -60,52 +77,167 @@ describe('IT — Upgrade, the Simple level: its shape', () => {
     expect(new Set(LEVEL.project.checklist).size).toBe(LEVEL.project.checklist.length)
   })
   it('every lesson works without a video, and its slot reads Video coming', () => {
-    for (const l of lessons) expect(videoSlotWords(l.video), l.key).toBe('Video coming')
+    for (const l of lessons) {
+      expect(l.video, l.key).toBeNull()
+      expect(videoSlotWords(l.video), l.key).toBe('Video coming')
+    }
   })
-  it('the track opens with what you will be good at, each line starting with a plain verb', () => {
-    expect(IT_UPGRADE_GOOD_AT.length).toBeGreaterThanOrEqual(3)
-    for (const g of IT_UPGRADE_GOOD_AT) expect(g, g).toMatch(/^(Explain|File|Write|Find|Say|Check|Read|Plan) /)
-    expect(trackOf('it-upgrade')!.goodAt).toEqual(IT_UPGRADE_GOOD_AT)
+  it('two lessons mark where an animation will go, and no animation is written yet', () => {
+    const file = readFileSync(join(process.cwd(), 'src/lib/training/courses/it-upgrade-simple.ts'), 'utf8')
+    expect(file.match(/\/\/ Animation slot \(Pax\): .+/g)).toEqual([
+      '// Animation slot (Pax): on-ramp step 1, the chatbot',
+      '// Animation slot (Pax): the five steps ask, check, decide, act, record',
+    ])
+    const lessonAt = (mark: string) => file.slice(0, file.indexOf(mark)).match(/key: 'it-1-\d-\d'/g)!.pop()
+    expect(lessonAt('on-ramp step 1')).toBe(`key: '${builderOf('agent').key}'`)
+    expect(lessonAt('the five steps ask')).toBe(`key: '${builderOf('agentic').key}'`)
+    expect(file).not.toMatch(/<svg|<animate|keyframes/)
   })
   it('the track’s first level is this one, and its first lesson is the first lesson a learner opens', () => {
     const track = trackOf('it-upgrade')!
     expect(track.levels[0]).toBe(LEVEL)
     expect(lessonsOf(track)[0].lesson.key).toBe('it-1-1-1')
+    expect(shapeGaps(track)).toEqual([])
   })
 })
 
-describe('IT — Upgrade, the Simple level: one new idea a step, in glossary order', () => {
+describe('IT — Upgrade, the Simple level: agent, then skill, then agentic', () => {
+  it('chapter one builds agent, chapter two builds skill, chapter three builds agentic, in that order', () => {
+    expect(chapterOf('agent')).toBe(1)
+    expect(chapterOf('skill')).toBe(2)
+    expect(chapterOf('agentic')).toBe(3)
+    expect(SIMPLE_GLOSSARY.indexOf('agent')).toBeLessThan(SIMPLE_GLOSSARY.indexOf('skill'))
+    expect(SIMPLE_GLOSSARY.indexOf('skill')).toBeLessThan(SIMPLE_GLOSSARY.indexOf('agentic'))
+  })
+  it('an agent is a helper that does not just answer: it does steps, looks things up and finishes a small job', () => {
+    const intro = builderOf('agent').intro
+    expect(intro).toContain('An agent is a helper that does not just answer.')
+    for (const part of ['does steps for you', 'looks things up', 'finishes a small job']) expect(intro).toContain(part)
+  })
+  it('a skill is one job written down as steps, like a recipe card, and more skills mean more jobs', () => {
+    const intro = builderOf('skill').intro
+    expect(intro).toContain('A skill is one job the agent knows how to do well, written down as steps, like a recipe card.')
+    expect(intro).toContain('More skills mean more jobs it can do.')
+  })
+  it('a skill is not a tool: the tool is built first, and the skill lesson says how the two differ', () => {
+    expect(SIMPLE_GLOSSARY.indexOf('tool')).toBeLessThan(SIMPLE_GLOSSARY.indexOf('skill'))
+    const skill = builderOf('skill')
+    expect(skill.example.text).toContain('The tool is the order list. The skill is the card of steps.')
+    expect(skill.exercise.choices[skill.exercise.correctIndex]).toBe('A tool is something the agent uses; a skill is the written steps for one job')
+  })
+  it('agentic means working step by step toward a goal and checking as you go, on a whole job', () => {
+    const intro = builderOf('agentic').intro
+    expect(intro).toContain('Agentic means working step by step toward a goal and checking as you go.')
+    expect(intro).toContain('a whole job, not just one answer')
+  })
+  it('an agent’s five steps are always shown in one order: ask, check, decide, act, record', () => {
+    const l = builderOf('agentic')
+    expect(l.intro).toContain('ask, check, decide, act, record')
+    const at = ['Ask ', 'Check ', 'Decide ', 'Act ', 'Record '].map((w) => l.example.text.indexOf(w))
+    expect(at.every((n) => n >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    for (const text of everyWord.match(/\bask, [a-z, ]+/gi) ?? []) expect(text.toLowerCase()).toContain('ask, check, decide, act, record')
+  })
+  it('the level ends on the record: every step is written down before agentic work puts the steps together', () => {
+    expect(SIMPLE_GLOSSARY.slice(-4)).toEqual(['goal', 'check', 'record', 'agentic'])
+    expect(builderOf('record').title).toBe('A record: every step written down')
+  })
+})
+
+describe('IT — Upgrade, the Simple level: one new idea a lesson, and no word before its lesson', () => {
   it('every lesson builds exactly one term, and the terms are built in the glossary’s order', () => {
     for (const l of lessons) expect(l.introduces.length, l.key).toBe(1)
     expect(lessons.map((l) => l.introduces[0])).toEqual([...SIMPLE_GLOSSARY])
+    expect(Object.keys(SAID)).toEqual([...SIMPLE_GLOSSARY])
   })
-  it('no lesson declares a term before the step that builds it', () => {
+  it('no lesson declares a term before the lesson that builds it', () => {
     expect(termGaps(asTrack)).toEqual([])
   })
-  it('no lesson’s words say a glossary term before the lesson that builds it', () => {
+  it('no lesson’s words use a term before the lesson that builds it', () => {
     const found: string[] = []
     lessons.forEach((l, i) => {
-      for (const later of SIMPLE_GLOSSARY.slice(i + 1)) if ((SAID[later] ?? says(later)).test(allOf(l))) found.push(`${l.key} says "${later}" early`)
+      for (const later of SIMPLE_GLOSSARY.slice(i + 1)) if (said(later, allOf(l))) found.push(`${l.key} says "${later}" early`)
     })
     expect(found).toEqual([])
   })
-  it('the lesson that builds a term says the term', () => {
-    lessons.forEach((l) => expect((SAID[l.introduces[0]] ?? says(l.introduces[0])).test(l.intro), l.key).toBe(true))
-  })
-  it('the level never says a term that a later level builds', () => {
-    const found = BUILT_LATER.filter((t) => says(t).test(everyWord))
+  it('a chapter’s title uses only terms that chapter, or an earlier one, builds', () => {
+    const found: string[] = []
+    LEVEL.chapters.forEach((c, n) => {
+      for (const t of SIMPLE_GLOSSARY) if (said(t, c.title) && chapterOf(t) > n + 1) found.push(`"${c.title}" says "${t}" early`)
+    })
     expect(found).toEqual([])
   })
-  it('the system steps come in order: the chatbot, the prompt, the model, the reply, then its limits', () => {
-    expect(LEVEL.chapters[2].lessons.map((l) => l.introduces[0])).toEqual(['chatbot', 'prompt', 'model', 'reply', 'limit'])
+  it('the lesson that builds a term says the term in its title and in its intro', () => {
+    for (const l of lessons) {
+      expect(said(l.introduces[0], l.title), l.key).toBe(true)
+      expect(said(l.introduces[0], l.intro), l.key).toBe(true)
+    }
+  })
+  it('a lesson declares every earlier term its words use, and declares none it does not use', () => {
+    const gaps: string[] = []
+    lessons.forEach((l, i) => {
+      for (const earlier of SIMPLE_GLOSSARY.slice(0, i)) {
+        if (said(earlier, allOf(l)) && !l.uses.includes(earlier)) gaps.push(`${l.key} says "${earlier}" and does not declare it`)
+        if (!said(earlier, allOf(l)) && l.uses.includes(earlier)) gaps.push(`${l.key} declares "${earlier}" and never says it`)
+      }
+    })
+    expect(gaps).toEqual([])
+  })
+  it('the list of what you will be good at uses everyday words: none of the terms a lesson builds', () => {
+    expect(IT_UPGRADE_GOOD_AT.length).toBe(5)
+    for (const g of IT_UPGRADE_GOOD_AT) {
+      expect(SIMPLE_GLOSSARY.filter((t) => said(t, g)), g).toEqual([])
+      expect(g, g).toMatch(/^(Explain|Write|Find|Say) /)
+    }
+    expect(trackOf('it-upgrade')!.goodAt).toEqual(IT_UPGRADE_GOOD_AT)
   })
   it('the level builds every term the Medium level says it builds on', () => {
-    for (const t of ['chatbot', 'model', 'prompt', 'reply']) expect(SIMPLE_GLOSSARY).toContain(t)
+    for (const t of MEDIUM_BUILDS_ON) expect(SIMPLE_GLOSSARY, t).toContain(t)
+  })
+})
+
+describe('IT — Upgrade, the Simple level: Milo at Maple Mart is the running example', () => {
+  it('the first lesson says who Milo is and what Maple Mart is', () => {
+    expect(lessons[0].example.text).toContain('Milo works the help counter at a store named Maple Mart.')
+  })
+  it('every lesson is set at Maple Mart or names Milo', () => {
+    for (const l of lessons) expect(allOf(l), l.key).toMatch(/Maple Mart|Milo/)
+  })
+  it('customers ask the three everyday questions: opening hours, a return, and where an order is', () => {
+    expect(lessonWords).toMatch(/What time do you open/)
+    expect(lessonWords).toMatch(/\breturn/)
+    expect(lessonWords).toMatch(/Where is my order\?/)
+  })
+  it('the chatbot of this level has not read the store’s papers: no lesson has it quote a policy or a document', () => {
+    expect(lessonWords).not.toMatch(/\bpolic(y|ies)\b|\bdocuments?\b/i)
+  })
+  it('the only story told is Milo’s: none of the examples kept out of this course appears', () => {
+    const keptOut = /\b(refund\w*|blender|briefing|handyman|shipping container|train|camera|lens|carpenter|relay|runbook|whiteboard)\b/i
+    expect(everyWord.match(keptOut)).toBeNull()
+    expect(everyWord).not.toMatch(/\b(?:Inc|LLC|Ltd|Corp)\b/)
+  })
+})
+
+describe('IT — Upgrade, the Simple level: a person decides', () => {
+  it('an agent drafts and answers, and a person decides money, signing and anything about a person', () => {
+    const intro = builderOf('approval').intro
+    expect(intro).toContain('An agent drafts and answers.')
+    expect(intro).toContain('A person decides money, signing and anything about a person.')
+  })
+  it('giving money back is not on the agent’s list of tools, and Milo is the one who says yes', () => {
+    expect(builderOf('tool').example.text).toMatch(/Not on its list\n\s+give money back/)
+    const approval = builderOf('approval')
+    expect(approval.example.text).toContain('says Yes or Not now')
+    expect(evaluateTryIt(approval, 'The agent decides.').passed).toBe(false)
+    expect(approval.exercise.choices[approval.exercise.correctIndex]).toBe('Draft an answer about opening hours')
+  })
+  it('finishing is never called a certification, and nobody is called certified', () => {
+    expect(everyWord).not.toMatch(/certif/i)
   })
 })
 
 describe('IT — Upgrade, the Simple level: try it and the exercise', () => {
-  it('every try-it has a sample its rules accept and a sample they refuse', () => {
+  it('every try-it has a sample that passes and a sample that fails', () => {
     expect(Object.keys(SIMPLE_TRY_SAMPLES).sort()).toEqual(lessons.map((l) => l.key).sort())
     for (const l of lessons) {
       const s = SIMPLE_TRY_SAMPLES[l.key]
@@ -126,28 +258,29 @@ describe('IT — Upgrade, the Simple level: try it and the exercise', () => {
   it('every exercise has one right answer, and a wrong answer gets the same one-line reason', () => {
     for (const l of lessons) {
       expect(new Set(l.exercise.choices).size, l.key).toBe(l.exercise.choices.length)
-      expect(checkExercise(l, l.exercise.correctIndex).right, l.key).toBe(true)
-      const wrong = checkExercise(l, (l.exercise.correctIndex + 1) % l.exercise.choices.length)
-      expect(wrong.right, l.key).toBe(false)
-      expect(sentences(wrong.reason).length, l.key).toBe(1)
+      const picks = l.exercise.choices.map((_, n) => checkExercise(l, n))
+      expect(picks.filter((p) => p.right).length, l.key).toBe(1)
+      for (const p of picks) expect(p.reason, l.key).toBe(l.exercise.reason)
+      expect(sentences(l.exercise.reason).length, l.key).toBe(1)
     }
   })
 })
 
 describe('IT — Upgrade, the Simple level: the words', () => {
-  it('no sentence a learner reads is longer than twenty-five words', () => {
-    const long: string[] = []
-    const prose = [...IT_UPGRADE_GOOD_AT, LEVEL.project.title, ...LEVEL.project.checklist, ...lessons.flatMap(proseOf)]
-    for (const s of prose.flatMap(sentences)) if (s.split(/\s+/).length > 25) long.push(s)
-    expect(long).toEqual([])
+  it('every intro is short: seventy words at most', () => {
+    expect(lessons.filter((l) => wordCount(l.intro) > 70).map((l) => `${l.key}: ${wordCount(l.intro)} words`)).toEqual([])
   })
-  it('the level says no price, no real firm’s name, neither of the two words nobody uses, and no British spelling', () => {
+  it('no sentence a learner reads is longer than twenty-five words', () => {
+    const prose = [...IT_UPGRADE_GOOD_AT, ...closing, ...LEVEL.chapters.map((c) => c.title), ...lessons.flatMap(proseOf)]
+    expect(prose.flatMap(sentences).filter((s) => wordCount(s) > 25)).toEqual([])
+  })
+  it('the level says no price and no charge of any kind', () => {
     expect(mentionsPrice(everyWord)).toBe(false)
+    expect(everyWord).not.toMatch(/\b(paid plan|pricing|priced|billed|subscription|dollars?|cents?)\b|[$€£]/i)
+  })
+  it('the spelling is American, and neither of the two words nobody uses appears', () => {
     expect(wordsNobodyUses(everyWord)).toEqual([])
     expect(britishSpellings(everyWord)).toEqual([])
-    // The only firms named are the course's own and the product.
-    const named = everyWord.match(/\b(?:Inc|LLC|Ltd|Corp)\b/g) ?? []
-    expect(named).toEqual([])
   })
   it('a public page of the course never says the firm trains or places anybody, and never whose firm it is', () => {
     expect(everyWord).not.toMatch(/\bTapin (trains|places|teaches)\b|\bfounder\b|\bEtyme’s own\b/i)
@@ -155,38 +288,9 @@ describe('IT — Upgrade, the Simple level: the words', () => {
 })
 
 describe('IT — Upgrade, the Simple level: what it says of Etyme is what the code does', () => {
-  const text = (key: string) => allOf(lessons.find((l) => l.key === key)!)
-  it('the ready questions it lists are the ones a worker’s Ask Etyme shows', () => {
-    for (const q of WORKER_QUESTIONS) expect(text('it-1-3-1'), q).toContain(q)
-  })
-  it('the two replies it quotes are Ask Etyme’s own sentences for those prompts', () => {
-    expect(readWorkerAsk('File my week.')).toBe('FILE')
-    expect(text('it-1-3-4')).toContain(FILE_IT_YOURSELF)
-    expect(readWorkerAsk('What is another consultant’s pay?')).toBe('ANOTHER')
-    expect(text('it-1-3-5')).toContain(NOT_ANOTHER_PERSON)
-  })
-  it('the limit it quotes under the box is in the line a worker reads there', () => {
-    expect(WORKER_FOOTER).toContain('It never files, signs or sends anything for you.')
-    expect(text('it-1-3-5')).toContain('It never files, signs or sends anything for you.')
-  })
-  it('the bench stay in its example is a length a worker can really choose', () => {
-    expect(STAY_CHOICES as readonly number[]).toContain(60)
-    expect(text('it-1-2-4')).toContain('60 days')
-  })
-  it('the week in its filing example starts on a Sunday', () => {
-    const start = text('it-1-2-2').match(/"periodStart": "(\d{4}-\d{2}-\d{2})"/)![1]
-    expect(new Date(`${start}T00:00:00Z`).getUTCDay()).toBe(0)
-  })
-})
-
-describe('IT — Upgrade, the Simple level: the pictures', () => {
-  it('each picture belongs to a lesson, has words for a screen reader, and is drawn here with no outside file and no motion', () => {
-    const keys = lessons.map((l) => l.key)
-    for (const [key, p] of Object.entries(SIMPLE_PICTURES)) {
-      expect(keys, key).toContain(key)
-      expect(p.alt.trim(), key).not.toBe('')
-      expect(p.svg, key).toMatch(/^<svg [^>]*viewBox="0 0 \d+ \d+"/)
-      expect(p.svg, key).not.toMatch(/href=|<image|<script|<animate|url\(/)
-    }
+  it('a worker’s chat on Etyme sends nothing she types to a model, as the model lesson says', () => {
+    expect(WORKER_BOUNDARY).toContain('Nothing you type leaves to a model.')
+    expect(builderOf('model').intro).toContain('On Etyme, the platform Tapin runs on, a worker’s chat sends her words to none.')
+    expect(lessonWords.match(/Etyme/g)).toHaveLength(1)
   })
 })
