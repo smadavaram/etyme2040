@@ -30,7 +30,6 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
     google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     emailLink: emailLinkDoorOn(),
     emailSender: Boolean(process.env.RESEND_API_KEY && process.env.NOTIFY_FROM_EMAIL),
-    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
     // The same address mail uses, so the page and the mail agree.
     lastingAddress: fixedAppUrl() !== null,
   }
@@ -43,10 +42,12 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
   // The allowance in force: the Superadmin screen first, the environment second.
   const m = modelHealth(process.env, await currentAllowanceLimits())
   const modelIds = { supported: m.idsSupported, says: m.says }
+  const gateway = { configured: m.gateway.configured, says: m.gateway.says }
 
   const empty: ReadinessFacts = {
     env,
     modelIds,
+    gateway,
     db: { reachable: false, schemaCurrent: false, ms: null },
     realCompanies: 0,
     realSignIns: 0,
@@ -87,7 +88,7 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
 
   const [
     realCompanies, realSignIns, importsTotal, importsCommitted,
-    emailSent, emailUnsent, emailDidNotGo, teams, nike, nikeHr,
+    emailSent, emailUnsent, emailDidNotGo, teams, northbend, northbendHr,
     lastRun, runsTold, incidentsTold, incidentsToday,
   ] = await Promise.all([
     // Not a demo workspace, not one of the seeded world's firms.
@@ -104,9 +105,9 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
     prisma.notification.count({ where: { channel: 'EMAIL', deliveryState: { in: ['PENDING', 'NOT_CONFIGURED'] } } }),
     prisma.notification.count({ where: { channel: 'EMAIL', deliveryState: 'FAILED', createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } }),
     teamsFacts(),
-    prisma.company.findUnique({ where: { slug: 'world-nike' }, select: { id: true } }),
+    prisma.company.findUnique({ where: { slug: 'world-northbend' }, select: { id: true } }),
     // The HR desk is what the 2026-09-13 seed adds; an older world has none.
-    prisma.person.findUnique({ where: { primaryEmail: `world-nike-hr${DEMO_DOMAIN}` }, select: { id: true } }),
+    prisma.person.findUnique({ where: { primaryEmail: `world-northbend-hr${DEMO_DOMAIN}` }, select: { id: true } }),
     // The daily job's own diary, and whether anybody heard.
     prisma.jobRun.findFirst({ where: { job: 'daily' }, orderBy: { startedAt: 'desc' }, select: { startedAt: true, finishedAt: true, broke: true } }),
     prisma.jobRun.count({ where: { toldAt: { not: null } } }),
@@ -117,6 +118,7 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
   return {
     env,
     modelIds,
+    gateway,
     db: { reachable: true, schemaCurrent, ms },
     realCompanies,
     realSignIns,
@@ -127,7 +129,7 @@ export async function gatherFacts(): Promise<ReadinessFacts> {
     teamsBot: teamsBotEdge(await teamsBotFacts()),
     cron: { tracked: true, lastRunAt: lastRun ? (lastRun.finishedAt ?? lastRun.startedAt) : null, lastBroke: lastRun?.broke ?? 0 },
     watch: { staffConfigured: staffAddresses().length > 0, alertsSent: runsTold + incidentsTold, incidentsToday },
-    demo: { seeded: Boolean(nike), current: Boolean(nike && nikeHr) },
+    demo: { seeded: Boolean(northbend), current: Boolean(northbend && northbendHr) },
     privacyContact: contactEmail() !== null,
     inbound,
     // Never throws: a read that fails says the guard is missing.

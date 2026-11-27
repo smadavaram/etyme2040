@@ -26,7 +26,7 @@
  * down on every run, so both are written down on every run.
  */
 
-import { MODEL_PRICES } from '@/lib/model-ids'
+import { priceFromRegister } from '@/lib/model-gateway/register'
 import { prisma } from '@/lib/db'
 
 export type Verdict = 'PASS' | 'FAIL' | 'ERROR'
@@ -50,14 +50,12 @@ export type RecordType =
   | 'TWIN_LEDGER'
 
 /**
- * Dollars per million tokens, as of the pricing table this was written
- * against. Model prices move; re-check quarterly, because the difference
- * between a good margin and a bad one lives here.
- *
- * Cache reads are a tenth of the input price and cache writes are a
- * quarter more — the reason the scoring prompt is built stable-first.
+ * Prices are the register's (`ETYME_MODEL_REGISTER`, dollars per million
+ * tokens, lib/model-gateway/register), set by the deployment and re-checked
+ * by the owner; no price is written in code. Cache reads are a tenth of the
+ * input price and cache writes are a quarter more, the reason the scoring
+ * prompt is built stable-first.
  */
-const PRICES = MODEL_PRICES
 
 export interface Usage {
   input_tokens?: number | null
@@ -78,7 +76,7 @@ export interface Usage {
  * nobody can stand behind.
  */
 export function costMicrosOf(model: string, usage: Usage): number | null {
-  const price = Object.prototype.hasOwnProperty.call(PRICES, model) ? PRICES[model] : null
+  const price = priceFromRegister(model)
   if (!price) return null
 
   const input = usage.input_tokens ?? 0

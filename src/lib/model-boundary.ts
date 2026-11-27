@@ -20,6 +20,7 @@
  * and the shared mask, and refuses to keep an unmasked text even when it
  * is handed one.
  */
+import { gatewayHealth } from '@/lib/model-gateway/health'
 import { prisma } from '@/lib/db'
 import { reportError } from '@/lib/alerts'
 import { companyAllowanceFor } from '@/lib/model-allowance'
@@ -50,9 +51,9 @@ export const MODEL_SWITCH_TAB = 'ask-etyme'
 export const MODEL_SWITCH_ANCHOR = 'ask-etyme-model'
 export const MODEL_SWITCH_HREF = `/dashboard/settings?tab=${MODEL_SWITCH_TAB}#${MODEL_SWITCH_ANCHOR}`
 
-/** Whether this deployment has a model at all. With the switch on and no key, nothing leaves. */
+/** Whether this deployment has a model at all, read from the gateway's register (record 125). With the switch on and none set up, nothing leaves. */
 export function modelSetUpHere(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.ANTHROPIC_API_KEY?.trim())
+  return gatewayHealth(env).configured
 }
 
 /**
@@ -256,6 +257,8 @@ export interface MaskVocab {
   people?: readonly string[]
   /** Firms named on the record that the text may mention. */
   firms?: readonly string[]
+  /** Terms that are not a name and are never masked as one: the skills a CV is checked for. */
+  keep?: readonly string[]
 }
 
 export interface ModelMask {
@@ -411,8 +414,10 @@ export function maskForModel(text: string, vocab: MaskVocab = {}): ModelMask {
   }
 
   /** A run of capitalized words in prose, unless every word is a common one. */
+  const keptWords = new Set((vocab.keep ?? []).flatMap((t) => t.toLowerCase().split(/\s+/)).filter(Boolean))
   const byProse = (s: string): string =>
     s.replace(PROSE_NAME, (m) => {
+      if (keptWords.size > 0 && m.split(/\s+/).every((w) => keptWords.has(w.toLowerCase()))) return m
       const words = m.split(/\s+/)
       if (words.every((w) => NOT_A_NAME.has(w.toLowerCase()))) return m
       if (NOT_A_NAME.has(words[0].toLowerCase()) && words.length === 2) return m

@@ -46,7 +46,7 @@ describe('an address is lowercase letters, digits and hyphens, never a reserved 
     for (const word of ['www', 'api', 'demo', 'admin', 'etyme']) {
       expect(checkAddress(word, new Set()).ok, word).toBe(false)
     }
-    expect(checkAddress('world-nike', new Set()).says).toBe('Addresses that start with world- or demo- are kept for the demo.')
+    expect(checkAddress('world-northbend', new Set()).says).toBe('Addresses that start with world- or demo- are kept for the demo.')
     expect(checkAddress('demo-acme', new Set()).ok).toBe(false)
   })
 
@@ -233,7 +233,7 @@ describe('a reset link works once and dies after an hour', () => {
 
 describe('the readiness page counts a password sign-in as a real sign-in and says password among the providers', () => {
   const base: ReadinessFacts = {
-    env: { database: true, nextauthSecret: true, cronSecret: true, microsoft: false, google: false, emailLink: false, emailSender: true, anthropic: false },
+    env: { database: true, nextauthSecret: true, cronSecret: true, microsoft: false, google: false, emailLink: false, emailSender: true },
     db: { reachable: true, schemaCurrent: true, ms: 10 },
     realCompanies: 0, realSignIns: 0,
     imports: { total: 0, committed: 0 }, email: { sent: 0, unsent: 0 },

@@ -1,5 +1,6 @@
 import { coursesShown } from '@/lib/training/courses-shown'
 import { prisma } from '@/lib/db'
+import { siteRendersFor } from '@/lib/plugins'
 import { reputationOf, type BuyerReputation } from '@/lib/buyer-reputation'
 import { releasing, summarize, type RollingOff } from '@/lib/releasing-soon'
 import { writeFromRules, DEFAULT_HEADINGS, saysItTrains, type SiteVoice } from '@/lib/site-voice'
@@ -185,7 +186,7 @@ export function describeSite(
  * Who this company's public page is talking to.
  *
  * A GSI is genuinely both — Infosys buys bench from three firms and sells
- * delivery to Nike in the same week — and it gets the supplier-facing page
+ * delivery to Northbend in the same week — and it gets the supplier-facing page
  * because that is the side with something to offer a stranger. Their own
  * bench belongs on an internal marketplace, not on the open internet.
  */
@@ -250,6 +251,8 @@ function howLong(since: Date, now: Date): string {
   return `${Math.round(days / 30)} months`
 }
 
+export { siteRendersFor }
+
 export async function publicSite(slug: string): Promise<PublicSite | null> {
   const now = new Date()
 
@@ -284,6 +287,9 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
   })
 
   if (!company?.siteLiveAt) return null
+  // A dark site is the same nothing as a firm that does not exist
+  // (`DARK_SITE_SAYS`, record 123). Its words stay stored; only the read stops.
+  if (!(await siteRendersFor(company))) return null
   // A firm somebody else wrote down has no page: nobody there agreed to one.
   if (!speaksForItself({ siteLiveAt: company.siteLiveAt, claimedAt: company.claimedAt, seats: company._count.contexts })) {
     return null

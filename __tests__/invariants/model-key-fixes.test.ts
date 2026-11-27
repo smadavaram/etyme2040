@@ -27,7 +27,7 @@ vi.mock('@/lib/db', () => ({
 }))
 vi.mock('@/lib/agent-run', () => ({ record: async (r: any) => { recorded.push(r); return 'run1' } }))
 vi.mock('@/lib/model-boundary', () => ({
-  modelSetUpHere: (env: any = process.env) => Boolean(env.ANTHROPIC_API_KEY?.trim()),
+  modelSetUpHere: (env: any = process.env) => gatewayHealth(env).configured,
   modelOnFor: async (id: string) => switchOn[id] === true,
 }))
 vi.mock('@/lib/match-engine', () => ({
@@ -36,8 +36,9 @@ vi.mock('@/lib/match-engine', () => ({
 vi.mock('@/lib/cron-auth', () => ({ cronAuthorized: () => true }))
 vi.mock('@/lib/alerts', () => ({ reportError: () => {} }))
 
+import { gatewayHealth } from '@/lib/model-gateway/health'
 import { runLoop, modelHeldSays } from '@/lib/loop'
-import { MODEL_PRICES, priceOf, costMicrosFor, PRICE_NOT_CONFIGURED } from '@/lib/model-ids'
+import { costMicrosFromPrice, priceFromRegister } from '@/lib/model-gateway/register'
 import { modelHealth } from '@/lib/model-health'
 import { GET } from '@/app/api/cron/proactive-match/route'
 import fs from 'node:fs'
@@ -46,7 +47,8 @@ beforeEach(() => {
   recorded.length = 0; checks.length = 0; logs.length = 0; engineCalls.length = 0
   switchOn = {}
   agentRows = []
-  process.env.ANTHROPIC_API_KEY = 'sk-test'
+  process.env.ETYME_MODEL_REGISTER = JSON.stringify([{ id: 'test-model', label: 'Test model', adapter: 'sdk', tier: 'LOW', classes: ['NON_SENSITIVE', 'TENANT_BUSINESS'], region: 'US', dpaSignedOn: '2026-11-01', keyEnv: 'TEST_MODEL_KEY' }])
+  process.env.TEST_MODEL_KEY = 'x'
 })
 
 const modelStep = (ran: { n: number }) => ({
@@ -56,7 +58,7 @@ const modelStep = (ran: { n: number }) => ({
 
 describe('a model check that did not run is recorded as unverified, never as a pass', () => {
   it('with no key the check is unverified, says why, and the model step is never called', async () => {
-    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.TEST_MODEL_KEY
     const ran = { n: 0 }
     const out = await runLoop({ name: 'submission.check', recordType: 'SUBMISSION', steps: [modelStep(ran)] }, {}, { companyId: 'coA', recordId: 's1', attempt: 1 })
     expect(ran.n).toBe(0)
@@ -89,22 +91,13 @@ describe('a model check that did not run is recorded as unverified, never as a p
 })
 
 describe('what each model costs', () => {
-  it('prices the small model at 0.10 in and 0.50 out per million tokens, cache read 0.01', () => {
-    expect(MODEL_PRICES['claude-haiku-5-5']).toEqual({ in: 0.1, out: 0.5, cacheRead: 0.01 })
+  const REG = { ETYME_MODEL_REGISTER: JSON.stringify([{ id: 'm-read', adapter: 'sdk', tier: 'LOW', classes: ['TENANT_BUSINESS'], region: 'US', dpaSignedOn: '2026-11-01', keyEnv: 'K', price: { in: 2, out: 10, cacheRead: 0.1 } }]) }
+  it('costs a million input tokens at the price the register gives the model, and no price is written in code', () => {
+    expect(costMicrosFromPrice(priceFromRegister('m-read', REG), { input_tokens: 1_000_000 })).toBe(2_000_000)
   })
-  it('prices the read model at 2.00 and 10.00, cache read 0.10', () => {
-    expect(MODEL_PRICES['claude-sonnet-5-5']).toEqual({ in: 2, out: 10, cacheRead: 0.1 })
-  })
-  it('prices the check-and-match model at 4.00 and 20.00, cache read 0.20', () => {
-    expect(MODEL_PRICES['claude-opus-5-5']).toEqual({ in: 4, out: 20, cacheRead: 0.2 })
-  })
-  it('costs a million input tokens on the read model at two dollars', () => {
-    expect(costMicrosFor('claude-sonnet-5-5', { input_tokens: 1_000_000 })).toBe(2_000_000)
-  })
-  it('gives an unknown model id no price and says price not configured, with no fallback figure', () => {
-    expect(priceOf('some-model-shipped-last-tuesday')).toBeNull()
-    expect(costMicrosFor('some-model-shipped-last-tuesday', { input_tokens: 1000 })).toBeNull()
-    expect(PRICE_NOT_CONFIGURED).toBe('price not configured')
+  it('gives an unknown model id no price, with no fallback figure', () => {
+    expect(priceFromRegister('some-model-shipped-last-tuesday', REG)).toBeNull()
+    expect(costMicrosFromPrice(priceFromRegister('some-model-shipped-last-tuesday', REG), { input_tokens: 1000 })).toBeNull()
   })
 })
 
@@ -118,7 +111,7 @@ describe('the nightly proactive match asks each company before any model call', 
     expect(engineCalls.find((c) => c.id === 'r2').opts.rulesOnly).toBe(true)
   })
   it('matches by rules alone everywhere when no model key is set', async () => {
-    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.TEST_MODEL_KEY
     switchOn = { coA: true, coB: true }
     await run()
     expect(engineCalls.every((c) => c.opts.rulesOnly === true)).toBe(true)

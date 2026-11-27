@@ -14,6 +14,13 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+// The model ids come from the environment register (record 125); a deployment sets it, so this test does.
+vi.hoisted(() => {
+  process.env.ETYME_MODEL_REGISTER = JSON.stringify([{ id: 'test-model-small', adapter: 'sdk', tier: 'LOW', classes: ['TENANT_BUSINESS'], region: 'US', dpaSignedOn: '2026-11-01', keyEnv: 'TEST_MODEL_KEY' }])
+  process.env.TEST_MODEL_KEY = 'x'
+})
+
+
 // The prompt log is the architect's (lib/model-boundary); its store is
 // faked here so the sentence about withholding a leak runs without a
 // database. Nothing in Ask Etyme's own answering touches either.
@@ -62,7 +69,7 @@ import {
   FILE_IT_YOURSELF, NOT_THEIR_RATE, ONLY_YOUR_WORK, WORKER_FOOTER, latestWeekLine, type WorkerFacts, type WorkerAnswer, type SentWeek,
 } from '@/app/api/conversations/twin/worker'
 import {
-  respond, today, othersSay, VOICE_RULES, NO_SWITCH, SMALL_MODEL, MODEL_SYSTEM as SYSTEM, neverAct, neverSays, matchPerson, boundarySays, readAsk, decisionRequest, varianceBySupplier, spendBySupplier, MODEL_SYSTEM, ASK_THE_DESK, NO_MODEL, payingDesks,
+  respond, today, othersSay, modelConfigured, VOICE_RULES, NO_SWITCH, SMALL_MODEL, MODEL_SYSTEM as SYSTEM, neverAct, neverSays, matchPerson, boundarySays, readAsk, decisionRequest, varianceBySupplier, spendBySupplier, MODEL_SYSTEM, ASK_THE_DESK, NO_MODEL, WHAT_I_ANSWER, payingDesks,
   SUGGESTED_QUESTIONS, FOOTER_LINE, GREETING_CLOSE, seatSays, SINCE_HEADING, DECISIONS_HREF, sinceSays, voiceBreaks,
   FIRM_QUESTIONS, SOLO_QUESTIONS, questionsFor, closeFor, placeholderFor, partyOf, queueFrom, queueCards, queueName, namedNeedsSays,
   threadsSay, whenSays, weekDueOn, billedSays, billingSays, rolloffSays, benchSays, unbilledSays, unpaidSays, OPEN_THE_LIST,
@@ -161,7 +168,7 @@ function readers(over: Partial<Readers> = {}): Readers & { model: ReturnType<typ
 }
 
 const NO_KEY = {}
-const KEY = { ANTHROPIC_API_KEY: 'sk-test' }
+const KEY = { ETYME_MODEL_REGISTER: process.env.ETYME_MODEL_REGISTER, TEST_MODEL_KEY: 'x' }
 
 describe('the twin’s conversation answers from the ledger by rules before any model', () => {
   it('the variance question is answered from the ledger by rules, with one row per supplier and the hours over accepted', async () => {
@@ -596,10 +603,10 @@ describe('the twin’s conversation answers from the ledger by rules before any 
     }
     expect(sentLines).toMatch(/FIRM_\d+/)
     expect(a).toMatchObject({ kind: 'MODEL', says: 'Pinnacle Resourcing billed over the hours accepted [entry-442].' })
-    expect(SMALL_MODEL).toBe('claude-haiku-5-5')
+    expect(SMALL_MODEL).toBe('test-model-small')
     expect(on.logPrompt).toHaveBeenCalledTimes(1)
     const logged = (on.logPrompt as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(logged).toMatchObject({ model: 'claude-haiku-5-5', maskedAnswer: expect.stringMatching(/^FIRM_\d+ billed over/), tokensIn: 120, tokensOut: 14 })
+    expect(logged).toMatchObject({ model: 'test-model-small', maskedAnswer: expect.stringMatching(/^FIRM_\d+ billed over/), tokensIn: 120, tokensOut: 14 })
     expect(logged.maskedPrompt).toContain('Question: Which supplier is slowest to send its invoice?')
     expect(logged.maskedPrompt).not.toContain('Pinnacle')
     expect(logged.realValues).toEqual(expect.arrayContaining(['Pinnacle Resourcing']))
@@ -618,15 +625,15 @@ describe('the twin’s conversation answers from the ledger by rules before any 
   it('a leaked real value is withheld by the log', async () => {
     stored.length = 0
     const clean = await recordModelPrompt({
-      companyId: 'co-nb', personId: 'p-lorena', provider: 'anthropic', model: SMALL_MODEL,
+      companyId: 'co-nb', personId: 'p-lorena', provider: 'test-model-small', model: SMALL_MODEL,
       maskedPrompt: 'Question: what did FIRM_1 bill?', maskedAnswer: 'FIRM_1 billed AMOUNT_2.',
       purpose: 'ASK_ETYME', realValues: ['Pinnacle Resourcing', '$3,920.00'],
     })
     expect(clean).toMatchObject({ ok: true, withheld: false })
-    expect(stored[0]).toMatchObject({ maskedAnswer: 'FIRM_1 billed AMOUNT_2.', model: 'claude-haiku-5-5', purpose: 'ASK_ETYME' })
+    expect(stored[0]).toMatchObject({ maskedAnswer: 'FIRM_1 billed AMOUNT_2.', model: 'test-model-small', purpose: 'ASK_ETYME' })
 
     const leaked = await recordModelPrompt({
-      companyId: 'co-nb', personId: 'p-lorena', provider: 'anthropic', model: SMALL_MODEL,
+      companyId: 'co-nb', personId: 'p-lorena', provider: 'test-model-small', model: SMALL_MODEL,
       maskedPrompt: 'Question: what did FIRM_1 bill?', maskedAnswer: 'Pinnacle Resourcing billed AMOUNT_2.',
       purpose: 'ASK_ETYME', realValues: ['Pinnacle Resourcing', '$3,920.00'],
     })
@@ -1807,7 +1814,32 @@ describe('a model answer cut at its length limit never shows half a sentence (fi
   })
 
   it('the model reader marks a reply that stopped at its length limit, so the answer can be shortened', () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/api/conversations/twin/read.ts'), 'utf8')
-    expect(src).toMatch(/cut: res\.stop_reason === 'max_tokens'/)
+    // Through the gateway the adapter does not say why it stopped: an answer that used its whole allowance is cut.
+    const src = readFileSync(join(process.cwd(), 'src/app/api/conversations/twin/model-reply.ts'), 'utf8')
+    expect(src).toMatch(/cut: out !== null && out >= MAX_TOKENS/)
+  })
+})
+
+describe('Ask Etyme says so when the model was asked and did not answer', () => {
+  it('a model that failed with its key present is said, with the rules beside it, and never replaced by silence', async () => {
+    const read = readers({ model: vi.fn(async () => ({ missed: 'The model did not answer; this reply is from the rules.' })) })
+    const a = await respond('Which supplier is slowest to send its invoice?', read, { env: KEY })
+    expect(a.kind).toBe('TEXT')
+    expect(a.says).toContain('The model did not answer; this reply is from the rules.')
+    expect(a.says).toContain(WHAT_I_ANSWER)
+  })
+  it('a model that is not configured says Not configured and offers the rules', async () => {
+    const read = readers({ model: vi.fn(async () => ({ missed: 'Not configured: no model is set up for this kind of data, so nothing was sent. The rules answer.' })) })
+    const a = await respond('Which supplier is slowest to send its invoice?', read, { env: KEY })
+    expect(a.says).toMatch(/Not configured/)
+  })
+})
+
+describe('whether Ask Etyme has a model is read from the register, never from one provider’s key', () => {
+  it('a model is set up where the register holds a keyed model, whatever the provider', () => {
+    expect(modelConfigured(KEY)).toBe(true)
+  })
+  it('no model is set up where the register is empty, even with a provider key variable present', () => {
+    expect(modelConfigured({ ANTHROPIC_API_KEY: 'sk-test' })).toBe(false)
   })
 })

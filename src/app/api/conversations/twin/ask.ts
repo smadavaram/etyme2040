@@ -33,6 +33,7 @@
 import { formatDay, formatMonth, formatMonthLong } from '@/lib/format-date'
 import { receiptsLink } from '@/lib/money/ap-words'
 import { modelFor } from '@/lib/model-ids'
+import { gatewayHealth } from '@/lib/model-gateway/health'
 import { format, fromMinor } from '@/lib/money'
 import { desksHolding, type Permission, hasPermission, hasAnyPermission } from '@/lib/permissions'
 import { newMasker, type MaskVocabulary } from './mask'
@@ -1067,9 +1068,9 @@ export function voiceBreaks(text: string): string[] {
 
 // ── The model ────────────────────────────────────────────────────────
 
-/** Whether a model can be asked on this deployment. The key only, never its value. */
+/** Whether a model can be asked on this deployment: the gateway's register holds a keyed model. Never one provider's key variable. */
 export function modelConfigured(env: Record<string, string | undefined>): boolean {
-  return Boolean(env.ANTHROPIC_API_KEY && env.ANTHROPIC_API_KEY.trim())
+  return gatewayHealth(env).configured
 }
 
 export const NO_MODEL =
@@ -1122,6 +1123,8 @@ export interface ModelReply {
   model: string
   tokensIn: number | null
   tokensOut: number | null
+  /** The register's label for the provider, for the prompt log; absent where the register names none. */
+  provider?: string
   /** True where the model stopped at its length limit, so the text may end mid-sentence. */
   cut?: boolean
 }
@@ -1129,6 +1132,8 @@ export interface ModelReply {
 /** One prompt that left, masked, as the log keeps it (lib/model-boundary's recordModelPrompt). */
 export interface PromptLog {
   model: string
+  /** The register's label for the provider that answered. */
+  provider?: string
   maskedPrompt: string
   maskedAnswer: string
   tokensIn: number | null
@@ -2483,7 +2488,7 @@ export interface Readers {
    */
   vocabulary(): Promise<MaskVocabulary>
   /** Asks the model, masked text in, masked text out; only called with the switch and the key both on. */
-  model(system: string, question: string, context: string): Promise<ModelReply | null>
+  model(system: string, question: string, context: string): Promise<ModelReply | { missed: string } | null>
   /** Logs one prompt that left and its answer, masked. Never throws. */
   logPrompt(entry: PromptLog): Promise<void>
   /** A firm's own people billing today and what their rates come to a month; null for a seat that does not read money. */
@@ -3725,13 +3730,15 @@ export async function respond(
       const maskedContext = masker.mask(ledgerContext(lines))
       const reply = await read.model(MODEL_SYSTEM, maskedQuestion, maskedContext)
       if (!reply) return { kind: 'TEXT', says: 'The model did not answer just now. ' + WHAT_I_ANSWER }
+      // Asked and not answered, or not set up: said in the gateway's words, with what the rules answer.
+      if ('missed' in reply) return { kind: 'TEXT', says: `${reply.missed} ${WHAT_I_ANSWER}` }
       const maskedPrompt = `Ledger lines:\n${maskedContext}\n\nQuestion: ${maskedQuestion}`
       // An answer cut at its length limit is shown only up to its last
       // whole sentence, and the log keeps all of what came back.
       const shown = reply.cut ? wholeSentences(reply.text) : reply.text
       if (shown === null) {
         await read.logPrompt({
-          model: reply.model, maskedPrompt, maskedAnswer: `${CUT_UNSHOWN_NOTE}${reply.text}`,
+          model: reply.model, provider: reply.provider, maskedPrompt, maskedAnswer: `${CUT_UNSHOWN_NOTE}${reply.text}`,
           tokensIn: reply.tokensIn, tokensOut: reply.tokensOut, realValues: masker.realValues(),
         })
         return { kind: 'TEXT', says: TOO_LONG }
@@ -3741,6 +3748,7 @@ export async function respond(
       const check = grounded(shown, lines)
       await read.logPrompt({
         model: reply.model,
+        provider: reply.provider,
         maskedPrompt,
         maskedAnswer: `${reply.cut ? CUT_NOTE : ''}${check.replaced ? REPLACED_NOTE : ''}${reply.text}`,
         tokensIn: reply.tokensIn,
