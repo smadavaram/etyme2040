@@ -5,9 +5,7 @@ look: colours, type, corners, shadows, motion, the logo, the icons and every com
 site uses. It carries nothing about what the product does. Applying it changes the surface of
 the dashboard and nothing underneath.
 
-A live version of everything here is the page `brand-kit.html` on the marketing site
-(repository `smadavaram/etyme-2017`, branch `development`), which is also where this folder
-is maintained. This copy is for the dashboard's own repository.
+A live version of everything here is the page `brand-kit.html` on the site.
 
 ## Rules for the thread that applies this
 
@@ -22,10 +20,6 @@ is maintained. This copy is for the dashboard's own repository.
 4. **Verify at 390px** on every screen touched. Nothing scrolls sideways except a table in its
    own box.
 5. **Plain English on screen.** Sentence case, no metaphors, buttons say the verb and the thing.
-6. **Where this meets CLAUDE.md.** Its design-system section says the prototypes in `prototypes/`
-   are the standard. For colour, type, corners, shadows, motion, icons and the logo, this kit now
-   is; the prototypes still decide layout, screens and behaviour. Do not edit CLAUDE.md for this;
-   the product owner will.
 
 ## Files
 
@@ -34,7 +28,7 @@ is maintained. This copy is for the dashboard's own repository.
 | `tokens.css` | Every design token as a CSS variable | Paste into `globals.css` `:root` |
 | `tailwind.tokens.ts` | The same tokens in the shape of `tailwind.config.ts` `theme.extend` | Replace the product's `colors.etyme`, `fontFamily`, `fontSize`, `borderRadius` |
 | `tokens.json` | The same tokens, machine-readable | Any other tool |
-| `kit.css` | The full stylesheet the marketing site runs on (copy of `kit.css` in `smadavaram/etyme-2017`) | Reference for every component's exact CSS |
+| `kit.css` | The full stylesheet the site runs on (copy of `../kit.css`) | Reference for every component's exact CSS |
 | `icons.svg` | Sprite of the icon set, 62 icons | Replace text-glyph and ad-hoc icons |
 | `logo/wordmark.svg` | The logo, ink letters | Header, sign-in, emails |
 | `logo/wordmark-on-dark.svg` | The logo, white letters | Dark bands only |

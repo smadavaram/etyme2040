@@ -208,6 +208,18 @@ const PODS: NavItem = {
 }
 
 /**
+ * Public-sector proposals (record 124, plugin 5): the firm's bids, drafted from
+ * its own record. A plugin, drawn only where PUBLIC_SECTOR is on. A tab of Jobs,
+ * because a bid is work being sought. The same page holds the firm's Certifications panel and its portal Registrations list (record 132). Supplier and integrator only: an MSP places
+ * nobody and a client only buys. The page's own route asks for submissions.read.
+ */
+const PROPOSALS: NavItem = {
+  label: 'Proposals', href: '/dashboard/proposals', icon: '▤',
+  // Supplier diversity (record 132) is a panel and a list on this same page, so its routes are this page's calls.
+  needs: ['submissions.read'], pageCalls: ['proposals', 'proposals/**', 'governance/certifications', 'governance/ownership-attestations', 'diversity/**'],
+}
+
+/**
  * The firm's paperwork: its templates, and asking somebody on its books
  * for a document. Who may be asked is read off the bench and the payroll
  * (`askTheBooks` in lib/document-request, which reads /api/bench), so a
@@ -702,7 +714,7 @@ const VENDOR_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
   tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
-  tabbed('Jobs', [JOBS, LEADS, QUESTIONS, SHARED_WITH_YOU, PODS]),
+  tabbed('Jobs', [JOBS, LEADS, QUESTIONS, SHARED_WITH_YOU, PODS, PROPOSALS]),
   tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
   tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
@@ -724,7 +736,7 @@ const GSI_NAV: NavSection[] = [
   ASK_ETYME_SECTION,
   tabbed('Today', [TODAY_PAGE, REPORTS, PROFITABILITY, RATE_HISTORY, OUR_SCORECARD]),
   tabbed('Network', [...FIRM_CANDIDATES, ...FIRM_COMPANIES]),
-  tabbed('Jobs', [JOBS, SHARED_WITH_YOU, PODS]),
+  tabbed('Jobs', [JOBS, SHARED_WITH_YOU, PODS, PROPOSALS]),
   tabbed('Submissions', [SUBMISSIONS, INTERVIEWS]),
   tabbed('Contracts', FIRM_CONTRACTS),
   tabbed('Timesheets', [TIMESHEETS, EXPENSES, ROLLOFF]),
@@ -1541,7 +1553,7 @@ export function mayOpen(href: string, permissions: readonly string[] | null | un
 }
 
 /** The pages a plugin draws, which are not drawn while it is off. */
-const PLUGIN_PAGES: Record<string, string> = { TRAIN_TO_BENCH: TRAINING.href, PODS: PODS.href }
+const PLUGIN_PAGES: Record<string, string> = { TRAIN_TO_BENCH: TRAINING.href, PODS: PODS.href, PUBLIC_SECTOR: PROPOSALS.href }
 
 /**
  * The menu for a seat, less the pages of any plugin its company has off

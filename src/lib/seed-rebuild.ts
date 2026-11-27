@@ -93,6 +93,7 @@ export const DELETE_ORDER = [
   'OutreachLetter', 'AgentTask', 'AgentSwitch',
   // A plugin switch (record 120) names the firm; the person who set it is by id alone.
   'PluginSwitch',
+  'TenantModelRoute',
   // The Owner's own targets name the firm and the person who set them (records 123, 125).
   'SkillTarget',
   // Chains 1, 2, 3 and 6 (record 112): each names the firm, and some a submission or a petition, so they go before both.
@@ -170,6 +171,10 @@ export const DELETE_ORDER = [
   'Assessment', 'Certification', 'BenchAsk', 'Enrollment',
   // Project teams (record 120): a deliverable names its project and milestone, a project its team and order, a member its role; all before the milestone, the order, the person and the firm.
   'PodDeliverable', 'PodProject', 'PodMember', 'PodRole', 'Pod',
+  // Public-sector proposals (record 124): a piece names its proposal, so it goes first.
+  'ProposalPiece', 'Proposal',
+  // Supplier diversity (record 132): a certification names its paper, so it goes before the paper; nothing names the rest.
+  'SupplierCertification', 'OwnershipAttestation', 'DiversityRegistration',
   'DocumentShareItem', 'DocumentShareAccess', 'SiteCompliancePass', 'DocFile', 'WeekApprovalFile', 'WeekApprovalContract', 'DocumentRequirement', 'ImportRow', 'Holiday',
   'PacketItem', 'WebhookDelivery', 'CompanyDomain', 'SubdomainAlias', 'CustomDomain', 'Check', 'TextMessage',
   'CreditNote', 'PaymentRunItem', 'ClassificationCall', 'ExemptAssertion', 'MarketingLead',
@@ -253,6 +258,22 @@ export const LOOSE: Record<string, { as: LooseRole; to?: string[] }> = {
   'BenchAsk.companyId': { as: 'OWNED', to: ['Company'] },
   'BenchAsk.benchListingId': { as: 'LINK', to: ['BenchListing'] },
   'PluginSwitch.byPersonId': { as: 'RECORD' },
+  // A company's own model route: the provider's name for the model, and the Owner who set it, are history, no row's key.
+  'TenantModelRoute.modelId': { as: 'RECORD' },
+  'TenantModelRoute.setByPersonId': { as: 'RECORD' },
+  'Proposal.companyId': { as: 'OWNED', to: ['Company'] },
+  'Proposal.createdById': { as: 'LINK', to: ['Person'] },
+  'Proposal.approvedById': { as: 'LINK', to: ['Person'] },
+  'Proposal.submittedById': { as: 'LINK', to: ['Person'] },
+  'ProposalPiece.proposalId': { as: 'OWNED', to: ['Proposal'] },
+  'SupplierCertification.companyId': { as: 'OWNED', to: ['Company'] },
+  'SupplierCertification.documentId': { as: 'LINK', to: ['DocInstance'] },
+  'SupplierCertification.setById': { as: 'LINK', to: ['Person'] },
+  'OwnershipAttestation.companyId': { as: 'OWNED', to: ['Company'] },
+  'OwnershipAttestation.attestedById': { as: 'LINK', to: ['Person'] },
+  'DiversityRegistration.companyId': { as: 'OWNED', to: ['Company'] },
+  'DiversityRegistration.createdById': { as: 'LINK', to: ['Person'] },
+  'DiversityRegistration.submittedById': { as: 'LINK', to: ['Person'] },
   'SiteCompliancePass.companyId': { as: 'OWNED', to: ['Company'] },
   'SiteCompliancePass.recordedById': { as: 'LINK', to: ['Person'] },
   'SiteCompliancePass.documentId': { as: 'LINK', to: ['DocInstance'] },

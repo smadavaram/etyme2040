@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { needsVerifiedOwnerAt } from '@/lib/owner-proof'
+import { approvalHolds } from '@/lib/site-settings'
 
 /**
  * Plugins (record 120): modules a firm does not have until its Owner, or
@@ -8,13 +9,14 @@ import { needsVerifiedOwnerAt } from '@/lib/owner-proof'
  * `Company.pluginsOn`; the ledger is `PluginSwitch`.
  */
 
-export type PluginKey = 'TRAIN_TO_BENCH' | 'PODS' | 'WEBSITE' | 'OUTREACH'
+export type PluginKey = 'TRAIN_TO_BENCH' | 'PODS' | 'WEBSITE' | 'OUTREACH' | 'PUBLIC_SECTOR'
 
 export const PLUGINS: readonly { key: PluginKey; label: string; says: string }[] = [
   { key: 'TRAIN_TO_BENCH', label: 'Train to bench', says: 'Courses and cohorts for your people, and a trainee who finishes joins your bench with her own yes.' },
   { key: 'PODS', label: 'Project teams', says: 'Named teams sold as a project, with deliverables the client accepts and milestones billed from them.' },
   { key: 'WEBSITE', label: 'Website and content', says: 'Your public site and the editor for its words. The site goes public after three checks: your branding, your domain, and any compliance pass.' },
   { key: 'OUTREACH', label: 'Outreach', says: 'Letters that sell your firm: outreach batches, their follow-ups and check-ins with companies gone quiet. Drafting stays open while it is off.' },
+  { key: 'PUBLIC_SECTOR', label: 'Public-sector proposals', says: 'Record a public bid, draft the response from your own record, and track its deadlines. A person approves and submits.' },
 ]
 
 /**
@@ -42,6 +44,13 @@ export function switchOnRefusal(plugin: PluginKey): string | null {
  * does not either (the site is then on anyway).
  */
 export const GRANDFATHER_CUTOFF = new Date('2026-11-27T00:00:00Z')
+
+/**
+ * The one day the dev seed gives every storefront it writes: a day before the
+ * cutoff, because those sites stand for sites that were live before the flag.
+ * Fixed, never new Date(), so a database seeded on any day shows them alike.
+ */
+export const SEEDED_SITE_LIVE_AT = new Date(GRANDFATHER_CUTOFF.getTime() - 24 * 60 * 60 * 1000)
 
 export function liveBeforeTheFlag(siteLiveAt: Date | null | undefined): boolean {
   return Boolean(siteLiveAt) && siteLiveAt!.getTime() < GRANDFATHER_CUTOFF.getTime()
@@ -78,6 +87,8 @@ export const WEBSITE_LEAD_SAYS = 'The site goes public after three checks: your 
 
 export type WebsiteFacts = {
   brandingApprovedAt: Date | null
+  /** The Owner said yes, then a stored branding value changed: the yes no longer counts. */
+  brandingApprovalStale?: boolean
   domainVerified: boolean
   compliancePassRequired: boolean
   compliancePassRecorded: boolean
@@ -87,7 +98,7 @@ export type WebsiteCheck = 'BRANDING' | 'DOMAIN' | 'COMPLIANCE_PASS'
 /** Pure: the checks that do not yet hold, each in a sentence. Nothing missing means it may go on. */
 export function websiteChecklist(f: WebsiteFacts): { missing: { check: WebsiteCheck; says: string }[]; says: string | null } {
   const missing: { check: WebsiteCheck; says: string }[] = []
-  if (!f.brandingApprovedAt) missing.push({ check: 'BRANDING', says: 'Your branding is not approved yet. The Owner approves it in Settings.' })
+  if (!f.brandingApprovedAt) missing.push({ check: 'BRANDING', says: f.brandingApprovalStale ? 'Your branding changed after the Owner approved it. The Owner approves the new branding in Settings.' : 'Your branding is not approved yet. The Owner approves it in Settings.' })
   if (!f.domainVerified) missing.push({ check: 'DOMAIN', says: 'Your own domain is not pointed and verified yet.' })
   if (f.compliancePassRequired && !f.compliancePassRecorded) missing.push({ check: 'COMPLIANCE_PASS', says: 'A compliance pass is required for your firm and none is recorded. Record it with its document in Settings.' })
   return { missing, says: missing.length ? `${WEBSITE_LEAD_SAYS} ${missing.map((m) => m.says).join(' ')}` : null }
@@ -96,11 +107,13 @@ export function websiteChecklist(f: WebsiteFacts): { missing: { check: WebsiteCh
 /** Reads the three facts for a firm. */
 export async function websiteFacts(companyId: string): Promise<WebsiteFacts> {
   const [c, domain, pass] = await Promise.all([
-    prisma.company.findUnique({ where: { id: companyId }, select: { siteBrandingApprovedAt: true, siteCompliancePassRequired: true } }),
+    prisma.company.findUnique({ where: { id: companyId }, select: { siteBrandingApprovedAt: true, siteBrandingApprovedHash: true, siteLogoRef: true, sitePrimaryColor: true, siteSecondaryColor: true, siteFontPairing: true, siteCompliancePassRequired: true } }),
     prisma.customDomain.findFirst({ where: { companyId, isPrimary: true, state: 'VERIFIED' }, select: { id: true } }),
     prisma.siteCompliancePass.findFirst({ where: { companyId }, select: { id: true } }),
   ])
-  return { brandingApprovedAt: c?.siteBrandingApprovedAt ?? null, domainVerified: Boolean(domain), compliancePassRequired: Boolean(c?.siteCompliancePassRequired), compliancePassRecorded: Boolean(pass) }
+  // The yes counts only over the values stored now (record 111): a changed value clears it.
+  const holds = approvalHolds(c?.siteBrandingApprovedAt, c?.siteBrandingApprovedHash, { logoRef: c?.siteLogoRef ?? null, primaryColor: c?.sitePrimaryColor ?? null, secondaryColor: c?.siteSecondaryColor ?? null, fontPairing: c?.siteFontPairing ?? null })
+  return { brandingApprovedAt: holds ? c!.siteBrandingApprovedAt : null, brandingApprovalStale: Boolean(c?.siteBrandingApprovedAt && c.siteBrandingApprovedHash) && !holds, domainVerified: Boolean(domain), compliancePassRequired: Boolean(c?.siteCompliancePassRequired), compliancePassRecorded: Boolean(pass) }
 }
 
 /** The 422 body for a Website switch that may not go on yet, or null. Off is never asked. */

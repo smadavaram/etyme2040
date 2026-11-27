@@ -1,5 +1,6 @@
 import { coursesShown } from '@/lib/training/courses-shown'
 import { prisma } from '@/lib/db'
+import { clientLineWhere, isHiddenTeamLine } from '@/lib/money/team-lines'
 import { siteRendersFor } from '@/lib/plugins'
 import { reputationOf, type BuyerReputation } from '@/lib/buyer-reputation'
 import { releasing, summarize, type RollingOff } from '@/lib/releasing-soon'
@@ -39,6 +40,8 @@ import {
  * names, because a client list is theirs to publish. No consultant
  * identities without their agreement.
  */
+
+import { lookFor, type SiteLook } from './public-site/site-look'
 
 export type Audience = 'SUPPLIERS' | 'TALENT_AND_BUYERS'
 
@@ -102,6 +105,8 @@ export interface PublicSite {
    * on and the firm has not hidden them (record 120). Empty otherwise.
    */
   courses: { title: string; hours: number | null }[]
+  /** The tenant's stored template, branding and pages (record 111). The layout always applies; the look only while the Owner's yes covers it. */
+  look: SiteLook
 }
 
 const READABLE: Record<string, string> = {
@@ -277,6 +282,8 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
       phone: true, accountsEmail: true,
       // The Owner's choice, same column `showsPeople` reads (decisions/92).
       showPeopleOnPage: true,
+      siteTemplate: true, siteLogoRef: true, sitePrimaryColor: true, siteSecondaryColor: true,
+      siteFontPairing: true, sitePages: true, siteBrandingApprovedAt: true, siteBrandingApprovedHash: true,
       peopleInCharge: { select: { duty: true, name: true, personId: true } },
       locations: {
         where: { isRemote: false },
@@ -378,6 +385,7 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
     askBox: offersAsk(company.kind),
     contact,
     courses: courseRows.map((c) => ({ title: c.title, hours: c.duration ?? null })),
+    look: lookFor(company),
   }
 
   // ── Talking to suppliers ────────────────────────────────────────────
@@ -403,11 +411,11 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
         },
       }),
       prisma.sellContract.findMany({
-        where: { clientCompanyId: company.id, state: 'IN_PROGRESS' },
+        where: clientLineWhere({ clientCompanyId: company.id, state: 'IN_PROGRESS' }),
         select: { companyId: true },
       }),
       prisma.sellContract.findMany({
-        where: { clientCompanyId: company.id, endDate: { not: null } },
+        where: clientLineWhere({ clientCompanyId: company.id, endDate: { not: null } }),
         select: { startDate: true, endDate: true },
       }),
     ])
@@ -485,6 +493,7 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
       },
       select: {
         id: true, endDate: true, companyId: true,
+        projectOrder: { select: { podProject: { select: { onSite: true } } } },
         company: { select: { id: true, name: true } },
         clientCompany: { select: { name: true, kind: true } },
         endClientCompany: { select: { name: true, kind: true } },
@@ -533,6 +542,8 @@ export async function publicSite(slug: string): Promise<PublicSite | null> {
   const rows: RollingOff[] = []
   for (const c of rollingOff) {
     if (!c.endDate || !c.person.consultant) continue
+    // Outcome work: the member is the firm's own work, never named or rated here.
+    if (isHiddenTeamLine(c)) continue
     const listing = c.person.consultant.listings.find((l) => l.companyId === c.companyId)
     // A contract end date is not agreement to be advertised, least of all
     // on the open internet: the person's own yes, and their yes to being

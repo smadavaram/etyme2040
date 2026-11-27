@@ -314,6 +314,16 @@ model Person {
   authenticatorApps            AuthenticatorApp[]
   siteBrandingApprovals        Company[]             @relation("siteBrandingApprover")
   siteCompliancePassesRecorded SiteCompliancePass[]  @relation("siteCompliancePassRecorder")
+  proposalsCreated             Proposal[]            @relation("proposalCreator")
+  proposalsApproved            Proposal[]            @relation("proposalApprover")
+  proposalsSubmitted           Proposal[]            @relation("proposalSubmitter")
+  certificationsSet               SupplierCertification[] @relation("certificationSetter")
+  ownershipAttestations           OwnershipAttestation[]  @relation("ownershipAttester")
+  diversityRegsMade    DiversityRegistration[] @relation("diversityRegistrationCreator")
+  diversityRegsSubmitted DiversityRegistration[] @relation("diversityRegistrationSubmitter")
+  /// Her own yes to updates from firms (record 117). Given by her, revocable. A yes counts only while updatesRevokedAt is null or older than updatesYesAt.
+  updatesYesAt                 DateTime?
+  updatesRevokedAt             DateTime?
 
   @@index([name])
   @@index([createdAt])
@@ -684,6 +694,13 @@ model AccessLog {
 // ORGANISATION
 // ─────────────────────────────────────────────
 
+/// Which edition a tenant is on (records 126, 127).
+enum Edition {
+  USER
+  STARTER
+  ENTERPRISE
+}
+
 model Company {
   submissionConfirmations SubmissionConfirmation[]
   offers                  Offer[]
@@ -1000,7 +1017,19 @@ model Company {
   /// Where a signed-in seat at this firm lands. Null is the standing rule
   /// (lib/console-home); DECISIONS opens the decision queue (→ 107).
   homePage                   HomePage?
+  /// Edition (records 126, 127). USER is a free user inside another firm's record; STARTER and ENTERPRISE pay after the 60-day trial.
+  /// Which one a tenant is follows the own-business count, read by lib/tenant-state; nothing here is a charge.
+  edition                    Edition                 @default(USER)
+  /// The day the tenant was activated. The 60 days start here; day 61 is activatedAt + 60 days. Null: not activated, no clock.
+  activatedAt                DateTime?
+  /// Paid through this instant. Past it, on day 61 or later, the tenant is read-only. Recorded by the Owner or Superadmin; Etyme never moves money.
+  paidThrough                DateTime?
+  /// A year paid ahead: about 15% off usage only (record 127).
+  annualPrepaid              Boolean                 @default(false)
+  /// The internal proving tenants (record 126) are never locked by the day-61 rule. Set by a Superadmin only, ledgered by the writer.
+  billingExempt              Boolean                 @default(false)
   /// Plugins switched on for this firm (record 120): TRAIN_TO_BENCH, PODS, WEBSITE, OUTREACH.
+  /// The fifth key, PUBLIC_SECTOR (record 124), is the switch only.
   /// Empty is off. The ledger is PluginSwitch.
   pluginsOn                  String[]                @default([])
   pluginSwitches             PluginSwitch[]
@@ -1011,6 +1040,23 @@ model Company {
   /// Whether this firm's business requires a compliance pass before its site goes public. A per-firm setting, off until the Owner says so.
   siteCompliancePassRequired Boolean                 @default(false)
   siteCompliancePasses       SiteCompliancePass[]
+  /// The tenant's site settings (records 111, 79). The template is a layout, never a look; branding is the next four fields.
+  siteTemplate               SiteTemplate            @default(ASK_FIRST)
+  /// A reference to the logo: an https address or a stored file's id, as the Owner gave it. Null is the neutral default.
+  siteLogoRef                String?
+  /// Branding colors as #RRGGBB. Null is the neutral default.
+  sitePrimaryColor           String?
+  siteSecondaryColor         String?
+  /// A key from `lib/site-settings` FONT_PAIRINGS. Null is the neutral default.
+  siteFontPairing            String?
+  /// The page list and each page's words: [{ slug, title, body }]. Not part of the branding yes.
+  sitePages                  Json?
+  /// The fingerprint of the stored branding values (logo, colors, font) when the Owner said yes. The yes counts only while it equals the fingerprint of the values stored now.
+  siteBrandingApprovedHash   String?
+  proposals                  Proposal[]
+  certifications             SupplierCertification[]
+  ownershipAttestations      OwnershipAttestation[]
+  diversityRegistrations     DiversityRegistration[]
   skillTargets               SkillTarget[]
   /// Hides this firm's courses on its storefront whatever its plugin says
   /// (record 120, answer 3). A per-tenant setting; Tapin's is true.
@@ -1127,6 +1173,7 @@ model Company {
   customDomains              CustomDomain[]
   claimedDomains             CompanyDomain[]
   agentRuns                  AgentRun[]
+  tenantModelRoutes          TenantModelRoute[]
   checks                     Check[]
   TextMessage                TextMessage[]
 
@@ -8017,6 +8064,7 @@ model DocInstance {
 
   adverseActions       AdverseAction[]
   siteCompliancePasses SiteCompliancePass[]
+  supplierCertifications SupplierCertification[]
 
   @@index([subjectType, subjectId, status])
   @@index([templateId])
@@ -8958,6 +9006,41 @@ model AgentRun {
   @@index([companyId, agent, at])
   @@index([companyId, skillKey, at])
   @@index([companyId, agentKey, at])
+}
+
+/// A tenant's own model route (record 125, bring your own model). Enterprise
+/// edition only, set by the Owner after a fresh second check.
+///
+/// Holds a REFERENCE to a key, never a key: keyRef is the NAME of a secret in
+/// the platform's secret store (shape ETYME_TM_...), and nothing here, in a
+/// log or in a reply ever carries the value. Admitted by the same data-class
+/// rules as a platform route; Lane C data reaches it never. allowPlatformFallback
+/// is the tenant's own yes to fall back, within the tier, to a platform route.
+model TenantModelRoute {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// LOW · HIGH. A capability tier, never a model name.
+  tier        String
+  label       String
+  adapter     String
+  modelId     String
+  /// Where the provider hosts it, and the day a data processing agreement was signed.
+  region      String
+  dpaSignedOn DateTime?
+
+  /// The name of a secret in the platform's secret store. Never a value.
+  keyRef                String
+  allowPlatformFallback Boolean @default(false)
+  enabled               Boolean @default(true)
+
+  setByPersonId String
+  setAt         DateTime @default(now())
+
+  @@unique([companyId, tier, modelId])
+  @@index([companyId])
+  @@index([setByPersonId])
 }
 
 /// One check on one thing, and who did the checking.
@@ -11715,6 +11798,7 @@ model PluginSwitch {
   id         String   @id @default(cuid())
   companyId  String
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// The fifth key is PUBLIC_SECTOR (record 124).
   plugin     String // TRAIN_TO_BENCH · PODS · WEBSITE · OUTREACH
   on         Boolean
   byPersonId String
@@ -11804,6 +11888,8 @@ model PodProject {
   acceptor         Person       @relation(fields: [acceptorPersonId], references: [id])
   fulfilledAt      DateTime?
   createdAt        DateTime     @default(now())
+  /// Record 120, 2026-11-26. True only when the supplier marked "the team works on your site" and the client's yes on the offer accepted it. False is outcome work: member lines are never the client's. Fixed at the sale.
+  onSite           Boolean      @default(false)
 
   deliverables PodDeliverable[]
 
@@ -11813,12 +11899,15 @@ model PodProject {
 
 /// A deliverable is an OrderMilestone; this row says it belongs to a pod project.
 model PodDeliverable {
-  id           String         @id @default(cuid())
-  podProjectId String
-  podProject   PodProject     @relation(fields: [podProjectId], references: [id], onDelete: Cascade)
-  milestoneId  String         @unique
-  milestone    OrderMilestone @relation(fields: [milestoneId], references: [id])
-  startedAt    DateTime?
+  id                  String         @id @default(cuid())
+  podProjectId        String
+  podProject          PodProject     @relation(fields: [podProjectId], references: [id], onDelete: Cascade)
+  milestoneId         String         @unique
+  milestone           OrderMilestone @relation(fields: [milestoneId], references: [id])
+  startedAt           DateTime?
+  /// Record 123, 2026-11-26. The plan frozen at the sale, for planned versus actual. Null on a deliverable sold before these existed: the variance view shows a dash, never a guess. Written once, never edited.
+  baselineDueOn       DateTime?
+  baselineAmountCents Int?
 
   @@index([podProjectId])
 }
@@ -11843,4 +11932,188 @@ model SkillTarget {
   @@unique([companyId, subjectKind, subjectKey, period])
   @@index([companyId])
   @@index([setById])
+}
+
+/// A public-sector proposal the firm is working on (record 124, plugin 5).
+/// Drafted from the firm's own record; a person approves and a person
+/// records that they submitted it. The agent never writes APPROVED or
+/// SUBMITTED, and `lib/proposals/rules` is the one door that says so.
+model Proposal {
+  id            String          @id @default(cuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// The solicitation's own title or number, as the person typed it.
+  title         String
+  /// The agency asking, as typed. Never read from a register.
+  buyer         String?
+  /// The link the person pasted. The agent never searches or scrapes (lead ruling, record 124).
+  sourceUrl     String?
+  /// The requirements, pasted by a person. The agent reads this and nothing outside Etyme.
+  requirements  String?
+  /// The deadline the person typed. Null is not known, and never guessed.
+  dueAt         DateTime?
+  /// Set-aside bids (record 132): the certification the solicitation requires, as a person read it. Null is an open bid.
+  requiresCertification     CertificationKind?
+  /// The certifier's own name for it, where requiresCertification is OTHER.
+  requiresCertificationName String?
+  state         ProposalState   @default(DRAFT)
+  /// The drafted response. Words only; the person edits it before approving.
+  draft         String?
+  createdById   String
+  createdBy     Person          @relation("proposalCreator", fields: [createdById], references: [id])
+  approvedById  String?
+  approvedBy    Person?         @relation("proposalApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+  /// A person saying they sent it to the agency, outside Etyme. Etyme sends nothing.
+  submittedById String?
+  submittedBy   Person?         @relation("proposalSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime?
+  pieces        ProposalPiece[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([companyId, state])
+  @@index([createdById])
+  @@index([approvedById])
+  @@index([submittedById])
+}
+
+/// A tenant site's layout (record 79): never a look.
+enum SiteTemplate {
+  ASK_FIRST
+  FEED
+  BOARD
+}
+
+enum ProposalState {
+  DRAFT
+  NEEDS_PIECES
+  READY_FOR_PERSON
+  APPROVED
+  SUBMITTED
+}
+
+/// One piece a proposal needs from the firm's own record, and whether the firm has it.
+model ProposalPiece {
+  id         String    @id @default(cuid())
+  proposalId String
+  proposal   Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  /// BENCH · COMPLIANCE · RATES · PAST_PERFORMANCE
+  kind       String
+  label      String
+  /// Where the firm's own record holds it. Null while missing.
+  source     String?
+  haveIt     Boolean   @default(false)
+  /// Last time somebody inside the firm was told it is missing.
+  chasedAt   DateTime?
+
+  @@index([proposalId])
+}
+
+// ── Supplier diversity, the second half of plugin 5 (record 132) ────────
+// Everything below is written by a person. The agent reads these rows and
+// drafts from them; it never writes a certification, an ownership fact or a
+// "submitted" mark. The legal entity name a bid is made in is the existing
+// Company.legalName, entered by the Owner; no name is written in code.
+
+enum CertificationKind {
+  MBE
+  WBE
+  EIGHT_A
+  HUBZONE
+  OTHER
+}
+
+enum CertificationStatus {
+  NOT_HELD
+  APPLIED
+  HELD
+  LAPSED
+}
+
+/// A certification on the tenant (record 132). Only HELD, with a certificate
+/// on file and an expiry day not yet past, counts as held (`lib/diversity`).
+/// Set by the Owner or a seat she grants, never by an agent; each change is
+/// an event on the record ledger. Expiry flips HELD to LAPSED by date, with
+/// an event, never silently.
+model SupplierCertification {
+  id         String              @id @default(cuid())
+  companyId  String
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind       CertificationKind
+  /// The certification's own name, where kind is OTHER.
+  otherName  String?
+  /// The body that certifies it, as the Owner typed it.
+  certifier  String?
+  status     CertificationStatus @default(NOT_HELD)
+  number     String?
+  issuedOn   DateTime?
+  expiresOn  DateTime?
+  /// The certificate as a paper: a DocInstance with its DocFile. Null reads as not on file.
+  documentId String?
+  document   DocInstance?        @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  setById    String
+  setBy      Person              @relation("certificationSetter", fields: [setById], references: [id])
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([companyId, kind])
+  @@index([documentId])
+  @@index([setById])
+}
+
+/// An ownership fact (for example minority-owned) as the Owner's own
+/// attestation, with who and when (record 132). Append-only: a withdrawal is
+/// a new row with attested false, and the newest row for a fact is the answer.
+/// The agent never asserts one and never writes this table.
+model OwnershipAttestation {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// MINORITY_OWNED · WOMAN_OWNED · VETERAN_OWNED · OTHER, as `lib/diversity` names them.
+  fact         String
+  attested     Boolean
+  attestedById String
+  attestedBy   Person   @relation("ownershipAttester", fields: [attestedById], references: [id])
+  attestedAt   DateTime @default(now())
+  note         String?
+
+  @@index([companyId, fact, attestedAt])
+  @@index([attestedById])
+}
+
+enum RegistrationStatus {
+  NOT_STARTED
+  DRAFTED
+  SUBMITTED
+}
+
+/// A registration on one buyer's supplier-diversity portal (record 132). The
+/// agent drafts the answers from the firm's own record; a person submits on
+/// the portal, outside Etyme, and marks it here. Etyme submits nothing.
+model DiversityRegistration {
+  id            String             @id @default(cuid())
+  companyId     String
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// The buyer as the person typed it. Never read from a register.
+  buyerName     String
+  portalUrl     String?
+  status        RegistrationStatus @default(NOT_STARTED)
+  /// The portal's questions, pasted by a person. The agent reads this and nothing outside Etyme.
+  questions     String?
+  /// The answers the agent drafted from the record. A person edits before submitting.
+  answers       String?
+  draftedAt     DateTime?
+  createdById   String
+  createdBy     Person             @relation("diversityRegistrationCreator", fields: [createdById], references: [id])
+  /// A person saying she submitted it on the portal, and when.
+  submittedById String?
+  submittedBy   Person?            @relation("diversityRegistrationSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([companyId, status])
+  @@index([createdById])
+  @@index([submittedById])
 }

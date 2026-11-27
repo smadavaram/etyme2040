@@ -157,6 +157,11 @@ const UNPROMPTED: Record<string, { rung: Rung; basis: Basis; says: string }> = {
     basis: 'RULE',
     says: 'It could have approved this week on its own and chose not to, and said why. Holding it back is the whole act.',
   },
+  CERTIFICATION_LAPSED: {
+    rung: 'L3',
+    basis: 'RULE',
+    says: 'Every night it marks a held certification lapsed the day after its expiry date, so it is never claimed past it. The Owner records it as held again with a new certificate.',
+  },
   PROACTIVE_MATCH: {
     rung: 'L1',
     basis: 'RECORDED',
@@ -1112,6 +1117,68 @@ export const TWIN_ACTS: Record<string, TwinAct> = {
   'other_company.read': {
     says: 'Read another company\u2019s data.',
     money: false, external: true, reversible: false, decides: false, drafts: false, floor: true,
+  },
+  // Public-sector proposals (record 124): the agent drafts and chases; these
+  // three are never its. A person approves and sends, and signs.
+  // The proposals agent's own acts (record 124). It drafts words from the firm's
+  // record, asks a person for a yes, and reminds a colleague inside a task a
+  // person released. Nothing here speaks outside the firm.
+  'proposal.draft': {
+    kinds: ['SUPPLIER'],
+    says: 'Draft a public-sector proposal from the firm\u2019s own record and flag every requirement it does not answer. It states no rate and names nobody.',
+    money: false, external: false, reversible: true, decides: false, drafts: true, floor: false,
+    approverNeeds: 'submissions.create', alone: 'DREW_UP',
+  },
+  'proposal.ask': {
+    kinds: ['SUPPLIER'],
+    says: 'Put a finished proposal draft to a person for a yes. Nothing goes to the agency.',
+    money: false, external: false, reversible: true, decides: false, drafts: true, floor: false,
+    approverNeeds: 'submissions.create', alone: 'DREW_UP',
+  },
+  'proposal.chase': {
+    kinds: ['SUPPLIER'],
+    says: 'Remind a colleague that a piece of a proposal is waiting on them, once a person has said yes to the task.',
+    money: false, external: false, reversible: false, decides: false, drafts: false, floor: false,
+    approverNeeds: 'submissions.create',
+  },
+  // Supplier diversity (record 132): the agent drafts a portal's answers from the
+  // record. A person submits on the portal. Claiming a certification, attesting
+  // ownership and submitting are never the agent's.
+  'registration.draft': {
+    kinds: ['SUPPLIER'],
+    says: 'Draft the answers to a supplier-diversity portal\u2019s questions from the firm\u2019s own record. It claims no certification that is not held and no ownership fact the Owner has not attested.',
+    money: false, external: false, reversible: true, decides: false, drafts: true, floor: false,
+    approverNeeds: 'submissions.create', alone: 'DREW_UP',
+  },
+  'registration.submit': {
+    kinds: ['SUPPLIER'],
+    says: 'Submit a registration on a buyer\u2019s supplier-diversity portal.',
+    money: false, external: true, reversible: false, decides: true, drafts: false, floor: true,
+  },
+  'certification.claim': {
+    kinds: ['SUPPLIER'],
+    says: 'Record a certification as held, or say the firm holds one, on the Owner\u2019s behalf.',
+    money: false, external: true, reversible: false, decides: true, drafts: false, floor: true,
+  },
+  'ownership.attest': {
+    kinds: ['SUPPLIER'],
+    says: 'Attest that the firm is minority-owned, woman-owned or veteran-owned.',
+    money: false, external: true, reversible: false, decides: true, drafts: false, floor: true,
+  },
+  'proposal.submit': {
+    kinds: ['SUPPLIER'],
+    says: 'Send a public-sector proposal to the agency.',
+    money: false, external: true, reversible: false, decides: true, drafts: false, floor: true,
+  },
+  'proposal.sign': {
+    kinds: ['SUPPLIER'],
+    says: 'Sign a public-sector proposal or its certifications for the firm.',
+    money: true, external: true, reversible: false, decides: true, drafts: false, floor: true,
+  },
+  'proposal.publish_compliance_copy': {
+    kinds: ['SUPPLIER'],
+    says: 'Publish compliance wording in a public-sector proposal as the firm\u2019s own statement.',
+    money: false, external: true, reversible: false, decides: true, drafts: false, floor: true,
   },
   'approval.decide': {
     says: 'Answer a question the twin itself put to a person.',

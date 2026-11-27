@@ -664,6 +664,17 @@ export const DOMAINS: Domain[] = [
       // The per-tenant plugin switch (record 120): the state, who may switch,
       // and the one refusal every plugin's routes say. Every plugin reads it.
       'lib/plugins', 'lib/plugin-gate',
+      // A tenant's template, branding and pages, and the Owner's yes tied to them (records 111, 79).
+      'lib/site-settings', 'app/api/settings/site-branding',
+      // A candidate's own yes to updates (record 117): the reader and the door she answers at.
+      'lib/updates-consent', 'app/api/updates-consent',
+      // Public-sector proposals (record 124, plugin 5): the states a proposal may
+      // move through and who may move it, and the routes behind the switch.
+      'lib/proposals', 'app/api/proposals', 'app/dashboard/proposals',
+      // Supplier diversity (record 132, plugin 5): certifications, the Owner's ownership attestation and portal registrations.
+      'lib/diversity', 'app/api/diversity',
+      // Day 61 unpaid: the one read-only rule, its switch and the writes that stay open.
+      'lib/tenant-state',
       // One order, three names, and the rule for a counterparty that is
       // not on the system. Both are read by money, demand and the
       // platform's own routes at once, so they queue here with the

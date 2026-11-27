@@ -450,6 +450,9 @@ Full text → 40, 11, 56, 68, 72.
 - **Deploys happen on Saturday and Sunday only** (owner, 2026-11-21 →
   107). No hotfix exception, not for money, not for security. A weekday
   finding is logged NOT RELEASED and takes the weekend's first slot.
+- **Pax decides deployments** (owner, 2026-11-27 → 131): when and which
+  batch, including an exception to the weekend rule. Every gate still
+  holds, and a deploy authorization never merges a pull request.
 - **The fix list is worked in layers, each its own deploy** (founder,
   2026-11-15). Tapin first, as the live tenant that runs its whole
   business on Etyme. A layer is built and deployed, the tester retests
@@ -512,6 +515,9 @@ Full text → 40, 11, 56, 68, 72.
   and chases from the tenant's record, a person approves and submits.
   Free to switch on, agent acts metered, heavy work is consulting. After
   plugins 1 to 4.
+  Widened (→ 132): supplier diversity too (MBE, WBE, 8(a), HUBZone,
+  diversity portals, set-aside bids); a certification is claimed only once
+  held; the agent never finds bids and never submits.
 - **Etyme may run a client's program as a vendor-neutral MSP**, in a seat
   the client grants, under the client's rules, every read logged.
 - **When the training door is built**: a client's view never says
@@ -1215,7 +1221,7 @@ margin.
 | Party | The links | Folded inside them, as tabs |
 |---|---|---|
 | Client | Today · Network: Candidates, Suppliers · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Payables, Reports · Settings | Conversations → Ask Etyme. By region → Today. Contacts, Agreements, Supplier scorecards → Suppliers. Interviews → Submissions. Ending soon, Past contractors, Tenure, Duplicate check, Compliance, Document requests → Contracts. AP, Budget, POs → Payables. Users & permissions, Team structure, Owners, Sign-in, Program team, MSPs, Sites, Cost centers, Import records, Program twin, Org view, Data requests, Your data → Settings. |
-| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins → Candidates. Training → Candidates, where the plugin is on. Suppliers, Customers, Contacts, Outreach → Companies. Leads, Questions, Shared with you → Jobs. Project teams → Jobs, where the plugin is on. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
+| Supplier | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | Conversations → Ask Etyme. Rate history, Our scorecard → Today. Bench, Bench pay, Bench check-ins → Candidates. Training → Candidates, where the plugin is on. Suppliers, Customers, Contacts, Outreach → Companies. Leads, Questions, Shared with you → Jobs. Project teams, Proposals → Jobs, where the plugin is on. Interviews → Submissions. Sell contracts, Buy contracts, POs, Paperwork, Missing paperwork, Document requests, Screening packs, Compliance, Checklists, Notices, Check queue → Contracts. Rolloff → Timesheets. AR → Receivables. AP → Payables. Profitability → Reports. Commissions, Timesheet to payment → Payroll. Users & permissions, Team structure, Owners, Sign-in, Setup, Sites, Cost centers, Integrations, Import records, Activity log, Data requests, Your data, DNR list → Settings. |
 | Integrator | Today · Network: Candidates, Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Payroll, Reports · Settings | The supplier's, with no Leads and no Questions: its jobs arrive from the client it already has, and only a staffing firm's public page has an Ask box. |
 | MSP | Today · Network: Companies · Jobs · Submissions · HR: Contracts, Timesheets, Expenses · Accounting: Receivables, Payables, Reports · Settings | The supplier's, with no Candidates under Network, no Payroll link and no Our scorecard: an MSP places nobody and pays nobody. AR → Receivables. AP → Payables. Profitability → Reports. Suppliers, Supplier scorecards, Customers, Contacts, Outreach → Companies. |
 | One-person firm | Your work · Timesheets · Bills · Contracts · Paperwork · Settings | Conversations → Ask Etyme. Your page, Who has you → Your work. Expenses → Timesheets. AR → Bills. POs → Contracts. Your paperwork, Compliance → Paperwork. Your data → Settings. |
@@ -1470,3 +1476,48 @@ For multi-step tasks, state a brief plan:
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+## Standing rules from the development branch
+
+Merged from `development` on 2026-11-27. Where a line here and a rule above differ, the rule above wins.
+
+These are the standing rules for any Claude session in this project. Background
+knowledge about the business lives in `.claude/context/etyme-business.md`
+(loaded below), so this file stays short.
+
+@.claude/context/etyme-business.md
+
+### Who you are working for
+
+- The owner is the only person working on this project, and is not a coder.
+  Explain everything in plain English. If you must use a technical word, explain
+  it in the same sentence.
+- Keep answers short. Lead with what happened or what you recommend, then the detail.
+- When there is a choice to make, give a recommendation, not a list of options.
+
+### Safety
+
+- This repository is public. Never save passwords, API keys, private keys or
+  `.env` files in it. If you find one, stop and tell the owner.
+- Never deploy. Do not run `deploy.sh` or `restart.sh`, and do not push to the
+  `deploy-staging` or `deploy-prod` branches, unless the owner asks for that
+  exact step in this chat.
+  Pax, the architect, may give that word for a deploy (owner, 2026-11-27 → 131).
+- Do all work on a new branch made from `development`. Add it to `development`
+  only when the owner says so.
+
+### How to work
+
+- Before changing anything, say in one or two sentences what you will change and why.
+- After a change, say what changed and how the owner can see it.
+- Website pages must match the brand kit (`brand-kit/`, `kit.css`).
+- When you change app code, run the related tests if you can. If you could not
+  run them, say so plainly.
+
+### Lessons learned
+
+When the owner corrects you, add the lesson here as one line so it is not repeated.
+
+- (none yet)
