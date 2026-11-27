@@ -22,15 +22,15 @@ export default async function CredentialPage({ params }: { params: Promise<{ ten
   const add = addToProfileUrl({ courseName: v.courseTitle, issuer: v.issuer, issuedAt: v.completedAt, certUrl: `${appUrl()}${credentialPath(r.tenantSlug, v.code)}`, certId: v.certId })
   return (
     <article className="learn-card" style={{ minHeight: 0 }}>
-      <p className="text-sm" style={{ color: '#6B6862' }}>Course completed</p>
-      <h1 className="text-2xl my-2" style={{ fontFamily: "'Iowan Old Style', Palatino, Georgia, serif" }}>{v.courseTitle}{v.trackTitle ? ` — ${v.trackTitle}` : ''}</h1>
+      <p className="text-sm" style={{ color: 'var(--learn-muted)' }}>Course completed</p>
+      <h1 className="text-2xl my-2" style={{ fontFamily: 'var(--learn-head)' }}>{v.courseTitle}{v.trackTitle ? ` — ${v.trackTitle}` : ''}</h1>
       <p><strong>{v.learnerName}</strong> finished this course.</p>
       <dl className="mt-4 grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-y-1 text-sm">
-        <dt style={{ color: '#6B6862' }}>Issued by</dt><dd className="mb-2 sm:mb-0">{v.issuer}</dd>
-        <dt style={{ color: '#6B6862' }}>Completed</dt><dd className="mb-2 sm:mb-0">{formatMonth(v.completedAt)}</dd>
-        <dt style={{ color: '#6B6862' }}>Verification id</dt><dd className="learn-mono" style={{ wordBreak: 'break-all' }}>{v.certId}</dd>
+        <dt style={{ color: 'var(--learn-muted)' }}>Issued by</dt><dd className="mb-2 sm:mb-0">{v.issuer}</dd>
+        <dt style={{ color: 'var(--learn-muted)' }}>Completed</dt><dd className="mb-2 sm:mb-0">{formatMonth(v.completedAt)}</dd>
+        <dt style={{ color: 'var(--learn-muted)' }}>Verification id</dt><dd className="learn-mono" style={{ wordBreak: 'break-all' }}>{v.certId}</dd>
       </dl>
-      <p className="mt-4 text-sm" style={{ color: '#6B6862' }}>This page is the record. It matches the completion {v.issuer} holds, and {v.learnerName} chose to show it. {v.learnerName} can take it down at any time.</p>
+      <p className="mt-4 text-sm" style={{ color: 'var(--learn-muted)' }}>This page is the record. It matches the completion {v.issuer} holds, and {v.learnerName} chose to show it. {v.learnerName} can take it down at any time.</p>
       <p className="mt-4"><a className="learn-run inline-block" href={add} target="_blank" rel="noopener noreferrer">Add to your profile</a></p>
     </article>
   )

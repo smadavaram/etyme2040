@@ -12,7 +12,7 @@ export default async function TrackPage({ params }: { params: Promise<{ tenant: 
     return (
       <section>
         <h1 className="text-2xl mb-2">{card.label}</h1>
-        <p style={{ color: '#6B6862' }}>{NOT_LIVE_YET}. This track is not open yet.</p>
+        <p style={{ color: 'var(--learn-muted)' }}>{NOT_LIVE_YET}. This track is not open yet.</p>
         <p className="mt-4"><a className="underline" href={`/learn/${tenant}`}>Back to the question</a></p>
       </section>
     )
@@ -20,8 +20,8 @@ export default async function TrackPage({ params }: { params: Promise<{ tenant: 
   const first = lessonsOf(t)[0]
   return (
     <section>
-      <p className="text-sm tabular-nums" style={{ color: '#6B6862' }}>{VERSION}</p>
-      <h1 className="text-3xl mt-1 mb-4" style={{ fontFamily: "'Iowan Old Style', Palatino, Georgia, serif" }}>{t.title}</h1>
+      <p className="text-sm tabular-nums" style={{ color: 'var(--learn-muted)' }}>{VERSION}</p>
+      <h1 className="text-3xl mt-1 mb-4" style={{ fontFamily: 'var(--learn-head)' }}>{t.title}</h1>
       <h2 className="text-lg font-semibold mb-2">What you will be good at</h2>
       <ul className="list-disc pl-5 space-y-1 mb-6">{t.goodAt.map((g) => <li key={g}>{g}</li>)}</ul>
       {first && <a className="learn-run inline-block" href={`/learn/${tenant}/${t.key}/${first.lesson.key}`}>Start the first lesson</a>}

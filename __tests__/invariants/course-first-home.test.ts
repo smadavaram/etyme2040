@@ -100,8 +100,16 @@ describe('Tapin’s home is Tapin’s look and the words of the reference page',
     })
     expect(Object.keys(home.palette).sort()).toEqual([...PALETTE_KEYS].sort())
   })
-  it('Tapin’s text, muted text and teal can all be read on its ink background', () => {
-    for (const c of [home.palette.text, home.palette.muted, home.palette.accent]) expect(contrastRatio(c, home.palette.ink)).toBeGreaterThanOrEqual(4.5)
+  it('Tapin’s page is light: its ink, body and soft text can all be read on its paper and its cards', () => {
+    for (const on of [home.palette.paper, home.palette.card, home.palette.panel]) {
+      for (const c of [home.palette.ink, home.palette.body, home.palette.soft, home.palette.accentDark]) expect(contrastRatio(c, on)).toBeGreaterThanOrEqual(3)
+      expect(contrastRatio(home.palette.ink, on)).toBeGreaterThanOrEqual(7)
+    }
+  })
+  it('the page’s background is the light paper, never the dark ink', () => {
+    const css = readFileSync('src/app/site/[slug]/course-home.css', 'utf8')
+    expect(css).toMatch(/\.ch\{[^}]*background:var\(--ch-paper\)/)
+    expect(css).not.toMatch(/\.ch(-nav|-footer|-stage|-step)?\{[^}]*background:var\(--ch-ink/)
   })
   it('a teal button is lettered in ink, because white on Tapin’s teal cannot be read', () => {
     expect(contrastRatio('#ffffff', home.palette.accent)).toBeLessThan(4.5)

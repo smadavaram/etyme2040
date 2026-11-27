@@ -1,6 +1,6 @@
 /**
  * Tapin's Course first home (record 134): the palette, picture and words of
- * Pax's reference page of 2026-11-27, kept word for word. This is Tapin's
+ * Pax's reference page of 2026-11-27, in its light restyle, kept word for word. This is Tapin's
  * content, written to Tapin's own record by `scripts/tapin-home.ts`; the
  * page reads the record, never this file.
  */
@@ -17,6 +17,7 @@ export const TAPIN_HOME = {
     accent: '#0db5a3', accentDark: '#078f81', accentSoft: '#e0f5f1',
     text: '#eaf2f7', muted: '#a9bfce',
     paper: '#f6f9fa', card: '#ffffff', line: '#dce8ec', body: '#33505f',
+    soft: '#5c7484', panel: '#f4f9f8', accentLine: '#bfe8e1', accentInk: '#065a51',
   },
   heroImage: { src: '/tenants/tapin/hero.webp', alt: 'Tapin consultants working with data' },
   words: {

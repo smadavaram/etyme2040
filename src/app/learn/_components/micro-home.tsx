@@ -27,7 +27,7 @@ export function MicroHome({ tenant, tracks }: { tenant: string; tracks: T[] }) {
     return () => { alive = false }
   }, [tenant, tracks])
 
-  if (!rows) return <p style={{ color: '#6B6862' }}>One moment.</p>
+  if (!rows) return <p style={{ color: 'var(--learn-muted)' }}>One moment.</p>
   const started = rows.filter((r) => r.p.done.length > 0 || r.path)
   const focus = started[0] ?? rows[0]
   const keys = focus.t.lessons.map((l) => l.key)
@@ -38,7 +38,7 @@ export function MicroHome({ tenant, tracks }: { tenant: string; tracks: T[] }) {
   return (
     <section className="space-y-6">
       <div className="learn-card" style={{ minHeight: 0 }}>
-        <p className="text-sm" style={{ color: '#6B6862' }}>Next</p>
+        <p className="text-sm" style={{ color: 'var(--learn-muted)' }}>Next</p>
         {next
           ? <a className="learn-run inline-block mt-2" href={`/learn/${tenant}/${focus.t.key}/${next.key}`}>Continue your path: {next.title}</a>
           : <p className="mt-1 font-semibold">{started.length ? 'You finished every lesson.' : 'Pick where to start.'} <a className="underline" href={`/learn/${tenant}`}>{started.length ? 'See the tracks' : 'Start'}</a></p>}
@@ -52,8 +52,8 @@ export function MicroHome({ tenant, tracks }: { tenant: string; tracks: T[] }) {
           </div>
         ))}
       </div>
-      <p><span style={{ color: '#6B6862' }}>Your mentor: </span>{focus.path?.mentorName ?? 'Not named yet'}{focus.path && !focus.path.live ? ' (your path waits for their yes)' : ''}</p>
-      <p><span style={{ color: '#6B6862' }}>Due: </span><span className={due.overdue ? 'learn-no' : ''} data-due>{due.text}</span></p>
+      <p><span style={{ color: 'var(--learn-muted)' }}>Your mentor: </span>{focus.path?.mentorName ?? 'Not named yet'}{focus.path && !focus.path.live ? ' (your path waits for their yes)' : ''}</p>
+      <p><span style={{ color: 'var(--learn-muted)' }}>Due: </span><span className={due.overdue ? 'learn-no' : ''} data-due>{due.text}</span></p>
       {rows.some((r) => r.finished) && (
         <div>
           <h2 className="text-lg font-semibold mb-2">Finished</h2>

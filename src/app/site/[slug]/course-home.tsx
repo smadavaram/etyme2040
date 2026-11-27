@@ -17,7 +17,8 @@ import './course-home.css'
  * public page, and the bench and project teams are reached from it. Sections
  * and their order follow Pax's reference page of 2026-11-27.
  *
- * The layout is this file and its stylesheet. Every word is the firm's own
+ * Light surfaces, white cards and soft tinted panels (Pax's style ruling of
+ * 2026-11-27); never a dark page. The layout is this file and its stylesheet. Every word is the firm's own
  * (`site.home.words`), every color one of its twelve, and the picture its
  * own file; with no picture the hero is drawn without one. The four cards
  * are the course's own opening question: each routes into the course site,
@@ -35,6 +36,8 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
     '--ch-accent': p.accent, '--ch-accent-dark': p.accentDark, '--ch-accent-soft': p.accentSoft,
     '--ch-text': p.text, '--ch-muted': p.muted,
     '--ch-paper': p.paper, '--ch-card': p.card, '--ch-line': p.line, '--ch-body': p.body,
+    '--ch-soft': p.soft, '--ch-panel': p.panel, '--ch-accent-line': p.accentLine, '--ch-accent-ink': p.accentInk,
+    '--ch-shadow': '0 2px 10px color-mix(in srgb, ' + p.ink + ' 7%, transparent)',
     '--ch-head-font': site.look.headFont ?? 'system-ui, sans-serif',
     '--ch-body-font': site.look.bodyFont ?? 'system-ui, sans-serif',
   } as CSSProperties
@@ -86,7 +89,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
       </header>
 
       {/* The course's own opening question. Each card routes into the course site. */}
-      <section className="light" id="ai">
+      <section id="ai">
         <div className="ch-wrap">
           <div className="ch-sec-kicker">{w.course.kicker}</div>
           <h2>{w.course.heading}</h2>
@@ -106,7 +109,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
       </section>
 
       {/* Pax's on-ramp: three stages lit in order. Slot: data-slot="onramp-animation". */}
-      <section className="dark" id="onramp">
+      <section className="band" id="onramp">
         <div className="ch-wrap">
           <div className="ch-sec-kicker">{w.ramp.kicker}</div>
           <h2>{w.ramp.heading}</h2>
@@ -131,7 +134,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
         </div>
       </section>
 
-      <section className="light" id="doors">
+      <section id="doors">
         <div className="ch-wrap">
           <div className="ch-sec-kicker">{w.doors.kicker}</div>
           <h2>{w.doors.heading}</h2>
@@ -157,7 +160,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
 
       {/* The bench. Skills from the record; her yes is given from the letter, never here. */}
       {site.joinBench && (
-        <section className="dark" id="bench">
+        <section className="band" id="bench">
           <div className="ch-wrap">
             <div className="ch-sec-kicker">{w.bench.kicker}</div>
             <h2>{w.bench.heading}</h2>
@@ -176,7 +179,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
             )}
             <div style={{ marginTop: 28 }}><a className="ch-btn" href={`${learn}?from=door`}>{w.bench.action}</a></div>
             <div className="ch-form">
-              <h3 style={{ fontSize: 20, color: '#fff' }}>{JOIN_BENCH_COPY.heading}</h3>
+              <h3>{JOIN_BENCH_COPY.heading}</h3>
               <p className="ch-sec-lede" style={{ marginTop: 8, fontSize: 15 }}>{JOIN_BENCH_COPY.means}</p>
               <JoinBench slug={site.slug} letterCanLeave={mailLeaves()} />
             </div>
@@ -184,7 +187,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
         </section>
       )}
 
-      <section className="light" id="teams">
+      <section id="teams">
         <div className="ch-wrap">
           <div className="ch-sec-kicker">{w.teams.kicker}</div>
           <h2>{w.teams.heading}</h2>
@@ -207,7 +210,7 @@ export function CourseHomePage({ site, home }: { site: PublicSite; home: CourseH
             </div>
           </div>
           {/* A question that lands in the firm's own Ask Etyme. */}
-          <section className="light" id="ask">
+          <section id="ask">
             <div className="ch-wrap">
               <p className="ch-sec-lede" style={{ marginBottom: 24 }}>{FIRM_ASK_COPY.means(site.name)}</p>
               <Ask source="GENERATED_SITE" firm={{ slug: site.slug, name: site.name }} />

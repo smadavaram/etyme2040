@@ -29,6 +29,17 @@ while the Tapin home page and the first course were being built.
   claim that Tapin sells training as a service; a door into a free
   course is not that claim. It is worded as an entry, never as a service.
 
+## The style ruling, later the same day
+
+The owner prefers the earlier style: the "AI Course for Everyone" page's
+style system. Warm light surfaces, white cards, soft tinted panels
+(teal-soft for examples and try-it panels, amber-soft for notes), gentle
+shadows, a friendly roomy density. It is rendered in Tapin's branding:
+ink-navy text, the teal family, Sora headings and Manrope body. Not the
+dark navy look. Pax restyled both reference files to it. The home page
+and the course pages are built in this system, and anything styled dark
+is restyled.
+
 ## Pax's answers to seven questions
 
 1. A self-paced public course earns a completion: on the record, badged,

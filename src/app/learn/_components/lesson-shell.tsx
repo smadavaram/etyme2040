@@ -33,16 +33,16 @@ export function LessonShell({ tenant, firm, version, track, lessonKey, video = n
 
   const side = (
     <>
-          <p className="tabular-nums" style={{ color: '#6B6862' }}>{version}</p>
+          <p className="tabular-nums" style={{ color: 'var(--learn-muted)' }}>{version}</p>
           <p className="font-semibold mt-1">{track.title}</p>
           <div className="learn-bar my-2 hidden md:block"><span style={{ width: `${pct}%` }} /></div>
-          <p className="tabular-nums mb-2" style={{ color: '#6B6862' }}>{pct}% done</p>
+          <p className="tabular-nums mb-2" style={{ color: 'var(--learn-muted)' }}>{pct}% done</p>
           {track.levels.map((lv) => (
             <div key={lv.key} className="mt-3">
               <p className="font-semibold">{lv.title}</p>
               {lv.chapters.map((ch) => (
                 <div key={ch.key} className="mt-1">
-                  <p style={{ color: '#6B6862' }}>{ch.title}</p>
+                  <p style={{ color: 'var(--learn-muted)' }}>{ch.title}</p>
                   <ul>
                     {ch.lessons.map((l) => (
                       <li key={l.key}>
@@ -61,7 +61,7 @@ export function LessonShell({ tenant, firm, version, track, lessonKey, video = n
 
   return (
     <div className="grid gap-6 md:grid-cols-[260px_1fr]">
-      <div className="md:hidden sticky top-0 z-10 bg-[#F0EEE6] py-2" aria-label="Progress">
+      <div className="md:hidden sticky top-0 z-10 learn-bg py-2" aria-label="Progress">
         <div className="learn-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></div>
       </div>
       <aside className="text-sm">
@@ -104,9 +104,9 @@ function Lesson({ lesson: l, label, Nav, onRight, done, video }: { video: Lesson
   const ex = picked == null ? null : checkExercise(l, picked)
   return (
     <div>
-      <p className="text-sm" style={{ color: '#6B6862' }}>{label}</p>
+      <p className="text-sm" style={{ color: 'var(--learn-muted)' }}>{label}</p>
       <Nav pos="top" />
-      <h1 className="text-2xl mb-2" style={{ fontFamily: "'Iowan Old Style', Palatino, Georgia, serif" }}>{l.title}</h1>
+      <h1 className="text-2xl mb-2" style={{ fontFamily: 'var(--learn-head)' }}>{l.title}</h1>
       <p className="max-w-prose">{l.intro}</p>
       <VideoSlot video={video} />
       <h2 className="text-lg font-semibold mt-6 mb-2">Example</h2>

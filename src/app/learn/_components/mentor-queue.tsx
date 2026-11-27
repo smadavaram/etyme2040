@@ -26,15 +26,15 @@ export function MentorQueue({ tenant }: { tenant: string }) {
     if (days[id] && !(await patch(id, { move: 'dates', dueOn: days[id] }))) return
     if (await patch(id, { move: 'approve' })) await load()
   }
-  if (!rows) return <p style={{ color: '#6B6862' }}>One moment.</p>
+  if (!rows) return <p style={{ color: 'var(--learn-muted)' }}>One moment.</p>
   return (
     <section className="space-y-4">
-      <h1 className="text-2xl" style={{ fontFamily: "'Iowan Old Style', Palatino, Georgia, serif" }}>Paths waiting for your yes</h1>
+      <h1 className="text-2xl" style={{ fontFamily: 'var(--learn-head)' }}>Paths waiting for your yes</h1>
       {rows.length === 0 && <p>{says ?? 'Nothing is waiting for you.'}</p>}
       {rows.map((r) => (
         <div key={r.id} className="learn-card" style={{ minHeight: 0 }}>
           <p className="font-semibold">{r.learner}</p>
-          <p className="text-sm" style={{ color: '#6B6862' }}>{r.lessons} lessons</p>
+          <p className="text-sm" style={{ color: 'var(--learn-muted)' }}>{r.lessons} lessons</p>
           <label className="block mt-2">Due by <input type="date" value={days[r.id] ?? ''} onChange={(e) => setDays({ ...days, [r.id]: e.target.value })} /></label>
           <button className="learn-run mt-3" onClick={() => yes(r.id)}>Yes, make it theirs</button>
         </div>

@@ -64,7 +64,7 @@ export function VideoSlot({ video }: { video: LessonVideoView | null }) {
               <button className="underline" onClick={() => setI((n) => (n + frames.length - 1) % frames.length)}>Back</button>
               <button className="underline" onClick={() => setPlaying((p) => !p)}>{playing ? 'Pause' : 'Play the steps'}</button>
               <button className="underline" onClick={() => setI((n) => nextFrame(n, frames.length))}>Next</button>
-              <span className="tabular-nums" style={{ color: '#6B6862' }}>{i + 1} of {frames.length}</span>
+              <span className="tabular-nums" style={{ color: 'var(--learn-muted)' }}>{i + 1} of {frames.length}</span>
             </div>
           </div>
         ))}

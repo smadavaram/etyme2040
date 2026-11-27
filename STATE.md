@@ -51,7 +51,7 @@ deploy.
 - **Removed from Simple and waiting for a place:** the three parties on a job, filing a week of hours and its approval, the bench, and Ask Etyme's details. Medium and Complex still say Etyme, timesheet and routine step, and no lesson builds those words now.
 - **Open, named and not built:**
   1. The door a visitor came from is carried as `?from=door`; nothing reads or ledgers it yet.
-  2. The course site itself is still in Etyme's cream look, and its fallback accent is Etyme's purple.
+  2. DONE (claim): the course site and Tapin's home are restyled to Pax's light style system, in the firm's own ink, accent and heading face. Pax's 12 animations are not placed in their slots yet.
   3. `Company.siteHome` has no editor in Settings; a script writes it.
   4. The standing storefront still prints counts below 10.
   5. Three home-page lines say things the product does not do yet: badges, a mentor's cohort board, and pods (its switch is held closed). "One fixed scope, one price" names a price.

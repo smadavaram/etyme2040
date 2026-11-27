@@ -17,7 +17,7 @@ import type { SiteLook } from './site-look'
  * Pure. Nothing in here touches the database.
  */
 
-export const PALETTE_KEYS = ['ink', 'ink2', 'ink3', 'accent', 'accentDark', 'accentSoft', 'text', 'muted', 'paper', 'card', 'line', 'body'] as const
+export const PALETTE_KEYS = ['ink', 'ink2', 'ink3', 'accent', 'accentDark', 'accentSoft', 'text', 'muted', 'paper', 'card', 'line', 'body', 'soft', 'panel', 'accentLine', 'accentInk'] as const
 export type Palette = Record<(typeof PALETTE_KEYS)[number], string>
 
 /** The four tracks a card can stand for, in the order the opening question lists them. */
