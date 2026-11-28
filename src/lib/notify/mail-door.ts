@@ -80,6 +80,8 @@ export interface MailToSend {
   subject: string
   text: string
   html?: string | null
+  /** Where a reply lands: the named person who answers it. One address, never a list. */
+  replyTo?: string | null
   about?: MailAbout | null
 }
 
@@ -193,7 +195,7 @@ export function ledgerRowFor(a: {
 
 // ── The provider ─────────────────────────────────────────────────────
 
-interface Envelope { from: string; to: string[]; bcc: string[]; subject: string; text: string; html?: string | null }
+interface Envelope { from: string; to: string[]; bcc: string[]; subject: string; text: string; html?: string | null; replyTo?: string | null }
 
 /** Hand one email to the provider. Throws `MailRefused` where it said no or never answered. */
 async function handToProvider(e: Envelope, env: Record<string, string | undefined>): Promise<{ provider: MailProvider; messageId: string | null }> {
@@ -207,6 +209,7 @@ async function handToProvider(e: Envelope, env: Record<string, string | undefine
         from: e.from, to: e.to.length === 1 ? e.to[0] : e.to,
         ...(e.bcc.length ? { bcc: e.bcc } : {}),
         subject: e.subject, text: e.text, ...(e.html ? { html: e.html } : {}),
+        ...(e.replyTo ? { reply_to: e.replyTo } : {}),
       }),
     }))
     if (!res.ok) throw await refusal('Resend', res)
@@ -222,6 +225,7 @@ async function handToProvider(e: Envelope, env: Record<string, string | undefine
         ...(e.bcc.length ? { bcc: e.bcc.map((email) => ({ email })) } : {}),
       }],
       from: { email: e.from },
+      ...(e.replyTo ? { reply_to: { email: e.replyTo } } : {}),
       subject: e.subject,
       content: [{ type: 'text/plain', value: e.text }, ...(e.html ? [{ type: 'text/html', value: e.html }] : [])],
     }),
@@ -415,7 +419,7 @@ export async function sendMail(mail: MailToSend, deps: MailDoorDeps = {}): Promi
 
   try {
     const took = await (deps.hand ?? handToProvider)(
-      { from: plan.from, to: plan.to, bcc: plan.bcc, subject: mail.subject, text: mail.text, html: mail.html ?? null },
+      { from: plan.from, to: plan.to, bcc: plan.bcc, subject: mail.subject, text: mail.text, html: mail.html ?? null, replyTo: mail.replyTo?.trim() || null },
       env,
     )
     if (agentAbout?.agentTaskId) {

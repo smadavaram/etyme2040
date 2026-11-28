@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { readJson } from '@/lib/read-response'
 import { usePageSection } from '@/components/page-section'
 import { DetectionPanel } from './detection'
+import { LearningPanel } from './learning'
 import { EmptyState, ErrorState, Field, FormMessage, Input, LoadingState, PageHead, Panel, Select, SubmitButton, Textarea } from '@/components/ui'
 
 /**
@@ -248,6 +249,7 @@ export default function OutreachPage() {
       </Panel>
 
       <DetectionPanel />
+      <LearningPanel />
     </div>
   )
 }

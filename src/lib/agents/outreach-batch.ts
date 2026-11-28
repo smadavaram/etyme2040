@@ -29,6 +29,12 @@ import { saidYesToUpdates } from '@/lib/updates-consent'
 import { isOn } from '@/lib/plugins'
 import { OUTREACH_PACK_KIND } from '@/lib/outreach/pack-rules'
 import { trackedUrlFor } from '@/lib/outreach/visit'
+import { mineOutcomes } from '@/lib/outreach/outcome-mining'
+import { draftWeeklyPost } from '@/lib/outreach/publish/draft'
+import { firmToday } from '@/lib/decision-items'
+import { isFirmMonday } from './weekly-summary'
+import { outsideTradeHours, tradeHoursOf } from '@/lib/outreach/trade-hours'
+import { SALES_GATE_HELD, SALES_GATE_HELD_ACTION, gateLets } from '@/lib/outreach/sales-gate'
 import { CANDIDATE_SIDE, buildCandidateLetter } from '@/lib/outreach/candidate-rules'
 import { DIRECT_SIDE } from '@/lib/outreach/direct-rules'
 import { interestedUrlFor } from '@/lib/notify/outreach-interest'
@@ -52,7 +58,12 @@ async function postalOf(companyId: string): Promise<string | null> {
   return postalLine(rows.find((a) => a.kind === 'LEGAL') ?? rows.find((a) => a.kind === 'BILLING') ?? null)
 }
 
-export async function walkOutreachBatches(ctx: AgentContext, deps: { send?: typeof sendMail } = {}): Promise<void> {
+/**
+ * `gradeAsIfOpen` is for the test suite only: it grades the sending machinery
+ * as it would run once the owner opens the gate. The registered agent never
+ * passes it, and no route, seat or setting reaches it.
+ */
+export async function walkOutreachBatches(ctx: AgentContext, deps: { send?: typeof sendMail; gradeAsIfOpen?: boolean } = {}): Promise<void> {
   const send = deps.send ?? sendMail
   const { companyId, now } = ctx
   const tasks = await prisma.agentTask.findMany({
@@ -62,13 +73,20 @@ export async function walkOutreachBatches(ctx: AgentContext, deps: { send?: type
   const firm = await prisma.company.findUnique({ where: { id: companyId }, select: { name: true, slug: true, pluginsOn: true } })
   const postal = await postalOf(companyId)
   for (const t0 of tasks) {
+    // The sales gate is read first for every advanced send (a pack or an outcome series). Basic letters never read it.
+    const gated = (t0.payload as { pack?: boolean; series?: boolean } | null)
+    if (gated?.pack && !deps.gradeAsIfOpen) {
+      if (!gateLets(gated.series ? 'OUTCOME_SERIES' : 'PACK')) { await heldByGate(ctx, t0.id); continue }
+      // Once the gate is open, a campaign still never sends inside trade hours, nor while they are unset.
+      if (!outsideTradeHours(tradeHoursOf(companyId), now)) continue
+    }
     const { task } = await approvalOf(t0.id)
     if (task.state !== 'APPROVED' && task.state !== 'RUNNING') continue // nothing is sent before a person's yes
     if (ctx.mode !== 'ON') continue // Drafts only: nothing is sent, even after a yes.
     if (await outreachPause(task)) continue // Outreach is off: the batch waits under its yes (record 123, answer 5)
     const block = batchBlock({ postal, base: baseUrl() })
     if (block || !postal || !firm) { await closeTask(task.id, `${block?.says ?? 'The firm has no postal address on record.'} Nothing more is sent.`, 'STOPPED'); continue }
-    const payload = (task.payload ?? {}) as { subject?: string; body?: string; side?: string; pack?: boolean; letterContent?: Record<string, { subject: string; body: string; page: { pageKind: 'COURSE' | 'POD'; pageRef: string; path: string } | null }> }
+    const payload = (task.payload ?? {}) as { subject?: string; body?: string; side?: string; pack?: boolean; replyTo?: string | null; letterContent?: Record<string, { subject: string; body: string; page: { pageKind: 'COURSE' | 'POD'; pageRef: string; path: string } | null }> }
     // A pack's letters are advanced outreach (record 135): every one of them waits while the firm's Outreach is off, a candidate's too.
     if (payload.pack && !isOn(firm.pluginsOn, 'OUTREACH')) continue
     const candidates = payload.side === CANDIDATE_SIDE
@@ -129,7 +147,7 @@ export async function walkOutreachBatches(ctx: AgentContext, deps: { send?: type
       if (claimed.count !== 1) continue
       const { result: res } = await runSkill(ctx, 'chase.send', { recordType: OUTREACH_LETTER_TYPE, recordId: l.id, unitsPlanned: 1 }, async () => ({
         result: await send({
-          to: email, subject: letter.subject, text: letter.text,
+          to: email, subject: letter.subject, text: letter.text, ...(payload.pack && payload.replyTo ? { replyTo: payload.replyTo } : {}),
           about: { companyId, agentKey: ctx.agentKey, agentTaskId: task.id, agentAttempt: l.attempt + 1, recordType: OUTREACH_LETTER_TYPE, recordId: l.id, template },
         }),
       }))
@@ -159,6 +177,28 @@ export async function walkOutreachBatches(ctx: AgentContext, deps: { send?: type
   }
 }
 
-export const outreachBatchAgent: AgentDef = { ruleVersion: OUTREACH_BATCH_RULE, step: (ctx) => walkOutreachBatches(ctx) }
+/** One line on the task's ledger, once: the gate holds it. Writing it again each run would be noise. */
+async function heldByGate(ctx: AgentContext, taskId: string): Promise<void> {
+  const already = await prisma.recordAction.count({ where: { companyId: ctx.companyId, recordType: TASK_RECORD, recordId: taskId, action: SALES_GATE_HELD_ACTION, summary: { contains: SALES_GATE_HELD } } })
+  if (already > 0) return
+  if (!(await ctx.mayAct(1))) return
+  await ctx.act({ recordType: TASK_RECORD, recordId: taskId, action: SALES_GATE_HELD_ACTION, summary: `Nothing was sent, ${SALES_GATE_HELD}. Etyme is in learning mode; the pack keeps its yes and waits.` })
+}
+
+/**
+ * Learning mode, once a week on the firm's Monday: mine last week's outcomes
+ * and draft the week's post. Drafts only; it sends nothing and opens a card
+ * only for a post that passed the anonymity check under a chosen pen name.
+ * It runs only where the firm's Outreach plugin is on, which is no firm today.
+ */
+async function weeklyLearning(ctx: AgentContext): Promise<void> {
+  const firm = await prisma.company.findUnique({ where: { id: ctx.companyId }, select: { pluginsOn: true } })
+  if (!isOn(firm?.pluginsOn, 'OUTREACH')) return
+  if (!isFirmMonday(await firmToday(ctx.companyId, ctx.now))) return
+  await mineOutcomes(ctx.companyId, ctx.now)
+  await draftWeeklyPost(ctx.companyId, ctx.now)
+}
+
+export const outreachBatchAgent: AgentDef = { ruleVersion: OUTREACH_BATCH_RULE, step: async (ctx) => { await walkOutreachBatches(ctx); await weeklyLearning(ctx) } }
 
 export function registerOutreachBatch(): void { registerAgent(OUTREACH_BATCH_AGENT, outreachBatchAgent) }

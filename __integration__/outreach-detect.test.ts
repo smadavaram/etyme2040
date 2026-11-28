@@ -38,7 +38,7 @@ const deps = {
   hand: async (e: any) => { sent.push({ to: e.to, text: e.text, subject: e.subject }); return { provider: 'Resend' as const, messageId: 'm' } },
 }
 const run = (when: Date = new Date()) => {
-  registerAgent(KEY, { ruleVersion: 't', step: (ctx) => walkOutreachBatches(ctx, { send: (m) => sendMail(m, deps as any) }) })
+  registerAgent(KEY, { ruleVersion: 't', step: (ctx) => walkOutreachBatches(ctx, { send: (m) => sendMail(m, deps as any), gradeAsIfOpen: true }) })
   return runAgent(KEY, w.firm.id, when)
 }
 const p = (id: string) => ({ params: Promise.resolve({ id }) })

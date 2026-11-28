@@ -53,6 +53,16 @@ async function find(token: string) {
   return { letter, firm, contact, at }
 }
 
+/** The named person a pack's replies go to, where the pack names one who still holds a seat at the firm. */
+async function replyOwnerOf(payload: unknown, companyId: string): Promise<string | null> {
+  const packId = (payload as { packId?: unknown } | null)?.packId
+  if (typeof packId !== 'string' || !packId) return null
+  const pack = await prisma.outreachPack.findFirst({ where: { id: packId, companyId }, select: { replyOwnerPersonId: true } })
+  if (!pack?.replyOwnerPersonId) return null
+  const seated = await prisma.context.count({ where: { personId: pack.replyOwnerPersonId, companyId, revokedAt: null } })
+  return seated ? pack.replyOwnerPersonId : null
+}
+
 /** The firm's own page, where it has one; the page that carries its Ask box. */
 async function landingOf(slug: string): Promise<string | null> {
   try { return (await publicSite(slug)) ? `/site/${slug}` : null } catch { return null }
@@ -92,7 +102,8 @@ export async function applyInterest(token: string, now: Date = new Date()): Prom
   await prisma.outreachLetter.update({ where: { id: letter.id }, data: { leadId: lead.id } })
 
   const sw = await prisma.agentSwitch.findUnique({ where: { companyId_agentKey: { companyId: letter.companyId, agentKey: letter.agentTask.agentKey } } })
-  const owner = await ownerForRoles(letter.companyId, ['Account Manager'], now)
+  // A pack that names who answers its replies sends the card to that person (lead's decision, 2026-11-28: Etyme reads no mailbox, so the link is the reply).
+  const owner = (await replyOwnerOf(letter.agentTask.payload, letter.companyId)) ?? await ownerForRoles(letter.companyId, ['Account Manager'], now)
   if (sw && owner) {
     const entities = await prisma.legalEntity.findMany({ where: { companyId: letter.companyId }, select: { id: true } })
     try {

@@ -23,6 +23,8 @@ import { CANDIDATE_SIDE } from './candidate-rules'
 import { OUTREACH_BATCH_AGENT, batchBlock } from './batch-rules'
 import { CONTENT_LABELS, type ContentKind } from './match-rules'
 import { OUTREACH_PACK_KIND, PACK_LETTER_CAP, packCard, packFits, packPlan, readPackAsk, waitingCard } from './pack-rules'
+import { SALES_GATE_HELD, salesGate } from './sales-gate'
+import { TRADE_HOURS_UNSET_SAYS, tradeHoursOf } from './trade-hours'
 import { defOf, readSegment, type Refusal } from './segment'
 import { describeSegment } from './segment-rules'
 
@@ -35,6 +37,8 @@ export interface PackPayload {
   side: string
   subject: string
   body: string
+  /** The named person's address a reply lands at. Null on packs from before the rule. */
+  replyTo?: string | null
   /** Per letter: the push it carries, its words, and the page its tracked link opens. Words only: no link is kept. */
   letterContent: Record<string, { pushId: string; subject: string; body: string; page: { pageKind: 'COURSE' | 'POD'; pageRef: string; path: string } | null }>
 }
@@ -59,6 +63,9 @@ export async function proposePack(seat: { companyId: string; personId: string },
   if (block || !postal) return refuse(block?.says ?? 'The firm has no postal address on record.', 'postal')
   const owner = await ownerForRoles(seat.companyId, ['Account Manager'], now)
   if (!owner) return refuse('No Account Manager or Owner seat is working, so nobody can say yes to this pack.', 'name')
+  // Replies go to a named person, never a void (lead's decision, 2026-11-28): the person who proposed the pack answers them.
+  const writer = await prisma.context.findFirst({ where: { personId: seat.personId, companyId: seat.companyId, revokedAt: null }, select: { person: { select: { primaryEmail: true } } } })
+  const replyTo = writer?.person.primaryEmail ?? null
   const card = packCard({ name: ask.name, segmentWords: describeSegment(def), contentKinds: ask.contentKinds, role: def.role, cap: PACK_LETTER_CAP })
   let packId = ''
   let task
@@ -66,11 +73,11 @@ export async function proposePack(seat: { companyId: string; personId: string },
     task = await proposeTask({
       companyId: seat.companyId, agentKey: OUTREACH_BATCH_AGENT, kind: OUTREACH_PACK_KIND, recordType: 'Company', recordId: seat.companyId,
       plan: packPlan(def.role), ownerPersonId: owner, openedOn: now, today: now, question: card.question, detail: card.detail,
-      payload: { pack: true, packId: '', side: sideOfRole(def.role), subject: ask.name, body: '', letterContent: {} } satisfies PackPayload as unknown as Prisma.InputJsonValue,
+      payload: { pack: true, packId: '', side: sideOfRole(def.role), subject: ask.name, body: '', replyTo, letterContent: {} } satisfies PackPayload as unknown as Prisma.InputJsonValue,
       withTask: async (tx, taskId) => {
-        const row = await tx.outreachPack.create({ data: { companyId: seat.companyId, name: ask.name, segmentId: segment.id, contentKinds: ask.contentKinds, state: 'PROPOSED', agentTaskId: taskId, createdById: seat.personId } })
+        const row = await tx.outreachPack.create({ data: { companyId: seat.companyId, name: ask.name, segmentId: segment.id, contentKinds: ask.contentKinds, kind: 'PUSH', replyOwnerPersonId: writer ? seat.personId : null, state: 'PROPOSED', agentTaskId: taskId, createdById: seat.personId } })
         packId = row.id
-        await tx.agentTask.update({ where: { id: taskId }, data: { payload: { pack: true, packId: row.id, side: sideOfRole(def.role), subject: ask.name, body: '', letterContent: {} } satisfies PackPayload as unknown as Prisma.InputJsonValue } })
+        await tx.agentTask.update({ where: { id: taskId }, data: { payload: { pack: true, packId: row.id, side: sideOfRole(def.role), subject: ask.name, body: '', replyTo, letterContent: {} } satisfies PackPayload as unknown as Prisma.InputJsonValue } })
       },
     })
   } catch (e) {
@@ -220,7 +227,7 @@ export async function packsOf(companyId: string) {
     const p = await syncPack(r.id)
     const letters = p.agentTaskId ? await prisma.outreachLetter.count({ where: { agentTaskId: p.agentTaskId } }) : 0
     const task = p.agentTaskId ? await prisma.agentTask.findUnique({ where: { id: p.agentTaskId }, select: { sentCount: true, decisionId: true } }) : null
-    out.push({ id: p.id, name: p.name, state: p.state, segmentId: p.segmentId, contentKinds: p.contentKinds, pushes: r._count.pushes, letters, sent: task?.sentCount ?? 0, decisionId: task?.decisionId ?? null, approvedAt: p.approvedAt })
+    out.push({ id: p.id, name: p.name, kind: p.kind, state: p.state, waits: p.state === 'APPROVED' && !tradeHoursOf(companyId) ? TRADE_HOURS_UNSET_SAYS : null, held: salesGate().open ? null : SALES_GATE_HELD, segmentId: p.segmentId, contentKinds: p.contentKinds, pushes: r._count.pushes, letters, sent: task?.sentCount ?? 0, decisionId: task?.decisionId ?? null, approvedAt: p.approvedAt })
   }
   return out
 }
