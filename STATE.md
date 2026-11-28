@@ -36,6 +36,8 @@ deploy.
 
 ## START HERE
 
+**2026-11-28 (Sat): the course changed owner and shape (record 135).** "AI from Zero in 3 Hours" is Etyme's, built from the owner's own 33-step course file and the full training, not from Tapin's onboarding. BLOCKED on the full transcript and the video or frames, which are not in the Drive folder. Tapin's course-centred home (record 134) is set aside, built and unpublished. The IT Upgrade lessons of Nov 27 are retired as the base. Nothing deployed.
+
 **2026-11-27 (Fri): Tapin's home and the first course. Branch `claude/vigilant-keller-56h8t7`, re-branched from the build branch at c109f2b5c. Nothing deployed.**
 
 - **Built, function-ready, waiting on Pax's visual pass (record 134):** the Course first layout on the one engine; the Sora and Manrope pairing; Tapin's home after Pax's reference page; the hero picture in its slot; four track cards into `/learn/tapin`; the join form; the ask box; a count printed only at 10 or more; what a buyer's assistant reads.
