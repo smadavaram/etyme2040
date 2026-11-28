@@ -14,7 +14,7 @@ import { formatDayLong } from '@/lib/format-date'
 import { hello, paragraphs } from '@/lib/notify/letters'
 import { coolingOffHolds } from '@/lib/agents/dormant-outreach-rules'
 import { saidYesToUpdates } from '@/lib/updates-consent'
-import { OUTREACH_BATCH_TEMPLATE, OUTREACH_LETTER_TYPE } from './batch-rules'
+import { CANDIDATE_UPDATE_TEMPLATE, OUTREACH_LETTER_TYPE } from './batch-rules'
 import type { TaskPlan } from '@/lib/agents/tasks'
 
 /** What a candidate batch writes in its task, so the walker and the page know whose letters these are. */
@@ -25,7 +25,7 @@ export const STOP_UPDATES_PLACEHOLDER = '(the link that stops updates goes here 
 /** One letter and no follow-up: a candidate who did not answer is left alone. */
 export function candidatePlan(recipients: number): TaskPlan {
   return {
-    messages: [{ template: OUTREACH_BATCH_TEMPLATE, label: 'Update letter' }],
+    messages: [{ template: CANDIDATE_UPDATE_TEMPLATE, label: 'Update letter' }],
     retries: 0, daysApart: 1, recipients, letterRecordType: OUTREACH_LETTER_TYPE,
     closesWhen: 'every letter has gone or been stopped',
   }
@@ -88,9 +88,11 @@ export interface CandidateLetterInput {
   /** Null on the card, where a placeholder stands for the link. */
   stopUrl: string | null
   storefrontUrl: string | null
+  /** A pack's tracked link to the page the letter is about (record 135); null where the letter has none. */
+  pageUrl?: string | null
 }
 
-/** The letter: plain text, no tracking, no interested link. It says who sends it, why she got it and how to stop all of it. */
+/** The letter: plain text, no interested link. Where a pack sends it, it carries one tracked page link, counted only when the signed-in recipient opens it (never an anonymous visitor). It says who sends it, why she got it and how to stop all of it. */
 export function buildCandidateLetter(i: CandidateLetterInput): { subject: string; text: string } {
   return {
     subject: i.subject,
@@ -98,6 +100,7 @@ export function buildCandidateLetter(i: CandidateLetterInput): { subject: string
       hello(i.recipientName),
       `You are getting this because you said yes to updates, and ${i.firm} keeps you on its list of candidates.`,
       i.body.trim(),
+      i.pageUrl ? `The page this is about: ${i.pageUrl}` : null,
       i.storefrontUrl ? `More about ${i.firm}: ${i.storefrontUrl}` : null,
       `${i.firm}\n${i.postal}`,
       `Do not want updates? Stop them here, no sign-in needed: ${i.stopUrl ?? STOP_UPDATES_PLACEHOLDER}\nThis ends updates from every firm until you say yes again. Messages about work already agreed, such as timesheets, still reach you.`,

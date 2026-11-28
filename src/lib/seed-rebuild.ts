@@ -90,6 +90,8 @@ export const CONFIRM_PHRASE = 'delete the demo world'
 export const DELETE_ORDER = [
   // An agent's task names the decision that asks for its yes, so it goes
   // before it; the switch names the firm and the Owner who set it.
+  // Advanced outreach detection (record 135): a push names its firing and pack, a pack its task, a visit its letter; all before them.
+  'OutreachPush', 'OutreachVisit', 'OutreachPack', 'OutreachTripwireFiring', 'OutreachSegment',
   'OutreachLetter', 'AgentTask', 'AgentSwitch',
   // A plugin switch (record 120) names the firm; the person who set it is by id alone.
   'PluginSwitch',
@@ -133,6 +135,9 @@ export const DELETE_ORDER = [
   // The security log is kept (KEPT): no foreign key reaches it and the
   // database refuses to delete a row of it. Named so the list is whole.
   'SecurityEvent',
+  // The affiliate ledger (record 129) is kept the same way: no foreign key
+  // reaches it and the append-only tables are guarded by the database.
+  'Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'SubscriptionReceipt', 'SubscriptionReceiptReversal', 'AffiliateCommissionEntry', 'AffiliateStatement', 'AffiliatePayoutBatch', 'AffiliatePayoutItem',
   // Layer 9 (record 87): a line's message names the run, the receipt, its
   // line and the payer; the payer's coding settings name the payer.
   'BillFeedMessage', 'CompanyCoding',
@@ -167,8 +172,9 @@ export const DELETE_ORDER = [
   // company, and the company's switch beside them.
   'InboundEmailAttachment', 'InboundEmail', 'EmailIntake',
   'VerificationDoc', 'DocumentEdition', 'DocumentBacking', 'GovernanceEvaluation',
+  // Training micro-site (record 133): a path names its enrollment and an adoption names its course, so they go before both.
   // Train-to-bench (record 120): a score, a certification and the ask name an enrollment, so they go before it; a cohort after its enrollments and before its course.
-  'Assessment', 'Certification', 'BenchAsk', 'Enrollment',
+  'Assessment', 'Certification', 'BenchAsk', 'LearningPath', 'LearnCredential', 'LearnBadge', 'LessonVideo', 'Enrollment', 'CourseAdoption',
   // Project teams (record 120): a deliverable names its project and milestone, a project its team and order, a member its role; all before the milestone, the order, the person and the firm.
   'PodDeliverable', 'PodProject', 'PodMember', 'PodRole', 'Pod',
   // Public-sector proposals (record 124): a piece names its proposal, so it goes first.
@@ -214,7 +220,7 @@ export const DELETE_ORDER = [
  * stops here. A demo row that points at one of them is not a thread to
  * the real world: deleting the demo row takes nothing real away.
  */
-export const KEPT = ['JobRun', 'Incident', 'MarketingLead', 'SecurityEvent'] as const
+export const KEPT = ['JobRun', 'Incident', 'MarketingLead', 'SecurityEvent', 'Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'SubscriptionReceipt', 'SubscriptionReceiptReversal', 'AffiliateCommissionEntry', 'AffiliateStatement', 'AffiliatePayoutBatch', 'AffiliatePayoutItem'] as const
 
 /**
  * Parents with no owner of their own, deleted once the demo world was
@@ -245,6 +251,35 @@ export const ORPHANED_WITH_THE_WORLD = ['Engagement'] as const
  */
 export type LooseRole = 'OWNED' | 'LINK' | 'RECORD'
 export const LOOSE: Record<string, { as: LooseRole; to?: string[] }> = {
+  // Affiliate ledger (record 129): history, kept whatever it names.
+  'Affiliate.accountPersonId': { as: 'RECORD' },
+  'Affiliate.ownCompanyId': { as: 'RECORD' },
+  'Affiliate.createdByPersonId': { as: 'RECORD' },
+  'AffiliateAttribution.tenantCompanyId': { as: 'RECORD' },
+  'AffiliateAttribution.affiliateId': { as: 'RECORD' },
+  'AffiliateAttribution.recordedByPersonId': { as: 'RECORD' },
+  'AffiliateAttributionCorrection.attributionId': { as: 'RECORD' },
+  'AffiliateAttributionCorrection.tenantCompanyId': { as: 'RECORD' },
+  'AffiliateAttributionCorrection.fromAffiliateId': { as: 'RECORD' },
+  'AffiliateAttributionCorrection.toAffiliateId': { as: 'RECORD' },
+  'AffiliateAttributionCorrection.correctedByPersonId': { as: 'RECORD' },
+  'SubscriptionReceipt.tenantCompanyId': { as: 'RECORD' },
+  'SubscriptionReceipt.markedByPersonId': { as: 'RECORD' },
+  'SubscriptionReceiptReversal.receiptId': { as: 'RECORD' },
+  'SubscriptionReceiptReversal.tenantCompanyId': { as: 'RECORD' },
+  'SubscriptionReceiptReversal.markedByPersonId': { as: 'RECORD' },
+  'AffiliateCommissionEntry.affiliateId': { as: 'RECORD' },
+  'AffiliateCommissionEntry.attributionId': { as: 'RECORD' },
+  'AffiliateCommissionEntry.tenantCompanyId': { as: 'RECORD' },
+  'AffiliateCommissionEntry.receiptId': { as: 'RECORD' },
+  'AffiliateCommissionEntry.reversalId': { as: 'RECORD' },
+  'AffiliateStatement.affiliateId': { as: 'RECORD' },
+  'AffiliatePayoutBatch.approvedByPersonId': { as: 'RECORD' },
+  'AffiliatePayoutBatch.secondCheckEventId': { as: 'RECORD' },
+  'AffiliatePayoutBatch.createdByPersonId': { as: 'RECORD' },
+  'AffiliatePayoutItem.batchId': { as: 'RECORD' },
+  'AffiliatePayoutItem.affiliateId': { as: 'RECORD' },
+  'AffiliatePayoutItem.statementId': { as: 'RECORD' },
   // The twin's ledger is history: who acted and about what, kept as it was.
   // The actor is a person's id or the twin's kind, so it is no row's key.
   'RecordAction.recordId': { as: 'RECORD' },
@@ -258,6 +293,18 @@ export const LOOSE: Record<string, { as: LooseRole; to?: string[] }> = {
   'BenchAsk.companyId': { as: 'OWNED', to: ['Company'] },
   'BenchAsk.benchListingId': { as: 'LINK', to: ['BenchListing'] },
   'PluginSwitch.byPersonId': { as: 'RECORD' },
+  // Training micro-site (record 133): provenance and people named by id alone, kept as history.
+  'Course.sourceCourseId': { as: 'RECORD' },
+  'Course.sourceCompanyId': { as: 'RECORD' },
+  'CourseAdoption.adoptedByPersonId': { as: 'RECORD' },
+  'LearningPath.mentorPersonId': { as: 'RECORD' },
+  'LearningPath.approvedByPersonId': { as: 'RECORD' },
+  // Door and progress (record 133): the job or team a path was made from stays as history; the Owner's featured picks are ids read against the live courses, and a stale one draws nothing.
+  'LearningPath.sourceRefId': { as: 'RECORD' },
+  'Company.featuredCourseIds': { as: 'RECORD' },
+  // Phase 1 training infrastructure: the author and a stored file are named by id, kept as history.
+  'LessonVideo.createdByPersonId': { as: 'RECORD' },
+  'LessonVideo.storedFileId': { as: 'RECORD' },
   // A company's own model route: the provider's name for the model, and the Owner who set it, are history, no row's key.
   'TenantModelRoute.modelId': { as: 'RECORD' },
   'TenantModelRoute.setByPersonId': { as: 'RECORD' },
@@ -278,6 +325,26 @@ export const LOOSE: Record<string, { as: LooseRole; to?: string[] }> = {
   'SiteCompliancePass.recordedById': { as: 'LINK', to: ['Person'] },
   'SiteCompliancePass.documentId': { as: 'LINK', to: ['DocInstance'] },
   'Company.siteBrandingApprovedById': { as: 'LINK', to: ['Person'] },
+  // Advanced outreach detection (record 135).
+  'OutreachSegment.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachSegment.createdById': { as: 'LINK', to: ['Person'] },
+  'OutreachTripwireFiring.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachTripwireFiring.sourceId': { as: 'RECORD' },
+  'OutreachTripwireFiring.segmentId': { as: 'LINK', to: ['OutreachSegment'] },
+  'OutreachPack.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachPack.segmentId': { as: 'LINK', to: ['OutreachSegment'] },
+  'OutreachPack.agentTaskId': { as: 'LINK', to: ['AgentTask'] },
+  'OutreachPack.approvedById': { as: 'LINK', to: ['Person'] },
+  'OutreachPack.createdById': { as: 'LINK', to: ['Person'] },
+  'OutreachPush.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachPush.firingId': { as: 'OWNED', to: ['OutreachTripwireFiring'] },
+  'OutreachPush.packId': { as: 'LINK', to: ['OutreachPack'] },
+  'OutreachPush.segmentId': { as: 'LINK', to: ['OutreachSegment'] },
+  'OutreachPush.decisionId': { as: 'LINK', to: ['DecisionItem'] },
+  'OutreachVisit.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachVisit.letterId': { as: 'LINK', to: ['OutreachLetter'] },
+  'OutreachVisit.personId': { as: 'LINK', to: ['Person'] },
+  'OutreachVisit.contactId': { as: 'LINK', to: ['CompanyContact'] },
   'OutreachLetter.companyId': { as: 'OWNED', to: ['Company'] },
   'OutreachLetter.contactId': { as: 'LINK', to: ['CompanyContact'] },
   'OutreachLetter.atCompanyId': { as: 'LINK', to: ['Company'] },

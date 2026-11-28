@@ -502,6 +502,22 @@ Full text → 40, 11, 56, 68, 72.
   2026-11-25 → 120): a per-tenant switch, set by the Owner or by a
   Superadmin as a staff tool on the switch alone, ledgered; off means no
   menu and refused routes, never deleted data. No agent switches one.
+- **One ledger per party; plugins are websites** (→ 134): every party's
+  activity, money and documents read as one ledger in the core; plugins
+  are reached by a link and write back to it; one sign-on everywhere.
+- **Free training is a five-stage funnel** (→ 136): door, learning,
+  completion, join, match; progressive capture, consent on the record at
+  every stage, never Lane C data, every stage on the one ledger.
+- **Every plugin lives on its own micro-site** (owner, 2026-11-27 → 133):
+  the core gets a door only; each user has a micro dashboard there; the
+  one record underneath, never forked. Courses are adopted across tenants,
+  owned by their creator, free through the learning window, never priced.
+- **Plugin sites live on subdomains** (owner, 2026-11-28 → 137): training
+  on its own etyme.com subdomain; a tenant's under its own domain, in its
+  branding. The door stays etyme.com/learnai, carrying the session across.
+- **Basic outreach is core, advanced outreach is a plugin** (→ 135):
+  direct letters and candidate updates are core ledger activity; campaigns,
+  the outcome series, the affiliate engine and publishing are the plugin.
 - **Website and content, and outreach, are plugins too** (owner,
   2026-11-25 → 121, 122), off by default. A site goes public only after
   the Owner's branding yes, the firm's own domain and any compliance pass;

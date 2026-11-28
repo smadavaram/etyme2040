@@ -7,6 +7,7 @@ import { DoorFrame, DoorLabel, DoorError, DoorDivider, DoorWho, doorField, doorB
 import { AccountButtons, useKnownDoors } from '../account-doors'
 import { PASSWORD_HINT_COMPANY, PASSWORD_HINT_PERSON, underHeading, signUpGuesses } from '@/lib/password-words'
 import { looksLikeEmail, accountButtons, CONTINUE, OR_USE_YOUR_EMAIL, TYPE_YOUR_EMAIL } from '@/lib/login-doors'
+import { keepArrivalCode } from '../arrival-code'
 import { signUpHeading, DETAILS_HEADING } from './heading'
 
 /**
@@ -17,7 +18,7 @@ import { signUpHeading, DETAILS_HEADING } from './heading'
  *
  * Step 1: "Create your Etyme account", "Already have an account? Sign
  * in", the same account buttons as sign-in (a new person who presses one
- * is signed in by that provider and lands on /start, which asks what it
+ * is signed in by that provider and lands on /setup, which asks what it
  * needs), "or use your email", Email, Continue.
  *
  * Step 2, "A few details", asks only: your name; "This account is for" my
@@ -55,6 +56,8 @@ export function SignUpForm({ claimToken, initialType = null, initialTab = 'compa
   /** `?as=candidate` opens on a candidate: the contractors' door lands here. */
   initialTab?: Tab
 }) {
+  // The code on the link she came by is kept until the company is made.
+  useEffect(() => { keepArrivalCode() }, [])
   const [step, setStep] = useState<1 | 2>(1)
   const [tab, setTab] = useState<Tab>(initialTab)
   const [email, setEmail] = useState(initialEmail)
@@ -215,7 +218,7 @@ export function SignUpForm({ claimToken, initialType = null, initialTab = 'compa
         )}
 
         {/* Not on an invitation: taking a company's record goes through the email. */}
-        {!claimToken && <AccountButtons available={available} callbackUrl="/start" />}
+        {!claimToken && <AccountButtons available={available} callbackUrl="/setup" />}
         {!claimToken && accountButtons(available, null).length > 0 && <DoorDivider words={OR_USE_YOUR_EMAIL} />}
 
         <form onSubmit={next} className="space-y-3" noValidate>

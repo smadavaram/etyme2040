@@ -167,6 +167,11 @@ const UNPROMPTED: Record<string, { rung: Rung; basis: Basis; says: string }> = {
     basis: 'RECORDED',
     says: 'It scored people against an open job nobody had matched yet. Scores only — nobody is submitted until a recruiter does it.',
   },
+  LEARNING_PATH_PROPOSED: {
+    rung: 'L1',
+    basis: 'RULE',
+    says: 'A learning path was drafted for a worker, from her record or from the goal she stated. It is not live until its mentor says yes.',
+  },
   ROLLOFF_SCAN: {
     rung: 'L2',
     basis: 'RULE',
@@ -188,6 +193,16 @@ const UNPROMPTED: Record<string, { rung: Rung; basis: Basis; says: string }> = {
     rung: 'L0',
     basis: 'RULE',
     says: 'A visitor\u2019s demo sandbox has not been used for twenty-three days, so whoever left an address in it was told the day it goes and that opening it keeps it. It deletes nothing.',
+  },
+  COURSE_DOOR_CONFIRMATION: {
+    rung: 'L5',
+    basis: 'RULE',
+    says: 'Somebody ticked the yes at the free course door, so the one confirmation email was sent to that address, with the link that ends it. One per address, ever, and a sent email cannot be put back.',
+  },
+  COURSE_DOOR_CONFIRMATION_FAILED: {
+    rung: 'L0',
+    basis: 'RULE',
+    says: 'The one confirmation email for the free course door did not leave, so Etyme\u2019s staff were told. It is not tried again, so a failing sender cannot send twice.',
   },
   DEMO_SANDBOX_REMOVED: {
     rung: 'L5',
@@ -646,6 +661,17 @@ ATTRIBUTED.TWIN_QUESTION_OVERTAKEN = { basis: 'RULE' }
 // in the same transaction as the named acceptor's yes, attributed to her.
 // Not reversible: the order and its deliverables now exist.
 ATTRIBUTED.POD_SOLD = { basis: 'RULE' }
+// The training door (record 133). An Owner turned the learner's place in
+// the cohort on or off, and a learner pressed share on her own badge.
+// Both are a person's own click, recorded; nothing here is the system's.
+// The free course door (docs/course-door-lead-contract.md). A visitor ticked
+// the yes and sent the form, and later opened the link that ends it: each a
+// visitor's own act, recorded. The confirmation email between them is the
+// system's own and is above.
+ATTRIBUTED.COURSE_DOOR_LEAD = { basis: 'RECORDED' }
+ATTRIBUTED.COURSE_DOOR_UNSUBSCRIBED = { basis: 'RECORDED' }
+ATTRIBUTED.LEARN_RANKING_SWITCHED = { basis: 'RECORDED' }
+ATTRIBUTED.BADGE_SHARED = { basis: 'RECORDED' }
 ATTRIBUTED.TWIN_RULE_SET_SET = { basis: 'RULE' }
 // A settings desk turned Ask Etyme's model on or off for its company
 // (src/lib/model-boundary, 2026-10-13), with the reason in its own words.
@@ -686,6 +712,14 @@ ATTRIBUTED.BENCH_INVITATION_RESENT = { basis: 'RECORDED' }
 // A firm's own employee finishing a course is told she is on its bench: the finish is a person's act, the row records that she was told (record 120).
 ATTRIBUTED.BENCH_ASK_EMPLOYEE_TOLD = { basis: 'RECORDED' }
 ATTRIBUTED.BENCH_STAY_RENEW_ASKED = { basis: 'RECORDED' }
+// The training micro-site (record 133). Each is a person's act and the row records it: a firm adopting or copying a course, a learner asking to join, a worker finishing a track, a mentor adjusting or approving a path. Not reversible.
+ATTRIBUTED.COURSE_ADOPTED = { basis: 'RECORDED' }
+ATTRIBUTED.COURSE_MADE_FROM_SOURCE = { basis: 'RECORDED' }
+ATTRIBUTED.LEARNER_ASKED_TO_JOIN = { basis: 'RECORDED' }
+ATTRIBUTED.LEARNING_COMPLETED = { basis: 'RECORDED' }
+ATTRIBUTED.CREDENTIAL_SHARED = { basis: 'RECORDED' }
+ATTRIBUTED.LEARNING_PATH_ADJUSTED = { basis: 'RECORDED' }
+ATTRIBUTED.LEARNING_PATH_APPROVED = { basis: 'RECORDED' }
 
 // A person withdrew a draft bill nobody had sent — usually the supplier's
 // twin's draft — with a reason (lib/money/bill-withdraw, 2026-10-18). A
@@ -1297,6 +1331,13 @@ export const JOBS: Record<string, Job> = {
     basis: 'RULE',
     says: 'Opens a rolloff for every contract ending inside eight weeks, ready for somebody to work.',
     writes: ['ROLLOFF_SCAN'],
+  },
+  'outreach-detect': {
+    job: 'outreach-detect',
+    rung: 'L1',
+    basis: 'RULE',
+    says: 'For a firm with Outreach on, notes what the record says is worth a letter and drafts it. The draft joins a pack a person already approved, or waits as one card. It sends nothing.',
+    writes: [],
   },
   'cold-openings': {
     job: 'cold-openings',

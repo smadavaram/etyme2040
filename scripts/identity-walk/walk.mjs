@@ -35,7 +35,7 @@ async function go(jar, url, init = {}) {
 
 export async function directorySignIn(email, subject, extra = {}) {
   const jar = new Jar()
-  let r = await go(jar, `/api/sso/start?email=${encodeURIComponent(email)}&next=/start`)
+  let r = await go(jar, `/api/sso/start?email=${encodeURIComponent(email)}&next=/setup`)
   const to = r.headers.get('location')
   if (r.status >= 400 || !to || to.includes('/login')) return { jar, refused: to ?? r.status }
   const u = new URL(to)
@@ -50,7 +50,7 @@ export async function directorySignIn(email, subject, extra = {}) {
   if (land.includes('error=')) return { jar, refused: land }
   r = await go(jar, '/api/auth/csrf')
   const { csrfToken } = await r.json()
-  r = await go(jar, '/api/auth/callback/directory-oidc', { method: 'POST', body: new URLSearchParams({ csrfToken, json: 'true', callbackUrl: '/start' }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } })
+  r = await go(jar, '/api/auth/callback/directory-oidc', { method: 'POST', body: new URLSearchParams({ csrfToken, json: 'true', callbackUrl: '/setup' }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } })
   const ok = [...jar.c.keys()].some((k) => k.includes('session-token'))
   return { jar, ok, status: r.status, land: r.headers.get('location') }
 }
@@ -59,7 +59,7 @@ export async function passwordSignIn(email, password) {
   const jar = new Jar()
   let r = await go(jar, '/api/auth/csrf')
   const { csrfToken } = await r.json()
-  r = await go(jar, '/api/auth/callback/credentials', { method: 'POST', body: new URLSearchParams({ csrfToken, email, password, json: 'true', callbackUrl: '/start' }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } })
+  r = await go(jar, '/api/auth/callback/credentials', { method: 'POST', body: new URLSearchParams({ csrfToken, email, password, json: 'true', callbackUrl: '/setup' }).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } })
   const ok = [...jar.c.keys()].some((k) => k.includes('session-token'))
   return { jar, ok, location: r.headers.get('location') }
 }

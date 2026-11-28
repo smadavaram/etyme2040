@@ -217,6 +217,8 @@ export const DOMAINS: Domain[] = [
       'scripts/simulate/stages/conversation',
       // Outreach to companies (record 117): the letters, the audience, the batch, its agent and its screens.
       'lib/outreach', 'lib/agents/outreach-batch', 'app/api/outreach', 'app/dashboard/companies/outreach',
+      // Basic outreach is core (record 135): a letter to one contact, written from the party's ledger.
+      'app/api/letters', 'components/party-letters',
       'app/dashboard/conversations', 'app/dashboard/texts',
       'app/api/conversations', 'app/api/texts', 'app/api/events',
       'app/answer', 'app/claim',
@@ -313,8 +315,10 @@ export const DOMAINS: Domain[] = [
       'app/dashboard/training', 'app/api/training',
       // Training that starts, finishes or stops.
       'lib/training',
+      // The training micro-site (record 133): its own route tree and its own routes, under the plugin switch.
+      'app/learn', 'app/api/learn',
       // Project teams (record 120, pods): a plugin, off by default.
-      'lib/pods', 'app/api/pods', 'app/dashboard/pods',
+      'lib/pods', 'app/api/pods', 'app/dashboard/pods', 'app/pods',
       'app/api/alumni', 'app/api/releasing-soon', 'app/api/benchmark',
       'lib/match-engine', 'lib/candidate-fit', 'lib/bench-filter', 'lib/why',
       // Who a job request is matched against and what each viewer sees
@@ -652,6 +656,8 @@ export const DOMAINS: Domain[] = [
       // the open list, an item and its three acts, agent control and the
       // firm's ledger, and one record with its whole history.
       'lib/decision-queue', 'app/api/decision-items', 'app/api/records', 'app/dashboard/records',
+      // The party's one ledger (record 134): a reader over the record, its door, and the tab that draws it.
+      'lib/party-ledger', 'app/api/party-ledger',
       // The money loop's routes and screens (Flow B, B2 to B6): the
       // consultants page, a placement's month, a month for everybody with
       // its payroll summary, and the words all three share. The chain's
@@ -663,14 +669,14 @@ export const DOMAINS: Domain[] = [
       'lib/nav-table',
       // The per-tenant plugin switch (record 120): the state, who may switch,
       // and the one refusal every plugin's routes say. Every plugin reads it.
-      'lib/plugins', 'lib/plugin-gate',
+      'lib/plugins', 'lib/plugin-gate', 'lib/plugin-registry', 'lib/plugin-usage', 'lib/plugin-site', 'lib/plugin-site-says',
       // A tenant's template, branding and pages, and the Owner's yes tied to them (records 111, 79).
       'lib/site-settings', 'app/api/settings/site-branding',
       // A candidate's own yes to updates (record 117): the reader and the door she answers at.
       'lib/updates-consent', 'app/api/updates-consent',
       // Public-sector proposals (record 124, plugin 5): the states a proposal may
       // move through and who may move it, and the routes behind the switch.
-      'lib/proposals', 'app/api/proposals', 'app/dashboard/proposals',
+      'lib/proposals', 'app/api/proposals', 'app/dashboard/proposals', 'app/proposals',
       // Supplier diversity (record 132, plugin 5): certifications, the Owner's ownership attestation and portal registrations.
       'lib/diversity', 'app/api/diversity',
       // Day 61 unpaid: the one read-only rule, its switch and the writes that stay open.
@@ -748,7 +754,7 @@ export const DOMAINS: Domain[] = [
       // Whether the company somebody is signed in at is a made-up one, so
       // the shell can say Demo in front of its name. Company identity.
       'lib/demo-company',
-      'app/layout', 'app/login', 'app/start',
+      'app/layout', 'app/login', 'app/setup',
       // Which ways in the login page draws, and the line above them.
       'lib/login-doors',
       // The tab icon: the kit's mark, square. Next links both from app/.

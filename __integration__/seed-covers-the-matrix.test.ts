@@ -61,6 +61,10 @@ import { standsAsAcceptanceSays } from '@/app/api/timesheets/chain-turn'
  * route runs. It crosses no edge with the outside world.
  */
 const RUNTIME: Record<string, string> = {
+  courseAdoption: 'Written when another firm chooses to adopt a course its creator offers; a seeded row would claim a firm took a course it never chose.',
+  learningPath: 'Written when a mentor proposes a path (or a team path is proposed from a project team) and the mentor says yes; a seeded row would claim somebody agreed to teach.',
+  lessonVideo: 'Written when a creator attaches a video to a lesson; a seeded row would claim a video nobody uploaded.',
+  learnCredential: 'Written when a learner finishes a course and her firm records the credential; a seeded row would claim a certification nobody earned.',
   skillTarget: 'Written when the Owner sets a target for a skill or an agent; a seeded row would claim a number the Owner never chose.',
   submissionConfirmation: 'Written when a person or the confirmation tracker records that the other side confirmed a submission; a seeded row would claim a confirmation nobody gave.',
   offer: 'Written when a person drafts, proposes or answers an offer on a submission; a seeded row would claim an offer nobody made.',
@@ -69,6 +73,11 @@ const RUNTIME: Record<string, string> = {
   noticePosting: 'Written when a person records a notice going up or coming down at a site; a seeded row would claim somebody posted it.',
   publicAccessFile: 'Written when a person starts the public access file of a petition; a seeded row would claim one was approved.',
   payrollDraft: 'Written by the payroll agent when the Owner switches it on; the seed switches no agent on.',
+  outreachSegment: 'Saved by a person who builds an audience; a seeded segment would claim a choice nobody made (record 135).',
+  outreachTripwireFiring: 'Written by the daily detection job when a tripwire trips on the ledger; the seed trips none (record 135).',
+  outreachPack: 'Created and approved by a person as one yes; a seeded approved pack would be a send nobody allowed (record 135).',
+  outreachPush: 'Assembled from a firing and a segment by the detection engine; a seeded push would sit in a pack nobody approved (record 135).',
+  outreachVisit: 'Written when a signed-in person or a known contact arrives through a letter\u2019s tracked link; the seed sends no letter (record 135).',
   outreachLetter: 'Written when a person raises an outreach batch to companies; a seeded row would claim a letter somebody chose to send.',
   mailSend: 'Written when an email is attempted; the seed sends none, and a seeded row would claim mail left for a demo address.',
   recordAction: 'Written when a person acts on a record after the ledger began (2026-11-21); the seed acts through no screen.',
@@ -79,6 +88,7 @@ const RUNTIME: Record<string, string> = {
   cohort: 'Train to bench is a plugin, off by default; a firm writes a cohort only after its Owner switches it on.',
   assessment: 'Written by a cohort’s trainer after the Train to bench plugin is on; off by default.',
   certification: 'Issued by a cohort’s trainer or assessor after the Train to bench plugin is on; off by default.',
+  learnBadge: 'Earned by a learner on her own record when she finishes a level or a course on the training micro-site; the plugin is off by default and nothing writes one until she learns.',
   benchAsk: 'Written when a firm asks a trainee onto its bench, inside the Train to bench plugin; off by default.',
   pod: 'Project teams is a plugin, off by default; a firm writes a team only after its Owner switches it on.',
   podRole: 'Written with a team, inside the Project teams plugin; off by default.',
@@ -249,6 +259,16 @@ const RUNTIME: Record<string, string> = {
  * test fails if you do not.
  */
 const GAP: Record<string, string> = {
+  // Affiliates (record 129, row L3.2.2.37): the tables landed 2026-11-28 and no writer or screen exists yet. The seed owes a demo affiliate and a paid receipt once a screen shows them; the rebuild keeps these tables, so a seeded row needs a world-scoped way out first
+  affiliate: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliateAttribution: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliateAttributionCorrection: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  subscriptionReceipt: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  subscriptionReceiptReversal: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliateCommissionEntry: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliateStatement: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliatePayoutBatch: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
+  affiliatePayoutItem: 'affiliate ledger table, writers built in lib/money, no route or screen yet (L3.2.2.37)',
   // L1.1 Source to contract
   marketingLead: 'nobody has enquired from the public site — and this table is not tenanted, so a seeded enquiry would be a fictional name in the founder\u2019s own sales funnel',
   sourcedContact: 'sourcing at volume has no history; it arrives by import, and an import is a real file somebody loaded',
