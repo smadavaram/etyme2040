@@ -1531,4 +1531,5 @@ knowledge about the business lives in `.claude/context/etyme-business.md`
 
 When the owner corrects you, add the lesson here as one line so it is not repeated.
 
-- (none yet)
+- A file the owner hands over is opened and read for what it holds before it is used as a look (2026-11-27: the course file was the course).
+- The 3-hour training is converted whole, from its full transcript and frames, never from a summary of key points (2026-11-28).
