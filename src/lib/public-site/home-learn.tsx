@@ -5,9 +5,9 @@ import { LEARN, DOOR_SOON } from './home-page-words'
 
 /**
  * The home page's door to "AI from Zero in 3 Hours" (record 135), drawn
- * after the section animation supplied on 2026-11-28: a path fills, ten
- * topic tiles light one after another as it reaches them, then the two
- * cards that say what finishing gives.
+ * after the section animation supplied on 2026-11-28: a path fills, the
+ * course's nine chapter tiles light one after another as it reaches them,
+ * three to a level, then the two cards that say what finishing gives.
  *
  * It plays once, when the section first scrolls into view, and again on
  * Replay. It never loops. With less motion asked for, or with no script,
@@ -64,13 +64,13 @@ export function HomeLearn() {
         <div className="hl-fill h-full w-full rounded-full bg-gradient-to-r from-etyme-action to-etyme-attention" />
       </div>
 
-      <ol className="grid grid-cols-1 gap-3 min-[340px]:grid-cols-2 min-[900px]:grid-cols-5">
+      <ol className="grid grid-cols-1 gap-3 min-[340px]:grid-cols-2 min-[900px]:grid-cols-3">
         {LEARN.tiles.map((t, i) => (
           <li key={t.h} className="hl-tile relative overflow-hidden rounded-xl border border-etyme-rule bg-etyme-raised p-3.5" style={{ animationDelay: tileAt(i) }}>
             {/* The lit state is its own layer, so lighting a tile changes no size and names no color by hand. */}
             <span aria-hidden="true" className="hl-lit absolute inset-0 rounded-xl border border-etyme-action-line bg-etyme-action-wash" style={{ animationDelay: tileAt(i) }} />
             <span className="relative block">
-              <span className="block font-mono text-[12.5px] font-medium text-etyme-action-press">{String(i + 1).padStart(2, '0')}</span>
+              <span className="block font-mono text-[12.5px] font-medium text-etyme-action-press">{String(i + 1).padStart(2, '0')} · {LEARN.levels[Math.floor(i / 3)]}</span>
               <span aria-hidden="true" className="mt-1.5 block text-[22px] leading-none">{t.ic}</span>
               <strong className="mt-1.5 block text-[19px] font-medium leading-tight" style={GELASIO}>{t.h}</strong>
               <span className="mt-1 block text-[13.5px] leading-[1.55] text-etyme-muted">{t.p}</span>

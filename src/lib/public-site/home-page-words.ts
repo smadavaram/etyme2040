@@ -97,8 +97,10 @@ export const DOORS = {
 
 /**
  * The door to Etyme's own course (record 135), after the section animation
- * supplied on 2026-11-28: ten topics on one path, each tile lighting as the
- * path reaches it, then what finishing gives. A door, never the headline: it
+ * supplied on 2026-11-28: one path, each tile lighting as the path reaches
+ * it, then what finishing gives. The tiles are the course's own nine
+ * chapters, not the ten of the supplied file (owner, the same day: the
+ * topics have to be correct). A door, never the headline: it
  * sits below the guarantees. The course cannot be opened yet, so the door
  * says so and carries no link.
  *
@@ -111,18 +113,19 @@ export const DOORS = {
 export const LEARN = {
   kicker: 'Learn AI · The course',
   heading: 'AI from Zero in 3 Hours.',
-  lead: 'Ten topics, one path. Each tile lights as the path reaches it — this is the whole course, and what you will be good at.',
+  lead: 'Nine chapters, one path. Each tile lights as the path reaches it — this is the whole course, and what you will be good at.',
+  /** The course's own nine chapters, three to a level, in the order they are taught (record 135). */
+  levels: ['Simple', 'Medium', 'Complex'],
   tiles: [
-    { ic: '🧠', h: 'LLMs', p: 'How the models actually work, in plain words.' },
-    { ic: '🤖', h: 'Agents', p: 'Helpers that do steps, not just answers.' },
-    { ic: '🔌', h: 'MCP', p: 'One plug for every tool — no glue code per app.' },
-    { ic: '📚', h: 'RAG + Data', p: 'Answers from your documents, with sources.' },
-    { ic: '🎛️', h: 'Training', p: 'How models learn — and how they go wrong.' },
-    { ic: '⚡', h: 'Compute', p: 'The machines underneath, and why they matter.' },
-    { ic: '☁️', h: 'Cloud', p: 'Where AI runs when it leaves your laptop.' },
-    { ic: '💲', h: 'Cost', p: 'What every call costs, and how to spend less.' },
-    { ic: '📈', h: 'Performance', p: 'Sharper answers — measured, not guessed.' },
-    { ic: '🚀', h: 'Deploy', p: 'Ship it, and keep it alive.' },
+    { ic: '🤖', h: 'What an agent is', p: 'A helper that does the steps, not just the answer.' },
+    { ic: '🧠', h: 'Memory', p: 'Why it forgets, and how it keeps what matters.' },
+    { ic: '🔌', h: 'Tools', p: 'How it does things: tools, skills, and the file it reads first.' },
+    { ic: '👥', h: 'Many agents, clear jobs', p: 'One job each, and who hands work to whom.' },
+    { ic: '📚', h: 'Knowledge', p: 'Answers from your own documents, with the source.' },
+    { ic: '🚪', h: 'The front door and the bill', p: 'One gate for every request, and what each one costs.' },
+    { ic: '🎛️', h: 'Changing the model', p: 'How a model learns, and when to change it.' },
+    { ic: '⚡', h: 'The machines underneath', p: 'The chips and clouds it runs on.' },
+    { ic: '📈', h: 'Keeping it alive', p: 'Testing it, watching it, and fixing it when it drifts.' },
   ],
   doneH: 'Course complete — on your record',
   doneP: 'Badge earned, credential page live, share it in one tap.',
@@ -182,7 +185,7 @@ export function homeBodyLines(sample: string[] = []): string[] {
     ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
     GUARANTEE.kicker, GUARANTEE.heading, GUARANTEE.sub, ...GUARANTEE.items, GUARANTEE.cta, GUARANTEE.ctaLine,
     FEATURES,
-    LEARN.kicker, LEARN.heading, LEARN.lead, ...LEARN.tiles.flatMap((t) => [t.h, t.p]), LEARN.doneH, LEARN.doneP, LEARN.joinH, LEARN.joinP, LEARN.replay, DOOR_SOON,
+    LEARN.kicker, LEARN.heading, LEARN.lead, ...LEARN.levels, ...LEARN.tiles.flatMap((t) => [t.h, t.p]), LEARN.doneH, LEARN.doneP, LEARN.joinH, LEARN.joinP, LEARN.replay, DOOR_SOON,
     PRICE.kicker, PRICE.heading, PRICE.body, PRICE.button, PRICE.rateCard.t, PRICE.notHeading, ...PRICE.not.flatMap((n) => [n.b, n.t]),
     START.kicker, START.heading, START.lead, ...START.points, `${START.talkLead} ${START.address} ${START.talkTail}`,
     START.panelHeading, START.panelLine, START_FREE.t,

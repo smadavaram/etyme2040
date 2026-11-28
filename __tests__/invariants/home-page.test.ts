@@ -135,13 +135,19 @@ describe('The homepage says what the approved design says', () => {
     expect(learn).not.toMatch(/<a\s/)
     expect(text(learn)).not.toMatch(/\bfree\b/i)
   })
-  it('the course door shows ten topics on one path, numbered 01 to 10, then what finishing gives', () => {
+  it('the course door shows the course’s own nine chapters on one path, three to a level, then what finishing gives', () => {
     const learn = text(HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"')))
-    const at = ['01', 'LLMs', '02', 'Agents', '03', 'MCP', '04', 'RAG + Data', '05', 'Training', '06', 'Compute', '07', 'Cloud', '08', 'Cost', '09', 'Performance', '10', 'Deploy', 'Course complete — on your record', 'Then: join the bench'].map((x) => learn.indexOf(x))
+    const at = [
+      '01 · Simple', 'What an agent is', '02 · Simple', 'Memory', '03 · Simple', 'Tools',
+      '04 · Medium', 'Many agents, clear jobs', '05 · Medium', 'Knowledge', '06 · Medium', 'The front door and the bill',
+      '07 · Complex', 'Changing the model', '08 · Complex', 'The machines underneath', '09 · Complex', 'Keeping it alive',
+      'Course complete — on your record', 'Then: join the bench',
+    ].map((x) => learn.indexOf(x))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(learn).not.toMatch(/\b10\b|Ten topics/)
   })
-  it('the ten tiles light one after another, play once and on Replay, and never loop', () => {
+  it('the tiles light one after another, play once and on Replay, and never loop', () => {
     const src = read('src/lib/public-site/home-learn.tsx')
     expect(src).not.toMatch(/infinite/)
     expect(src).toMatch(/animationDelay: tileAt\(i\)/)
