@@ -135,16 +135,28 @@ describe('The homepage says what the approved design says', () => {
     expect(learn).not.toMatch(/<a\s/)
     expect(text(learn)).not.toMatch(/\bfree\b/i)
   })
-  it('the course door shows the climb in three stages, and the agent’s five steps in order', () => {
+  it('the course door shows ten topics on one path, numbered 01 to 10, then what finishing gives', () => {
     const learn = text(HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"')))
-    const at = ['The chatbot', 'The chatbot with your documents', 'The agent', '1 · Ask', '2 · Check', '3 · Decide', '4 · Act', '5 · Record'].map((x) => learn.indexOf(x))
+    const at = ['01', 'LLMs', '02', 'Agents', '03', 'MCP', '04', 'RAG + Data', '05', 'Training', '06', 'Compute', '07', 'Cloud', '08', 'Cost', '09', 'Performance', '10', 'Deploy', 'Course complete — on your record', 'Then: join the bench'].map((x) => learn.indexOf(x))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
   })
-  it('the three stages light in order, and stand still for a reader who asked for less motion', () => {
-    const src = read('src/app/page.tsx')
-    expect(src).toMatch(/\.ramp-2\{animation-delay:3s\}\.ramp-3\{animation-delay:6s\}/)
-    expect(src).toMatch(/prefers-reduced-motion: reduce\)\{\.ramp-stage\{animation:none;opacity:1\}/)
+  it('the ten tiles light one after another, play once and on Replay, and never loop', () => {
+    const src = read('src/lib/public-site/home-learn.tsx')
+    expect(src).not.toMatch(/infinite/)
+    expect(src).toMatch(/animationDelay: tileAt\(i\)/)
+    expect(src).toContain('io.disconnect(); setRun(1)')
+    expect(text(HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"')))).toContain('Replay')
+  })
+  it('with no script, or for a reader who asked for less motion, every tile stands lit and nothing is hidden', () => {
+    const src = read('src/lib/public-site/home-learn.tsx')
+    // Nothing is hidden outside the playing state, so the page as first drawn shows it all.
+    expect(HTML).toMatch(/<div class="[^"]*" data-slot="learn-section-animation">/)
+    expect(HTML).not.toMatch(/<div class="[^"]*hl-play[^"]*" data-slot="learn-section-animation">/)
+    expect(src).toMatch(/prefers-reduced-motion: reduce\)\{\s*\.hl-play \.hl-fill\{width:100%;animation:none\}/)
+  })
+  it('the course door sends nothing: no request, no form, no mail', () => {
+    expect(read('src/lib/public-site/home-learn.tsx')).not.toMatch(/fetch\(|sendBeacon|XMLHttpRequest|<form|mailto:/)
   })
   it('Learn is in the top menu and leads to the course door', () => {
     expect(HTML).toMatch(/<a[^>]*href="#learn"[^>]*>Learn<\/a>/)

@@ -3,8 +3,9 @@ import { SiteHeader } from '@/lib/public-site/frame'
 import { SkeletonFooter } from '@/lib/public-site/skeleton'
 import { homeSample } from '@/lib/public-site/home-sample'
 import { HomeAsk, RoleLink } from '@/lib/public-site/home-ask'
+import { HomeLearn } from '@/lib/public-site/home-learn'
 import { DOOR_SOON,
-  HOME_TITLE, HOME_BADGE, HOME_NAV, START_FREE, START_BAR_LINE, LEARN, HERO, ROLES, ASK, GUARANTEE, FEATURES, PRICE, START, SAMPLE_NOTE,
+  HOME_TITLE, HOME_BADGE, HOME_NAV, START_FREE, START_BAR_LINE, HERO, ROLES, ASK, GUARANTEE, FEATURES, PRICE, START, SAMPLE_NOTE,
 } from '@/lib/public-site/home-page-words'
 
 /**
@@ -31,13 +32,6 @@ const GELASIO = { fontFamily: 'var(--font-gelasio), Georgia, serif' } as const
 const WRAP = 'mx-auto max-w-6xl px-4 sm:px-6'
 const H2 = 'text-[30px] font-semibold leading-[1.12] tracking-[-0.01em] sm:text-[40px]'
 const KICKER = 'mb-3 text-[13px] font-bold uppercase tracking-[0.12em] text-etyme-action-press'
-/** Pax's on-ramp pattern (2026-11-27): the three stages light in order. Opacity only, off under reduced motion. */
-const RAMP_CSS = `
-.ramp-stage{opacity:.72;animation:ramp-in 9s ease-in-out infinite}
-.ramp-2{animation-delay:3s}.ramp-3{animation-delay:6s}
-@keyframes ramp-in{0%,8%{opacity:.72}16%,30%{opacity:1}40%,100%{opacity:.92}}
-@media (prefers-reduced-motion: reduce){.ramp-stage{animation:none;opacity:1}}
-`
 const PRIMARY = 'inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-etyme-action px-6 py-3 text-[16px] font-semibold text-white shadow-[0_6px_20px_rgba(82,40,255,.22)] hover:opacity-90'
 const SECONDARY = 'inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-etyme-rule px-6 py-3 text-[16px] font-semibold text-etyme-ink hover:border-etyme-ink'
 const CARD = 'rounded-[18px] border border-etyme-rule bg-etyme-raised'
@@ -156,36 +150,10 @@ export default function LandingPage() {
           </p>
         </div>
 
-        {/* The door to Etyme's course, with Pax's on-ramp: three stages lit in order. Not live yet, so no link. */}
+        {/* The door to Etyme's course: ten topics lighting along one path (the section animation supplied 2026-11-28). Not live yet, so no link. */}
         <section id="learn" className="scroll-mt-20 pb-11 sm:pb-16">
           <div className={WRAP}>
-            <style dangerouslySetInnerHTML={{ __html: RAMP_CSS }} />
-            <div className={`${CARD} px-[22px] py-7 sm:px-9 sm:py-9`}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="max-w-[640px]">
-                  <p className={KICKER}>{LEARN.kicker}</p>
-                  <h2 className={H2} style={GELASIO}>{LEARN.heading}</h2>
-                  <p className="mt-3 text-[17px] text-etyme-ink/85">{LEARN.lead}</p>
-                </div>
-                <span className="rounded-full border border-etyme-rule px-3 py-1 text-[12px] font-semibold uppercase tracking-wide text-etyme-muted">{DOOR_SOON}</span>
-              </div>
-              <p className="mt-7 text-[15px] font-semibold">{LEARN.climb}</p>
-              <div className="mt-3 grid gap-3 min-[760px]:grid-cols-3" data-slot="onramp-animation">
-                {LEARN.stages.map((st, i) => (
-                  <div key={st.h} className={`ramp-stage ramp-${i + 1} rounded-2xl border border-etyme-rule bg-etyme-surface p-5`}>
-                    <p className="text-[11.5px] font-bold uppercase tracking-[0.12em] text-etyme-action-press">{st.tag}</p>
-                    <h3 className="mt-1.5 text-[18px] font-bold">{st.h}</h3>
-                    <p className="mt-1.5 text-[14.5px] leading-snug text-etyme-muted">{st.p}</p>
-                    {i === 2 && (
-                      <ol className="mt-3 flex flex-wrap gap-1.5">
-                        {LEARN.steps.map((x, n) => <li key={x} className="rounded-lg border border-etyme-rule bg-etyme-raised px-2.5 py-1 text-[12.5px] font-semibold">{`${n + 1} · ${x}`}</li>)}
-                      </ol>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="mt-5 text-[15px] text-etyme-ink/85">{LEARN.who}</p>
-            </div>
+            <HomeLearn />
           </div>
         </section>
 

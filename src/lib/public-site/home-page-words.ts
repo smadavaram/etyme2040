@@ -96,23 +96,39 @@ export const DOORS = {
 } as const
 
 /**
- * The door to Etyme's own course (record 135). A door, never the headline:
- * it sits below the guarantees. The course cannot be opened yet, so the door
- * says so and carries no link. The word "free" is not used here: on this
- * page it belongs to the hero offer, the price and the Start free buttons.
+ * The door to Etyme's own course (record 135), after the section animation
+ * supplied on 2026-11-28: ten topics on one path, each tile lighting as the
+ * path reaches it, then what finishing gives. A door, never the headline: it
+ * sits below the guarantees. The course cannot be opened yet, so the door
+ * says so and carries no link.
+ *
+ * Four things differ from the supplied file, each for a standing rule of
+ * this page: the word "free" is left out (it belongs to the hero offer, the
+ * price and the Start free buttons); no outside product or network is named;
+ * the last tile names no tooling the course does not teach; and no tile
+ * promises speed.
  */
 export const LEARN = {
-  kicker: 'Learn',
-  heading: 'AI from Zero in 3 Hours',
-  lead: 'A course for anyone, in 34 short steps. Watch a step, try it, answer a few questions, and write it in your workbook.',
-  climb: 'The whole climb, in three steps',
-  stages: [
-    { tag: 'Step 1 · Simple', h: 'The chatbot', p: 'It answers from what it was taught. It has never seen your documents.' },
-    { tag: 'Step 2 · Medium', h: 'The chatbot with your documents', p: 'It reads your pages first, then answers, and shows the page it read.' },
-    { tag: 'Step 3 · Complex', h: 'The agent', p: 'It does the steps for you, and writes down what it did.' },
+  kicker: 'Learn AI · The course',
+  heading: 'AI from Zero in 3 Hours.',
+  lead: 'Ten topics, one path. Each tile lights as the path reaches it — this is the whole course, and what you will be good at.',
+  tiles: [
+    { ic: '🧠', h: 'LLMs', p: 'How the models actually work, in plain words.' },
+    { ic: '🤖', h: 'Agents', p: 'Helpers that do steps, not just answers.' },
+    { ic: '🔌', h: 'MCP', p: 'One plug for every tool — no glue code per app.' },
+    { ic: '📚', h: 'RAG + Data', p: 'Answers from your documents, with sources.' },
+    { ic: '🎛️', h: 'Training', p: 'How models learn — and how they go wrong.' },
+    { ic: '⚡', h: 'Compute', p: 'The machines underneath, and why they matter.' },
+    { ic: '☁️', h: 'Cloud', p: 'Where AI runs when it leaves your laptop.' },
+    { ic: '💲', h: 'Cost', p: 'What every call costs, and how to spend less.' },
+    { ic: '📈', h: 'Performance', p: 'Sharper answers — measured, not guessed.' },
+    { ic: '🚀', h: 'Deploy', p: 'Ship it, and keep it alive.' },
   ],
-  steps: ['Ask', 'Check', 'Decide', 'Act', 'Record'],
-  who: 'For kids and students, people starting out, people outside IT, and people in IT.',
+  doneH: 'Course complete — on your record',
+  doneP: 'Badge earned, credential page live, share it in one tap.',
+  joinH: 'Then: join the bench →',
+  joinP: 'Your skills, your proof, your profile — in front of firms that hire.',
+  replay: 'Replay',
 } as const
 
 export const PRICE = {
@@ -166,7 +182,7 @@ export function homeBodyLines(sample: string[] = []): string[] {
     ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
     GUARANTEE.kicker, GUARANTEE.heading, GUARANTEE.sub, ...GUARANTEE.items, GUARANTEE.cta, GUARANTEE.ctaLine,
     FEATURES,
-    LEARN.kicker, LEARN.heading, LEARN.lead, LEARN.climb, ...LEARN.stages.flatMap((s) => [s.tag, s.h, s.p]), ...LEARN.steps, LEARN.who, DOOR_SOON,
+    LEARN.kicker, LEARN.heading, LEARN.lead, ...LEARN.tiles.flatMap((t) => [t.h, t.p]), LEARN.doneH, LEARN.doneP, LEARN.joinH, LEARN.joinP, LEARN.replay, DOOR_SOON,
     PRICE.kicker, PRICE.heading, PRICE.body, PRICE.button, PRICE.rateCard.t, PRICE.notHeading, ...PRICE.not.flatMap((n) => [n.b, n.t]),
     START.kicker, START.heading, START.lead, ...START.points, `${START.talkLead} ${START.address} ${START.talkTail}`,
     START.panelHeading, START.panelLine, START_FREE.t,
