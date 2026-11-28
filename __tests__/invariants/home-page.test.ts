@@ -119,15 +119,46 @@ describe('The homepage says what the approved design says', () => {
   it('the hero says the headline, the offer and two calls, then the three things Etyme replaces', () => {
     expect(homeHeroLines().slice(0, 3)).toEqual([HOME_BADGE, 'Every contractor. Every supplier. One record.', HERO.sub])
     for (const s of HERO.stats) expect(TEXT).toContain(s.b)
-    expect(TEXT).toContain('See who it is for')
+    // The second call leads to the product at work, the Ask panel (owner, 2026-11-28).
+    expect(TEXT).toContain('Watch it answer a question')
+    expect(HTML).toMatch(/<a href="#ask"[^>]*>Watch it answer a question<\/a>/)
+  })
+  it('Ask Etyme comes straight after the hero, before the reader is asked which role they are', () => {
+    expect(HTML.indexOf('id="ask"')).toBeGreaterThan(HTML.indexOf('</h1>'))
+    expect(HTML.indexOf('id="ask"')).toBeLessThan(HTML.indexOf('id="desks"'))
+  })
+  it('the door to the course is below the guarantees, names the course, and says it is not live yet without linking anywhere', () => {
+    const learn = HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"'))
+    expect(HTML.indexOf('id="learn"')).toBeGreaterThan(HTML.indexOf('id="desks"'))
+    expect(text(learn)).toContain('AI from Zero in 3 Hours')
+    expect(text(learn)).toContain('Not live yet')
+    expect(learn).not.toMatch(/<a\s/)
+    expect(text(learn)).not.toMatch(/\bfree\b/i)
+  })
+  it('the course door shows the climb in three stages, and the agent’s five steps in order', () => {
+    const learn = text(HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"')))
+    const at = ['The chatbot', 'The chatbot with your documents', 'The agent', '1 · Ask', '2 · Check', '3 · Decide', '4 · Act', '5 · Record'].map((x) => learn.indexOf(x))
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+  })
+  it('the three stages light in order, and stand still for a reader who asked for less motion', () => {
+    const src = read('src/app/page.tsx')
+    expect(src).toMatch(/\.ramp-2\{animation-delay:3s\}\.ramp-3\{animation-delay:6s\}/)
+    expect(src).toMatch(/prefers-reduced-motion: reduce\)\{\.ramp-stage\{animation:none;opacity:1\}/)
+  })
+  it('Learn is in the top menu and leads to the course door', () => {
+    expect(HTML).toMatch(/<a[^>]*href="#learn"[^>]*>Learn<\/a>/)
+  })
+  it('on a phone, Start free stays in reach on a bar at the bottom of the screen, and wider screens do not draw it', () => {
+    expect(HTML).toMatch(/<div class="fixed inset-x-0 bottom-0[^"]*sm:hidden"><a href="\/signup"[^>]*>Start free<\/a><span[^>]*>No card, no contract\.<\/span><\/div>/)
   })
 
   it('every sign-up button opens the sign-up that exists, and nothing on the page is a form that sends', () => {
     expect(HTML).not.toContain('<form')
     expect(read('src/app/(auth)/signup/page.tsx')).toContain('export default')
     const signUpLinks = [...HTML.matchAll(/href="(\/signup[^"]*)"/g)].map((m) => m[1])
-    // Seven since 2026-11-28: the chat doors moved inside Ask Etyme and share its one button.
-    expect(signUpLinks.length).toBeGreaterThanOrEqual(7)
+    // Eight: seven on the page since the chat doors moved inside Ask Etyme, and the phone's bottom bar.
+    expect(signUpLinks.length).toBeGreaterThanOrEqual(8)
     expect(new Set(signUpLinks)).toEqual(new Set(['/signup']))
   })
 

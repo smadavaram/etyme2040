@@ -829,15 +829,16 @@ describe('Below the hero, the page says what the business is', () => {
     expect(all).not.toContain('trusted control layer')
     expect(unverifiableClaims(all)).toEqual([])
   })
-  it('keeps the hero to the approved design of 2026-11-18: the category badge, the headline, the sub line, the offer, Start free and See your role, the line under them, and the three things Etyme replaces', () => {
+  it('keeps the hero to the approved design of 2026-11-18: the category badge, the headline, the sub line, the offer, Start free and the call to watch Ask Etyme answer, the line under them, and the three things Etyme replaces', () => {
     expect(live.hero).toEqual([HOME_BADGE, HOME_HEADLINE, HERO.sub])
     expect(copyOfHome().hero).toEqual(homeHeroLines())
     expect(copyOfHome().hero.slice(0, 3)).toEqual(['Enterprise contingent workforce management.', 'Every contractor. Every supplier. One record.', HERO.sub])
     const top = PAGE.slice(PAGE.indexOf('id="top"'), PAGE.indexOf('id="desks"'))
     expect(top).toContain('{START_FREE.t}')
-    expect(top).toContain('{HERO.seeRole}')
+    expect(top).toContain('{HERO.seeAsk}')
     expect(top).not.toMatch(/<OpenTheDemo|<TalkToAPerson/)
-    expect(at('ask')).toBeGreaterThan(at('desks'))
+    // Ask Etyme sits straight under the hero since the owner's change of 2026-11-28.
+    expect(at('desks')).toBeGreaterThan(at('ask'))
     expect(PAGE).not.toContain('id="map"')
     expect(hero).not.toContain('three weeks')
   })
@@ -1924,14 +1925,14 @@ function band(id: string): string {
 
 describe('The home page reads as a product page, and every band leads deeper', () => {
 
-  it('the home page is the approved design’s sections and nothing else: the hero, the roles, Ask Etyme with its CFO view and the chat doors beside it, the guarantees, price, and the start panel, within its word ceiling', () => {
+  it('the home page is the approved design’s sections and nothing else: the hero, Ask Etyme with its CFO view and the chat doors beside it, the roles, the guarantees, the door to the course, price, and the start panel, within its word ceiling', () => {
     const words = readerWords()
     expect(words, `${words} words between the header and the footer`).toBeLessThanOrEqual(CEILING)
     expect(words).toBeGreaterThan(300)
     expect(homeBodyLines().every((l) => homeLines().includes(l))).toBe(true)
     const ids = [...PAGE.matchAll(/<(?:section|main)\s+id="([\w-]+)"/g)].map((m) => m[1])
     // The chat doors are inside #ask since the owner's change of 2026-11-28.
-    expect(ids).toEqual(['top', 'desks', 'ask', 'price', 'start'])
+    expect(ids).toEqual(['top', 'ask', 'desks', 'learn', 'price', 'start'])
     expect(PAGE).not.toContain('id="doors"')
     expect(PAGE).not.toMatch(/<CloseBand|<SignUpBand|<LiveDemo|<WhyBelow|<CorvaneMapView|<SecurityLine/)
     for (const gone of ['problem', 'platform', 'specialist-teams', 'solutions', 'how-it-works', 'audit', 'close', 'gap', 'ways', 'join', 'steps', 'map', 'why', 'sign-up']) {

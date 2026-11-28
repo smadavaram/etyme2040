@@ -223,7 +223,7 @@ describe('No button promises what the site cannot give', () => {
       OPEN_DEMO,
       // The home page's own buttons, constants since 2026-11-13, but Start
       // free, which goes to the sign-up door and is set aside below.
-      HERO.seeRole, ROLES.link, ASK.cta, ASK.cfoShow,
+      HERO.seeAsk, ROLES.link, ASK.cta, ASK.cfoShow,
     ]
     expect(labels.length, 'the guard reads real buttons').toBeGreaterThan(20)
     expect(labels).toContain('See it working, no account')

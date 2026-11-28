@@ -16,16 +16,20 @@ export const HOME_BADGE = 'Enterprise contingent workforce management.'
 export const HOME_NAV: readonly { t: string; href: string }[] = [
   { t: 'Who it is for', href: '#desks' },
   { t: 'Ask Etyme', href: '#ask' },
+  { t: 'Learn', href: '#learn' },
   { t: 'Price', href: '#price' },
 ]
 export const START_FREE = { t: 'Start free', href: '/signup' } as const
+/** Beside Start free on the phone's bottom bar. The hero's offer already says it; this keeps it in reach. */
+export const START_BAR_LINE = 'No card, no contract.'
 
 export const HERO = {
   line1: 'Every contractor. Every supplier.',
   line2: 'One record.',
   sub: 'Not clever automation. Intelligent control — one explainable record for every contingent worker, supplier, timesheet, and invoice, so every decision can be defended, not just done.',
   offer: 'Free for the first five firms. No card, no contract — we set it up with you.',
-  seeRole: 'See who it is for',
+  /** The hero's second call: it leads to the Ask panel, the product at work (owner, 2026-11-28). */
+  seeAsk: 'Watch it answer a question',
   micro: 'Set up with you, on your own contractors. Suppliers and contractors join at no cost.',
   stats: [
     { b: 'No spreadsheet', s: 'Rates, papers and approvals live on one record — not in five tabs and an inbox.' },
@@ -91,6 +95,26 @@ export const DOORS = {
   note: 'Client tenants sign in only through their own identity provider — no password back door.',
 } as const
 
+/**
+ * The door to Etyme's own course (record 135). A door, never the headline:
+ * it sits below the guarantees. The course cannot be opened yet, so the door
+ * says so and carries no link. The word "free" is not used here: on this
+ * page it belongs to the hero offer, the price and the Start free buttons.
+ */
+export const LEARN = {
+  kicker: 'Learn',
+  heading: 'AI from Zero in 3 Hours',
+  lead: 'A course for anyone, in 34 short steps. Watch a step, try it, answer a few questions, and write it in your workbook.',
+  climb: 'The whole climb, in three steps',
+  stages: [
+    { tag: 'Step 1 · Simple', h: 'The chatbot', p: 'It answers from what it was taught. It has never seen your documents.' },
+    { tag: 'Step 2 · Medium', h: 'The chatbot with your documents', p: 'It reads your pages first, then answers, and shows the page it read.' },
+    { tag: 'Step 3 · Complex', h: 'The agent', p: 'It does the steps for you, and writes down what it did.' },
+  ],
+  steps: ['Ask', 'Check', 'Decide', 'Act', 'Record'],
+  who: 'For kids and students, people starting out, people outside IT, and people in IT.',
+} as const
+
 export const PRICE = {
   kicker: 'Founding firms',
   heading: 'Price',
@@ -129,22 +153,24 @@ export const HOME_HEADLINE = `${HERO.line1} ${HERO.line2}`
 
 /** The hero's lines, in reading order: the badge first, then the headline and what follows it. */
 export function homeHeroLines(): string[] {
-  return [HOME_BADGE, HOME_HEADLINE, HERO.sub, HERO.offer, START_FREE.t, HERO.seeRole, HERO.micro, ...HERO.stats.flatMap((s) => [s.b, s.s])]
+  return [HOME_BADGE, HOME_HEADLINE, HERO.sub, HERO.offer, START_FREE.t, HERO.seeAsk, HERO.micro, ...HERO.stats.flatMap((s) => [s.b, s.s])]
 }
 
 /** Every line below the hero that is the page's own text, in reading order; the sample's lines go where the Ask panel is. */
 export function homeBodyLines(sample: string[] = []): string[] {
   return [
-    ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
     ASK.kicker, ASK.heading, ASK.lead, ASK.title, ASK.tag, ...sample, ASK.cfoShow, ASK.cfoNote,
     // The chat doors sit beside the Ask panel, in the same section (owner, 2026-11-28).
     DOORS.kicker, DOORS.heading, ...DOORS.items.map((d) => d.h), DOORS.noteLead, DOORS.note,
     ASK.cta, ASK.ctaLine,
+    ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
     GUARANTEE.kicker, GUARANTEE.heading, GUARANTEE.sub, ...GUARANTEE.items, GUARANTEE.cta, GUARANTEE.ctaLine,
     FEATURES,
+    LEARN.kicker, LEARN.heading, LEARN.lead, LEARN.climb, ...LEARN.stages.flatMap((s) => [s.tag, s.h, s.p]), ...LEARN.steps, LEARN.who, DOOR_SOON,
     PRICE.kicker, PRICE.heading, PRICE.body, PRICE.button, PRICE.rateCard.t, PRICE.notHeading, ...PRICE.not.flatMap((n) => [n.b, n.t]),
     START.kicker, START.heading, START.lead, ...START.points, `${START.talkLead} ${START.address} ${START.talkTail}`,
     START.panelHeading, START.panelLine, START_FREE.t,
     SAMPLE_NOTE,
+    START_BAR_LINE,
   ]
 }
