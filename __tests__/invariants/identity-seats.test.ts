@@ -40,6 +40,8 @@ const prisma: any = {
   },
   identityProvider: { findMany: vi.fn(async () => []) },
   company: {
+    // The access log asks which firm ids exist; the sign-in read asks by domain.
+    findMany: vi.fn(async (a: any) => (a?.where?.id?.in ? a.where.id.in.map((id: string) => ({ id })) : [])),
     findUnique: vi.fn(async () => ({ domain: 'corvane.example', name: 'Corvane Packaging' })),
     findUniqueOrThrow: vi.fn(async () => ({ name: 'Corvane Packaging' })),
   },

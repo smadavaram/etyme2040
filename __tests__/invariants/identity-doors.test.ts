@@ -14,6 +14,7 @@ import { NextRequest } from 'next/server'
 
 const db = vi.hoisted(() => ({
   companySignInPolicy: { findMany: vi.fn(), findUnique: vi.fn() },
+  linkedSignInAddress: { findUnique: vi.fn(async () => null) },
   identityProvider: { findMany: vi.fn() },
   person: { findUnique: vi.fn(), findMany: vi.fn() },
   context: { findFirst: vi.fn(), findMany: vi.fn() },

@@ -37,6 +37,7 @@ const db: any = {
     create: vi.fn(async ({ data }: any) => { failures.push({ email: data.email, at: data.at }); return {} }),
     deleteMany: vi.fn(async () => ({ count: 0 })),
   },
+  company: { findMany: vi.fn(async () => []) },
   companySignInPolicy: { findMany: vi.fn(async () => policies), findUnique: vi.fn(async () => null) },
   identityProvider: { findMany: vi.fn(async () => []) },
   accessLog: {

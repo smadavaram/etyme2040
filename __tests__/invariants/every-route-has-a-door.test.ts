@@ -31,6 +31,8 @@ const VERBS = /^(GET|POST|PUT|PATCH|DELETE)$/
  * in `/**` for everything under it.
  */
 const NO_SEAT_NEEDED: Readonly<Record<string, string>> = {
+  'account/sign-in-addresses': 'A signed-in person asking to link a second sign-in address to their own record: the person is read from the session, never the request, and no company is read.',
+  'account/sign-in-addresses/confirm': 'The one-time link mailed to the new address; the token names the one pending link and dies in an hour.',
   'auth/**': 'Signing in, signing up, confirming an email and resetting a password happen before there is a seat.',
   'answer/[token]': 'A one-time link mailed to the person asked; the token is the credential and names the one question.',
   'approve-week/[token]': 'A client approver signing one week by email without an account; the token names the week.',

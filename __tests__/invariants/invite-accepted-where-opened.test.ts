@@ -21,6 +21,7 @@ import { join } from 'node:path'
 let accepted: { actorPersonId: string; actorCompanyId: string }[] = []
 const db: any = {
   person: { findUnique: vi.fn(async () => ({ id: 'p-dana' })) },
+  company: { findMany: vi.fn(async () => []) },
   context: { findMany: vi.fn(async () => [{ id: 'seat-b', companyId: 'co-b', company: { name: 'Northwind Staffing' } }]) },
   companySignInPolicy: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
   identityProvider: { findMany: vi.fn(async () => []) },

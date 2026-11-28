@@ -31,6 +31,42 @@ async function carryThisSessionOver(refresh: string): Promise<void> {
   })
 }
 
+/**
+ * Another address to sign in with (Pax, 2026-11-28). The person asks from
+ * their own session; a link goes to the new address and following it is
+ * their yes (lib/identity/linked-address). Never a merge by look-alike.
+ */
+function OtherAddress() {
+  const [email, setEmail] = useState('')
+  const [pending, setPending] = useState(false)
+  const [said, setSaid] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  async function ask(e: React.FormEvent) {
+    e.preventDefault()
+    setPending(true)
+    try {
+      const res = await fetch('/api/account/sign-in-addresses', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+      })
+      const j = await res.json().catch(() => ({}))
+      setSaid(res.ok ? { tone: 'ok', text: j.data.says } : { tone: 'error', text: j?.error?.message ?? 'That did not go through. Try again.' })
+      if (res.ok) setEmail('')
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <Panel>
+      <form className="flex flex-col gap-4" onSubmit={ask}>
+        <Field label="Another address you sign in with" help="For example your work Microsoft address. Signing in with it opens this same record, not a new one.">
+          <Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full" />
+        </Field>
+        {said && <FormMessage tone={said.tone}>{said.text}</FormMessage>}
+        <SubmitButton pending={pending} className="w-full sm:w-auto">Send the confirmation link</SubmitButton>
+      </form>
+    </Panel>
+  )
+}
+
 export default function PasswordPage() {
   const [state, setState] = useState<{ hasPassword: boolean; allowed: boolean; says: string | null } | null>(null)
   const [readSays, setReadSays] = useState<string | null>(null)
@@ -121,6 +157,7 @@ export default function PasswordPage() {
           </form>
         )}
       </Panel>
+      <div className="mt-6"><OtherAddress /></div>
     </div>
   )
 }

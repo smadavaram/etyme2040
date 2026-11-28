@@ -39,6 +39,8 @@ export const IDENTITY_EVENTS = [
   'SESSIONS_ENDED',
   /** A signed-in person set or changed their own password from the account menu (fault 5, 2026-11-12). Never the password. */
   'PASSWORD_SET',
+  /** A person linked a second sign-in address to their one record: asked while signed in, confirmed from the new address (Pax, 2026-11-28). */
+  'SIGN_IN_ADDRESS_LINKED',
 ] as const
 export type IdentityEvent = (typeof IDENTITY_EVENTS)[number]
 
@@ -63,6 +65,7 @@ export const WRITTEN_BY: Record<IdentityEvent, string | null> = {
   AUTH_POLICY_CHANGED: 'src/app/api/settings/sign-in/route.ts',
   SESSIONS_ENDED: 'src/lib/identity/read.ts',
   PASSWORD_SET: 'src/lib/password-door.ts',
+  SIGN_IN_ADDRESS_LINKED: 'src/lib/identity/linked-address.ts',
 }
 
 export const SURFACES = ['WEB', 'API', 'TEAMS', 'STAFF', 'DIRECTORY', 'SCIM', 'CRON'] as const

@@ -25,7 +25,7 @@ const db: any = {
     updateMany: vi.fn(async () => ({ count: 1 })),
   },
   person: { update: vi.fn(async () => ({})) },
-  company: { findUnique: vi.fn(async () => firm) },
+  company: { findUnique: vi.fn(async () => firm), findMany: vi.fn(async () => []) },
   signInFailure: { deleteMany: vi.fn(async () => ({ count: 0 })) },
   companySignInPolicy: { findMany: vi.fn(async () => []), findUnique: vi.fn(async () => null) },
   identityProvider: { findMany: vi.fn(async () => []) },

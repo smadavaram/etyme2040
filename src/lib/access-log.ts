@@ -198,6 +198,7 @@ export type AccessAction =
   | 'INVITATION_WITHDRAW'       // somebody asked to withdraw a person's invitation; written only when refused
   | 'AUTH_POLICY_CHANGED'       // a company's Owner changed how its people sign in
   | 'SESSIONS_ENDED'            // every live session a person held was ended
+  | 'SIGN_IN_ADDRESS_LINKED'  // a person linked a second sign-in address to their own record, on their own yes
   | 'PASSWORD_SET'              // a signed-in person set or changed their own password from the account menu; never the password
   | 'INVITATION_SEND_AGAIN'     // somebody asked to send a person's invitation again; written only when refused
   | 'ACCESS_SUSPEND'            // somebody asked to pause a person's seat; written only when refused

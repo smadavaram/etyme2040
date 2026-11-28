@@ -58,10 +58,29 @@ export interface CompanyPolicy {
   mode: SignInMode | null
   /** The issuers of its directories that are turned on. */
   issuers: readonly string[]
+  /** The tenant's own social door, where its record names one (Pax, 2026-11-28). */
+  stack?: SignInStack | null
+  /** The company's kind, where the reader knows it: a CLIENT is directory-only once its directory is on. */
+  kind?: string | null
+}
+
+/** The social door a tenant's members use. Set on the company record; enforced. */
+export type SignInStack = 'GOOGLE' | 'MICROSOFT'
+
+/**
+ * Whether client tenants are forced to directory-only (Pax, 2026-11-28).
+ * Off until the release window turns it on, so deploying never locks out a
+ * client that has not connected its directory yet: `CLIENT_SSO_ENFORCED=1`.
+ */
+export function clientSsoEnforced(): boolean {
+  return process.env.CLIENT_SSO_ENFORCED === '1'
 }
 
 export function effectiveMode(p: CompanyPolicy | null | undefined): EffectiveMode {
   if (!p) return 'OPEN'
+  // A client's directory, once configured and turned on, closes every other door,
+  // whatever mode was chosen before (Pax, 2026-11-28: no back door for a client).
+  if (p.kind === 'CLIENT' && p.issuers.length > 0 && clientSsoEnforced()) return 'SSO_ONLY'
   if (p.mode) return p.mode
   return p.issuers.length > 0 ? 'SSO_ONLY' : 'OPEN'
 }
@@ -122,6 +141,13 @@ export function decideDoor(q: DoorQuestion): DoorVerdict {
     }
   }
 
+  // A tenant that names its door: the other sign-in doors are refused for its members.
+  for (const c of [dom, q.target ?? null]) {
+    if (!c) continue
+    const says = stackRefusal(q.door, c)
+    if (says) return refuse(c, effectiveMode(c) === 'OPEN' ? 'HYBRID' : (effectiveMode(c) as SignInMode), says)
+  }
+
   const t = q.target ?? null
   const tMode = effectiveMode(t)
   if (t && tMode === 'SSO_ONLY') {
@@ -178,6 +204,34 @@ export function sessionStands(s: SessionFacts, domainCompany: CompanyPolicy | nu
     if (!v.allowed) return { stands: false, ended: false, says: v.says }
   }
   return { stands: true }
+}
+
+const STACK_DOOR: Record<SignInStack, Door> = { GOOGLE: 'GOOGLE_SOCIAL', MICROSOFT: 'MICROSOFT_SOCIAL' }
+const STACK_NAME: Record<SignInStack, string> = { GOOGLE: 'Google', MICROSOFT: 'Microsoft' }
+
+/**
+ * A tenant that names its door (one on Microsoft, another on Google)
+ * is signed into by that door, or by its own directory, and no other
+ * sign-in door (Pax, 2026-11-28). LinkedIn is a person's own door, refused
+ * at a seat by its own rule (`linkedInSeatRefusal`), so it is not judged
+ * here. A session from before doors were recorded (null) is not judged.
+ */
+export function stackRefusal(door: Door | null, company: { companyName: string; stack?: SignInStack | null } | null | undefined): string | null {
+  const stack = company?.stack
+  if (!stack || !door) return null
+  if (door === STACK_DOOR[stack] || door === 'DIRECTORY' || door === 'LINKEDIN') return null
+  if (!SIGN_IN_DOORS.includes(door)) return null
+  return `${company!.companyName} signs in with ${STACK_NAME[stack]}. Use Continue with ${STACK_NAME[stack]}; no other way in is open for ${company!.companyName}.`
+}
+
+/**
+ * A client with no directory turned on yet: only its Owner may use the
+ * seat, and only to finish connecting the directory. It closes by itself
+ * when the directory is on and SSO-only takes over (Pax, 2026-11-28).
+ */
+export function clientSetupRefusal(company: { companyName: string; kind?: string | null; issuers: readonly string[] } | null | undefined, isOwner: boolean): string | null {
+  if (!company || company.kind !== 'CLIENT' || company.issuers.length > 0 || isOwner || !clientSsoEnforced()) return null
+  return `${company.companyName} is connecting its company directory. Until that is done, only its Owner can sign in. Ask the Owner to finish the directory setup.`
 }
 
 /**

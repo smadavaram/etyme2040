@@ -740,6 +740,8 @@ export const DOMAINS: Domain[] = [
       'app/layout', 'app/login', 'app/start',
       // Which ways in the login page draws, and the line above them.
       'lib/login-doors',
+      // A second sign-in address on one record, and its confirmation page and routes (Pax, 2026-11-28).
+      'lib/identity/linked-address', 'app/link-address', 'app/api/account/sign-in-addresses',
       // The tab icon: the kit's mark, square. Next links both from app/.
       'app/icon', 'app/apple-icon',
       'app/dashboard/layout', 'app/dashboard/settings', 'app/dashboard/companies',

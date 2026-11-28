@@ -144,6 +144,7 @@ export const PUBLIC_PAGES: PublicPage[] = [
 export const NOT_MARKETING: { prefix: string; why: string }[] = [
   { prefix: 'src/app/dashboard', why: 'Behind sign-in, and held to the dashboard’s own rules.' },
   { prefix: 'src/app/(auth)', why: 'The sign-in screens themselves; they name the sign-in providers, which is what a sign-in button is for.' },
+  { prefix: 'src/app/link-address/', why: 'A one-time link mailed to the person who asked to add a sign-in address.' },
   { prefix: 'src/app/welcome/', why: 'A private welcome link for somebody invited to a seat.' },
   { prefix: 'src/app/ready', why: 'The deployment’s own readiness board, for staff.' },
   { prefix: 'src/app/site/', why: 'A company’s own generated site, held to lib/site-voice rather than to Etyme’s positioning.' },

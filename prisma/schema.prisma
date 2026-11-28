@@ -27,6 +27,7 @@ model Person {
   createdAt    DateTime @default(now())
 
   credentials              Credential[]
+  linkedSignInAddresses    LinkedSignInAddress[]
   podMemberships           PodMember[]
   podProjectsAccepted      PodProject[]
   /// The record ledger (2026-11-21 → 107): acts this person did, and decisions she owes or made.
@@ -698,6 +699,9 @@ model Company {
   slug                    String                   @unique // {slug}.etyme.com — 2017 create_slug, collision numbered
   domain                  String?                  @unique
   domainVerified          Boolean                  @default(false) // true when it came from an OAuth tenant
+  /// The tenant's own sign-in door (Pax, 2026-11-28): GOOGLE or MICROSOFT. Set, it is enforced:
+  /// the other social doors and the email doors are refused for this company's seats. Null = none chosen.
+  signInStack             SignInStack?
   kind                    CompanyKind
   entityType              String?
 
@@ -2173,6 +2177,28 @@ enum SignInMode {
   /// The company's own people through its directory where it has one,
   /// and invited people on public addresses, whose seats are limited.
   HYBRID
+}
+
+/// The social door a tenant's members use (Pax, 2026-11-28).
+enum SignInStack {
+  GOOGLE
+  MICROSOFT
+}
+
+/// A second sign-in address a person linked to their one record, with their own yes
+/// (Pax, 2026-11-28). Pending until confirmed from the new address; never merged by similarity.
+model LinkedSignInAddress {
+  id         String    @id @default(cuid())
+  personId   String
+  person     Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  email      String    @unique
+  /// Hash of the one-time confirmation token; the token itself is never stored.
+  tokenHash  String?
+  expiresAt  DateTime?
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([personId])
 }
 
 /// Where a seat came from.

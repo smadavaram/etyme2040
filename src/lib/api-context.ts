@@ -20,7 +20,7 @@ import { seatFor } from '@/lib/program-seat'
 import { recordRefusal, signedInHere } from '@/lib/access-log'
 import { ownSeatFor, ownWorkOf, ownSeatWasRemoved, openOwnSeat } from '@/lib/own-seat'
 import {
-  seatRefusal, linkedInSeatRefusal, effectiveMode, isLimitedPublicSeat, narrowForPublicSeat, publicSeatRefusal, needsWithheld, directoryTurnedOffSays, DIRECTORY_SUSPEND_REASON,
+  seatRefusal, linkedInSeatRefusal, stackRefusal, clientSetupRefusal, effectiveMode, isLimitedPublicSeat, narrowForPublicSeat, publicSeatRefusal, needsWithheld, directoryTurnedOffSays, DIRECTORY_SUSPEND_REASON,
   type CompanyPolicy, type Door, type SignInMode,
 } from '@/lib/identity/policy'
 import { recordIdentityEvent } from '@/lib/identity/ledger'
@@ -29,6 +29,7 @@ import { markSeatOpened, opensAnInvitation, defaultSeatOf } from '@/lib/identity
 import { pausedSays, seatHasSignedIn } from '@/lib/access-grant'
 import { seatByDate, pastEndDate, endedByDateSays, MANAGES_ACCESS, type ByDate } from '@/lib/account-lifecycle'
 import { OWNER_ROLE } from '@/lib/owner-rules'
+import type { SignInStack } from '@/lib/identity/policy'
 import { domainOfEmail, isConsumerDomain } from '@/lib/company-domains'
 import { PERMISSIONS, askTheDesk, type Permission } from '@/lib/permissions'
 
@@ -414,14 +415,17 @@ export async function getSessionIdentity(): Promise<{ email: string; door: Door 
 /** The seat company's sign-in policy, as read with the seat. Null where the company has none. */
 export function seatCompanyPolicy(company: {
   id: string; name: string
+  kind?: string | null
+  signInStack?: string | null
   signInPolicy?: { mode: string } | null
   identityProviders?: { issuer: string }[] | null
 } | null | undefined): CompanyPolicy | null {
   if (!company) return null
   const mode = (company.signInPolicy?.mode as SignInMode | undefined) ?? null
   const issuers = (company.identityProviders ?? []).map((d) => d.issuer)
-  if (!mode && issuers.length === 0) return null
-  return { companyId: company.id, companyName: company.name, mode, issuers }
+  const stack = (company.signInStack as SignInStack | null | undefined) ?? null
+  if (!mode && issuers.length === 0 && !stack && company.kind !== 'CLIENT') return null
+  return { companyId: company.id, companyName: company.name, mode, issuers, stack, kind: company.kind ?? null }
 }
 
 /**
@@ -530,7 +534,7 @@ async function sampleCaller(
     },
     include: {
       person: { select: { id: true, name: true, primaryEmail: true, timezone: true } },
-      company: { select: { id: true, name: true, slug: true, kind: true, outsideAccess: true, accountWalls: true, isDemo: true, pluginsOn: true } },
+      company: { select: { id: true, name: true, slug: true, kind: true, signInStack: true, outsideAccess: true, accountWalls: true, isDemo: true, pluginsOn: true } },
       role: { select: { id: true, name: true, permissions: true } },
     },
     orderBy: { grantedAt: 'asc' },
@@ -901,6 +905,25 @@ export async function getCallerContext(
     return {
       caller: null,
       error: NextResponse.json({ error: { code: 'DIRECTORY_ONLY', message: seatSays } }, { status: 403 }),
+    }
+  }
+  // The tenant's own door, and a client's directory setup (Pax, 2026-11-28).
+  const stackSays = stackRefusal(identity?.door ?? null, seatPolicy)
+  const setupSays = stackSays ? null : clientSetupRefusal(seatPolicy, Boolean(context.role?.name === OWNER_ROLE))
+  const doorSays = stackSays ?? setupSays
+  if (doorSays && seatPolicy) {
+    await recordIdentityEvent({
+      event: 'JOIN_REFUSED_BY_POLICY',
+      companyId: seatPolicy.companyId,
+      actorPersonId: person.id,
+      subject: { personId: person.id },
+      policy: effectiveMode(seatPolicy),
+      surface: request?.nextUrl?.pathname?.startsWith('/api/') ? 'API' : 'WEB',
+      says: `Refused the seat at ${seatPolicy.companyName} to a session signed in through ${identity?.door ?? 'an unrecorded door'}: ${doorSays}`,
+    })
+    return {
+      caller: null,
+      error: NextResponse.json({ error: { code: stackSays ? 'WRONG_TENANT_DOOR' : 'CLIENT_DIRECTORY_SETUP', message: doorSays } }, { status: 403 }),
     }
   }
   // LinkedIn is a worker's and a one-person firm's door, never a door to a

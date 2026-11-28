@@ -123,6 +123,8 @@ export const DELETE_ORDER = [
   // The second check (Layer 7, record 86): a person's passkeys and
   // authenticator apps go before the person.
   'Passkey', 'AuthenticatorApp',
+  // A second sign-in address names the person.
+  'LinkedSignInAddress',
   // Record 87: a customer's choice of account names the details and both
   // firms; a "supplier changed" message names the change and both firms.
   'RemitToChoice', 'SupplierChangeMessage',

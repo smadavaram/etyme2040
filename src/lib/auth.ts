@@ -385,6 +385,24 @@ export const authOptions: NextAuthOptions = {
       // because the email is who the session is (oauthRefusal above).
       const refused = oauthRefusal(account?.provider, profile as Record<string, unknown> | undefined, user.email)
       if (refused) return `/login?error=${refused}`
+      // A second sign-in address the person linked to their own record (Pax,
+      // 2026-11-28): the provider vouched for it, and it is the same person,
+      // so the session is the primary address's. The address the provider
+      // vouched for is judged by its own company's policy first; a link
+      // never lets one door past another company's rule.
+      if (user.email && (account?.provider === 'google' || account?.provider === 'azure-ad' || account?.provider === 'linkedin')) {
+        const { primaryFor } = await import('@/lib/identity/linked-address')
+        const primary = await primaryFor(user.email)
+        if (primary && primary !== sessionEmail(user.email)) {
+          const door = doorOfSignIn(account.provider, user as any)
+          if (door) {
+            const { checkDoor } = await import('@/lib/identity/read')
+            const v = await checkDoor({ door, email: sessionEmail(user.email)!, surface: 'WEB' })
+            if (!v.allowed) return '/login?error=DirectoryOnly'
+          }
+          user.email = primary
+        }
+      }
       // The password door refuses an unconfirmed address inside authorize,
       // with the sentence and the code the page reads to offer the link
       // again. This is the second lock on the same door: nothing reaches a

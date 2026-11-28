@@ -16,6 +16,7 @@ const db = vi.hoisted(() => ({
   person: { findUnique: vi.fn() },
   role: { findFirst: vi.fn() },
   company: {
+    findMany: vi.fn(async () => []),
     findUniqueOrThrow: vi.fn(async () => ({ name: 'Tapin' })),
     // The proof rule's gate reads the company (lib/owner-proof). Tapin was
     // formed before the rule, so nothing waits on it and its Owner changes

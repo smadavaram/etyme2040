@@ -25,7 +25,7 @@ export interface PolicyFacts {
 
 type Row = {
   companyId: string
-  company: { name: string; domain: string | null; domainVerified: boolean; claimedDomains: { id: string }[] }
+  company: { name: string; kind?: string | null; signInStack?: string | null; domain: string | null; domainVerified: boolean; claimedDomains: { id: string }[] }
 }
 
 /** The address's own company and the target, read once. */
@@ -40,19 +40,31 @@ export async function policyFacts(email: string, targetCompanyId?: string | null
   if (OR.length === 0) return { domainCompany: null, target: null, publicAddress }
 
   const companySelect = {
-    name: true, domain: true, domainVerified: true,
+    name: true, kind: true, signInStack: true, domain: true, domainVerified: true,
     claimedDomains: { where: { domain: domain ?? '__none__', verifiedAt: { not: null } }, select: { id: true } },
   } as const
-  const [policies, directories] = await Promise.all([
+  // A company that names its door has no policy row of its own: read it by id and domain too.
+  const stacked = prisma.company.findMany({
+    where: {
+      signInStack: { not: null },
+      OR: [
+        ...(targetCompanyId ? [{ id: targetCompanyId }] : []),
+        ...(domain && !publicAddress ? [{ domain, domainVerified: true }, { claimedDomains: { some: { domain, verifiedAt: { not: null } } } }] : []),
+      ],
+    },
+    select: { id: true, ...companySelect },
+  })
+  const [policies, directories, stackedCompanies] = await Promise.all([
     prisma.companySignInPolicy.findMany({ where: { OR }, select: { companyId: true, mode: true, company: { select: companySelect } } }),
     prisma.identityProvider.findMany({ where: { enabled: true, OR }, select: { companyId: true, issuer: true, company: { select: companySelect } } }),
+    stacked,
   ])
 
   const byCompany = new Map<string, CompanyPolicy & { onDomain: boolean }>()
   const see = (r: Row) => {
     if (!byCompany.has(r.companyId)) {
       const own = Boolean(domain) && !publicAddress && ((r.company.domainVerified && r.company.domain === domain) || r.company.claimedDomains.length > 0)
-      byCompany.set(r.companyId, { companyId: r.companyId, companyName: r.company.name, mode: null, issuers: [], onDomain: own })
+      byCompany.set(r.companyId, { companyId: r.companyId, companyName: r.company.name, mode: null, issuers: [], stack: (r.company.signInStack as CompanyPolicy['stack']) ?? null, kind: r.company.kind ?? null, onDomain: own })
     }
     return byCompany.get(r.companyId)!
   }
@@ -61,9 +73,10 @@ export async function policyFacts(email: string, targetCompanyId?: string | null
     const c = see(d as Row)
     c.issuers = [...c.issuers, d.issuer]
   }
+  for (const c of stackedCompanies ?? []) see({ companyId: c.id, company: c } as Row)
   const all = [...byCompany.values()]
   const strip = (c: (CompanyPolicy & { onDomain: boolean }) | undefined): CompanyPolicy | null =>
-    c ? { companyId: c.companyId, companyName: c.companyName, mode: c.mode, issuers: c.issuers } : null
+    c ? { companyId: c.companyId, companyName: c.companyName, mode: c.mode, issuers: c.issuers, stack: c.stack, kind: c.kind } : null
   return {
     domainCompany: strip(all.find((c) => c.onDomain)),
     target: targetCompanyId ? strip(byCompany.get(targetCompanyId)) : null,

@@ -1004,6 +1004,14 @@ Full text → 13, 22, 23, 53, 54, 58, 18, 21, 38, 46, 66, 73, 76.
   is routing, never proof.
 - **A consumer address is a candidate**, unless it was invited to a
   seat. Both account doors show the account chooser.
+- **A tenant names its door, and a client ends directory-only** (Pax,
+  2026-11-28 → 131): `Company.signInStack` (Microsoft or Google) leads and
+  the other sign-in doors are refused for that company's seats; LinkedIn
+  is a person's own door and never replaces a company's directory. A
+  client is directory-only once its directory is on; before that only its
+  Owner may use the seat, to finish the setup (off until
+  `CLIENT_SSO_ENFORCED=1`). A person links a second sign-in address with
+  their own yes, never by look-alike (`lib/identity/linked-address`).
 - **A company's sign-in policy is directory only, invitation only, or
   hybrid**, and hybrid is the Owner's choice. Directory only refuses
   every other door at the API, logged, with no break-glass. Identity is

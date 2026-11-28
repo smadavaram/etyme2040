@@ -10,11 +10,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const db = vi.hoisted(() => ({
   companySignInPolicy: { findMany: vi.fn(), findUnique: vi.fn() },
+  linkedSignInAddress: { findUnique: vi.fn(async () => null) },
   identityProvider: { findMany: vi.fn() },
   person: { findUnique: vi.fn(), update: vi.fn() },
   role: { findFirst: vi.fn() },
   context: { findFirst: vi.fn() },
-  company: { findUniqueOrThrow: vi.fn(async () => ({ name: 'Tapin' })) },
+  company: { findUniqueOrThrow: vi.fn(async () => ({ name: 'Tapin' })), findMany: vi.fn(async () => []) },
   accessLog: { createMany: vi.fn(async (_args: any) => ({ count: 1 })) },
   $transaction: vi.fn(),
   incident: { create: vi.fn() },
