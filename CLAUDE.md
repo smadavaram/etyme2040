@@ -507,16 +507,13 @@ Full text → 40, 11, 56, 68, 72.
   the core gets a door only; each user has a micro dashboard there; the
   one record underneath, never forked. Courses are adopted across tenants,
   owned by their creator, free through the learning window, never priced.
-- **Tapin's home is centered on its free course** (owner, 2026-11-27 →
-  134): the Course first layout, drawn from Tapin's record in Tapin's
-  look. A public count is printed only at 10 or more. A self-paced
-  course earns a completion; only an assessor or trainer certifies. A
-  minor never signs in. The hero picture and animations are Pax's.
-  Its pages are light: white cards and soft tinted panels, never dark.
 - **"AI from Zero in 3 Hours" is Etyme's own course** (owner, 2026-11-28
   → 135, replacing 133 and 134 on where it lives): 34 animated steps,
-  each with a try-it, a questionnaire and a workbook entry; a real-world
-  demo closes each section. Tapin adopts it like any supplier.
+  each with a try-it, questions and a workbook entry; a demo closes each
+  section. Tapin adopts it like any supplier. Still from 134: a public
+  count shows only at 10 or more; a self-paced course earns a completion,
+  and only an assessor or trainer certifies; a minor never signs in;
+  course pages are light; the hero picture and animations are Pax's.
 - **Website and content, and outreach, are plugins too** (owner,
   2026-11-25 → 121, 122), off by default. A site goes public only after
   the Owner's branding yes, the firm's own domain and any compliance pass;
@@ -1535,5 +1532,5 @@ knowledge about the business lives in `.claude/context/etyme-business.md`
 
 When the owner corrects you, add the lesson here as one line so it is not repeated.
 
-- A file the owner hands over is opened and read for what it holds before it is used as a look (2026-11-27: the course file was the course).
-- The 3-hour training is converted whole, from its full transcript and frames, never from a summary of key points (2026-11-28).
+- Read a file the owner hands over for what it holds before using it as a look (2026-11-27).
+- Convert the training from its full transcript and frames, never from a summary (2026-11-28).
