@@ -1030,6 +1030,10 @@ model Company {
   annualPrepaid              Boolean                  @default(false)
   /// The internal proving tenants (record 126) are never locked by the day-61 rule. Set by a Superadmin only, ledgered by the writer.
   billingExempt              Boolean                  @default(false)
+  /// The door and source this firm arrived by (2026-11-28), kept beside the referral code. Written at sign-up only.
+  arrivalDoor                String?
+  /// The firm's yes to be named in published content (2026-11-28). Off by default; the anonymity check reads it.
+  mayBeNamedInContent        Boolean                  @default(false)
   /// The referral code this firm arrived with, kept until its trial clock starts (Pax, 2026-11-28). Attribution is written from it at that moment and never before; nothing reads it after. Written at sign-up by lib/money/affiliate-activation.
   referredByCode             String?
   /// Plugins switched on for this firm (record 120): TRAIN_TO_BENCH, PODS, WEBSITE, OUTREACH.
@@ -12370,22 +12374,27 @@ model OutreachTripwireFiring {
 /// the task that carries the yes; a pack with no approval sends nothing.
 /// state: DRAFT, PROPOSED, APPROVED, CLOSED.
 model OutreachPack {
-  id           String         @id @default(cuid())
-  companyId    String
-  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name         String
-  segmentId    String
+  id                 String         @id @default(cuid())
+  companyId          String
+  company            Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name               String
+  segmentId          String
   /// COURSE, POD_OFFER, OUTCOME_PROOF.
-  contentKinds String[]
-  state        String         @default("DRAFT")
-  agentTaskId  String?        @unique
-  approvedById String?
-  approvedAt   DateTime?
-  createdById  String
-  createdAt    DateTime       @default(now())
-  pushes       OutreachPush[]
+  contentKinds       String[]
+  state              String         @default("DRAFT")
+  agentTaskId        String?        @unique
+  approvedById       String?
+  approvedAt         DateTime?
+  createdById        String
+  createdAt          DateTime       @default(now())
+  pushes             OutreachPush[]
+  /// PUSH or OUTCOME_SERIES (2026-11-28). An outcome series is one pack, approved once.
+  kind               String         @default("PUSH")
+  /// The named person a reply to this pack lands with, in the decision queue. Null on packs from before the rule.
+  replyOwnerPersonId String?
 
   @@index([companyId, state])
+  @@index([replyOwnerPersonId])
   @@index([segmentId])
   @@index([approvedById])
   @@index([createdById])
@@ -12454,6 +12463,13 @@ model OutreachVisit {
 // is the point of a ledger. The tables marked append-only are guarded by
 // triggers in prisma/sql/append-only.sql, so a correction is a new row.
 
+/// Which kind of referrer (2026-11-28). Same 40/20 terms for every class.
+enum AffiliateClass {
+  FIRM
+  RECRUITER
+  CREATOR
+}
+
 enum AffiliateKind {
   PERSON
   COMPANY
@@ -12503,6 +12519,10 @@ model Affiliate {
   createdByPersonId String
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  /// FIRM, RECRUITER or CREATOR (2026-11-28). A RECRUITER accrues nothing without an AffiliateAttestation row.
+  affiliateClass    AffiliateClass  @default(FIRM)
+  /// Shown by name on the leaderboard only on its own yes.
+  showOnLeaderboard Boolean         @default(false)
 
   @@index([accountPersonId])
   @@index([ownCompanyId])
@@ -12659,4 +12679,119 @@ model AffiliatePayoutItem {
 
   @@unique([batchId, affiliateId])
   @@index([affiliateId])
+}
+
+// ---------------------------------------------------------------------------
+// Advanced outreach remainder (2026-11-28): the outcome series, Track B data,
+// the recruiter attestation and the publish layer. Learning mode: nothing here
+// sends. The sales gate is a code constant, not a column.
+// ---------------------------------------------------------------------------
+
+/// An outcome mined from a firm's own record. Every figure carries its proof:
+/// figures is [{label, value, proof:[{recordType, recordId}]}]. A figure with no
+/// proof is dropped, never drafted. state: MINED, DRAFTED, DROPPED.
+model OutreachOutcome {
+  id              String   @id @default(cuid())
+  companyId       String
+  kind            String
+  sourceKey       String
+  title           String
+  figures         Json
+  failureIncluded Boolean  @default(false)
+  lesson          String?
+  state           String   @default("MINED")
+  /// The Sunday of the week it was mined for, YYYY-MM-DD.
+  minedForWeek    String
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, kind, sourceKey])
+  @@index([companyId, state])
+}
+
+/// One email of an outcome series, drafted up front so the whole pack is approved once.
+model OutreachSeriesEmail {
+  id             String   @id @default(cuid())
+  packId         String
+  position       Int
+  outcomeId      String?
+  subject        String
+  body           String
+  /// The one small onboarding action the email asks for.
+  onboardingStep String?
+  offsetDays     Int      @default(0)
+  drafter        String   @default("RULES")
+  proofChecked   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@unique([packId, position])
+  @@index([outcomeId])
+}
+
+/// A recruiter's statement that a referral breaches no employment agreement it holds. Append-only.
+model AffiliateAttestation {
+  id                 String   @id @default(cuid())
+  affiliateId        String
+  /// NO_EMPLOYMENT_BREACH.
+  kind               String
+  termsVersion       String
+  attestedAt         DateTime
+  attestedByPersonId String
+  createdAt          DateTime @default(now())
+
+  @@index([affiliateId, kind])
+  @@index([attestedByPersonId])
+}
+
+/// Track B and talent-referral facts, recorded as data and paid on nothing: the
+/// pay meter is unruled. No amount, no rate, and no payout reads it. Append-only.
+/// meter: QUALIFIED_RESUME, PLACED, QUALIFIED_CANDIDATE.
+model CreatorMeterEvent {
+  id          String   @id @default(cuid())
+  affiliateId String
+  meter       String
+  personId    String
+  sourceKey   String   @unique
+  evidence    Json?
+  occurredAt  DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([affiliateId, meter, occurredAt])
+  @@index([personId])
+}
+
+/// The one pseudonymous operator brand for published drafts. Name, channel and
+/// rhythm are not chosen yet and stay null until the owner rules.
+model PublishBrand {
+  id            String   @id @default(cuid())
+  companyId     String   @unique
+  operatorName  String?
+  channel       String?
+  rhythm        String?
+  rulingNote    String?
+  setByPersonId String?
+  updatedAt     DateTime @updatedAt
+
+  @@index([setByPersonId])
+}
+
+/// A publish draft. Drafts only: nothing posts. A draft that fails the anonymity
+/// check is BLOCKED with its reason and never reaches the owner.
+/// state: DRAFT, BLOCKED, READY, APPROVED, DISCARDED.
+model PublishDraft {
+  id               String   @id @default(cuid())
+  companyId        String
+  /// WEEKLY_SUMMARY, OUTCOME, DECISION.
+  sourceKind       String
+  sourceRef        String
+  title            String
+  body             String
+  figures          Json
+  state            String   @default("DRAFT")
+  anonymityVerdict Json?
+  decisionId       String?
+  createdAt        DateTime @default(now())
+
+  @@unique([companyId, sourceKind, sourceRef])
+  @@index([companyId, state])
+  @@index([decisionId])
 }

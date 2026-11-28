@@ -91,6 +91,7 @@ export const DELETE_ORDER = [
   // An agent's task names the decision that asks for its yes, so it goes
   // before it; the switch names the firm and the Owner who set it.
   // Advanced outreach detection (record 135): a push names its firing and pack, a pack its task, a visit its letter; all before them.
+  'OutreachSeriesEmail', 'PublishDraft', 'PublishBrand', 'OutreachOutcome',
   'OutreachPush', 'OutreachVisit', 'OutreachPack', 'OutreachTripwireFiring', 'OutreachSegment',
   'OutreachLetter', 'AgentTask', 'AgentSwitch',
   // A plugin switch (record 120) names the firm; the person who set it is by id alone.
@@ -138,6 +139,8 @@ export const DELETE_ORDER = [
   // The affiliate ledger (record 129) is kept the same way: no foreign key
   // reaches it and the append-only tables are guarded by the database.
   'Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'SubscriptionReceipt', 'SubscriptionReceiptReversal', 'AffiliateCommissionEntry', 'AffiliateStatement', 'AffiliatePayoutBatch', 'AffiliatePayoutItem',
+  // The recruiter's attestation and the Track B meter (2026-11-28): append-only, kept the same way.
+  'AffiliateAttestation', 'CreatorMeterEvent',
   // Layer 9 (record 87): a line's message names the run, the receipt, its
   // line and the payer; the payer's coding settings name the payer.
   'BillFeedMessage', 'CompanyCoding',
@@ -220,7 +223,7 @@ export const DELETE_ORDER = [
  * stops here. A demo row that points at one of them is not a thread to
  * the real world: deleting the demo row takes nothing real away.
  */
-export const KEPT = ['JobRun', 'Incident', 'MarketingLead', 'SecurityEvent', 'Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'SubscriptionReceipt', 'SubscriptionReceiptReversal', 'AffiliateCommissionEntry', 'AffiliateStatement', 'AffiliatePayoutBatch', 'AffiliatePayoutItem'] as const
+export const KEPT = ['JobRun', 'Incident', 'MarketingLead', 'SecurityEvent', 'Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'SubscriptionReceipt', 'SubscriptionReceiptReversal', 'AffiliateCommissionEntry', 'AffiliateStatement', 'AffiliatePayoutBatch', 'AffiliatePayoutItem', 'AffiliateAttestation', 'CreatorMeterEvent'] as const
 
 /**
  * Parents with no owner of their own, deleted once the demo world was
@@ -336,6 +339,18 @@ export const LOOSE: Record<string, { as: LooseRole; to?: string[] }> = {
   'OutreachPack.agentTaskId': { as: 'LINK', to: ['AgentTask'] },
   'OutreachPack.approvedById': { as: 'LINK', to: ['Person'] },
   'OutreachPack.createdById': { as: 'LINK', to: ['Person'] },
+  'OutreachPack.replyOwnerPersonId': { as: 'LINK', to: ['Person'] },
+  'OutreachOutcome.companyId': { as: 'OWNED', to: ['Company'] },
+  'OutreachSeriesEmail.packId': { as: 'OWNED', to: ['OutreachPack'] },
+  'OutreachSeriesEmail.outcomeId': { as: 'LINK', to: ['OutreachOutcome'] },
+  'PublishBrand.companyId': { as: 'OWNED', to: ['Company'] },
+  'PublishBrand.setByPersonId': { as: 'RECORD' },
+  'PublishDraft.companyId': { as: 'OWNED', to: ['Company'] },
+  'PublishDraft.decisionId': { as: 'LINK', to: ['DecisionItem'] },
+  'AffiliateAttestation.affiliateId': { as: 'RECORD' },
+  'AffiliateAttestation.attestedByPersonId': { as: 'RECORD' },
+  'CreatorMeterEvent.affiliateId': { as: 'RECORD' },
+  'CreatorMeterEvent.personId': { as: 'RECORD' },
   'OutreachPush.companyId': { as: 'OWNED', to: ['Company'] },
   'OutreachPush.firingId': { as: 'OWNED', to: ['OutreachTripwireFiring'] },
   'OutreachPush.packId': { as: 'LINK', to: ['OutreachPack'] },

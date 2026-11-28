@@ -106,7 +106,7 @@ describe('rebuilding the demo world', () => {
   })
 
   it('never deletes a lead from the site, an incident, a run of the nightly job, a row of the security log or a row of the affiliate ledger', () => {
-    expect([...KEPT].sort()).toEqual(['Affiliate', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'AffiliateCommissionEntry', 'AffiliatePayoutBatch', 'AffiliatePayoutItem', 'AffiliateStatement', 'Incident', 'JobRun', 'MarketingLead', 'SecurityEvent', 'SubscriptionReceipt', 'SubscriptionReceiptReversal'])
+    expect([...KEPT].sort()).toEqual(['Affiliate', 'AffiliateAttestation', 'AffiliateAttribution', 'AffiliateAttributionCorrection', 'AffiliateCommissionEntry', 'AffiliatePayoutBatch', 'AffiliatePayoutItem', 'AffiliateStatement', 'CreatorMeterEvent', 'Incident', 'JobRun', 'MarketingLead', 'SecurityEvent', 'SubscriptionReceipt', 'SubscriptionReceiptReversal'])
     for (const e of edges()) expect(KEPT as readonly string[], `${e.from}.${e.column}`).not.toContain(e.from)
   })
 

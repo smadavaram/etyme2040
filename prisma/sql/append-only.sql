@@ -80,7 +80,9 @@ BEGIN
     ('SubscriptionReceipt', 'subscription_receipt'),
     ('SubscriptionReceiptReversal', 'subscription_receipt_reversal'),
     ('AffiliateCommissionEntry', 'affiliate_commission_entry'),
-    ('AffiliateStatement', 'affiliate_statement')
+    ('AffiliateStatement', 'affiliate_statement'),
+    ('AffiliateAttestation', 'affiliate_attestation'),
+    ('CreatorMeterEvent', 'creator_meter_event')
   LOOP
     IF (SELECT count(*) FROM pg_trigger WHERE tgrelid = format('%I', t)::regclass AND tgname = s || '_never_changed') = 0 THEN
       EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION etyme_affiliate_ledger_refuses_change()', s || '_never_changed', t);
@@ -92,5 +94,5 @@ BEGIN
 END
 $$;
 
-REVOKE UPDATE, DELETE, TRUNCATE ON "AffiliateAttribution", "AffiliateAttributionCorrection", "SubscriptionReceipt", "SubscriptionReceiptReversal", "AffiliateCommissionEntry", "AffiliateStatement" FROM PUBLIC;
-REVOKE UPDATE, DELETE, TRUNCATE ON "AffiliateAttribution", "AffiliateAttributionCorrection", "SubscriptionReceipt", "SubscriptionReceiptReversal", "AffiliateCommissionEntry", "AffiliateStatement" FROM CURRENT_USER;
+REVOKE UPDATE, DELETE, TRUNCATE ON "AffiliateAttribution", "AffiliateAttributionCorrection", "SubscriptionReceipt", "SubscriptionReceiptReversal", "AffiliateCommissionEntry", "AffiliateStatement", "AffiliateAttestation", "CreatorMeterEvent" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON "AffiliateAttribution", "AffiliateAttributionCorrection", "SubscriptionReceipt", "SubscriptionReceiptReversal", "AffiliateCommissionEntry", "AffiliateStatement", "AffiliateAttestation", "CreatorMeterEvent" FROM CURRENT_USER;
