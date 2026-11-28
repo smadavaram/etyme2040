@@ -126,7 +126,8 @@ describe('The homepage says what the approved design says', () => {
     expect(HTML).not.toContain('<form')
     expect(read('src/app/(auth)/signup/page.tsx')).toContain('export default')
     const signUpLinks = [...HTML.matchAll(/href="(\/signup[^"]*)"/g)].map((m) => m[1])
-    expect(signUpLinks.length).toBeGreaterThanOrEqual(8)
+    // Seven since 2026-11-28: the chat doors moved inside Ask Etyme and share its one button.
+    expect(signUpLinks.length).toBeGreaterThanOrEqual(7)
     expect(new Set(signUpLinks)).toEqual(new Set(['/signup']))
   })
 

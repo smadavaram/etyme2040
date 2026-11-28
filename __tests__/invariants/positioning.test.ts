@@ -1924,13 +1924,15 @@ function band(id: string): string {
 
 describe('The home page reads as a product page, and every band leads deeper', () => {
 
-  it('the home page is the approved design’s sections and nothing else: the hero, the roles, Ask Etyme with its CFO view, the guarantees, the doors, price, and the start panel, within its word ceiling', () => {
+  it('the home page is the approved design’s sections and nothing else: the hero, the roles, Ask Etyme with its CFO view and the chat doors beside it, the guarantees, price, and the start panel, within its word ceiling', () => {
     const words = readerWords()
     expect(words, `${words} words between the header and the footer`).toBeLessThanOrEqual(CEILING)
     expect(words).toBeGreaterThan(300)
     expect(homeBodyLines().every((l) => homeLines().includes(l))).toBe(true)
     const ids = [...PAGE.matchAll(/<(?:section|main)\s+id="([\w-]+)"/g)].map((m) => m[1])
-    expect(ids).toEqual(['top', 'desks', 'ask', 'doors', 'price', 'start'])
+    // The chat doors are inside #ask since the owner's change of 2026-11-28.
+    expect(ids).toEqual(['top', 'desks', 'ask', 'price', 'start'])
+    expect(PAGE).not.toContain('id="doors"')
     expect(PAGE).not.toMatch(/<CloseBand|<SignUpBand|<LiveDemo|<WhyBelow|<CorvaneMapView|<SecurityLine/)
     for (const gone of ['problem', 'platform', 'specialist-teams', 'solutions', 'how-it-works', 'audit', 'close', 'gap', 'ways', 'join', 'steps', 'map', 'why', 'sign-up']) {
       expect(PAGE, `#${gone} is still on the home page`).not.toContain(`id="${gone}"`)

@@ -16,7 +16,7 @@
  * page links to the audit.
  */
 
-import { START_FREE, HERO, ROLES, ASK, GUARANTEE, DOORS as HOME_DOOR_WORDS, PRICE } from '@/lib/public-site/home-page-words'
+import { START_FREE, HERO, ROLES, ASK, GUARANTEE, PRICE } from '@/lib/public-site/home-page-words'
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -238,7 +238,7 @@ describe('No button promises what the site cannot give', () => {
     // the page "Create your account" opens.
     expect(promisesAnAccount([START_FREE.t])).toHaveLength(1)
     // The home page's other sign-up buttons are Start free's own kind: each one is a link to the same /signup (home-page.test.ts).
-    expect([ROLES.cta, GUARANTEE.cta, HOME_DOOR_WORDS.cta, PRICE.button].every((t) => promisesAnAccount([t]).length <= 1)).toBe(true)
+    expect([ROLES.cta, GUARANTEE.cta, PRICE.button].every((t) => promisesAnAccount([t]).length <= 1)).toBe(true)
     expect(HOME).toContain('<SiteHeader button={START_FREE} links={HOME_NAV} />')
     for (const s of [CLIENT_SIGN_UP, START_FREE, ...PARTY_PAGES.flatMap((p) => [p.signUp, ...(p.tabs ?? []).flatMap((t) => (t.signUp ? [t.signUp] : []))])]) expect(s.href.startsWith('/signup'), s.t).toBe(true)
     expect(existsSync(join(ROOT, 'src/app/(auth)/signup/page.tsx'))).toBe(true)

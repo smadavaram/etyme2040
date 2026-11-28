@@ -4,7 +4,7 @@ import { SkeletonFooter } from '@/lib/public-site/skeleton'
 import { homeSample } from '@/lib/public-site/home-sample'
 import { HomeAsk, RoleLink } from '@/lib/public-site/home-ask'
 import { DOOR_SOON,
-  HOME_TITLE, HOME_BADGE, HOME_NAV, START_FREE, HERO, ROLES, ASK, GUARANTEE, FEATURES, DOORS, PRICE, START, SAMPLE_NOTE,
+  HOME_TITLE, HOME_BADGE, HOME_NAV, START_FREE, HERO, ROLES, ASK, GUARANTEE, FEATURES, PRICE, START, SAMPLE_NOTE,
 } from '@/lib/public-site/home-page-words'
 
 /**
@@ -49,7 +49,6 @@ const ROLE_ICONS = [
   <g key="b"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></g>,
   <g key="c"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></g>,
 ]
-const DOOR_COLORS = ['bg-etyme-action', 'bg-etyme-verified', 'bg-etyme-ink']
 
 export default function LandingPage() {
   return (
@@ -144,31 +143,11 @@ export default function LandingPage() {
         </section>
 
         {/* What is in it */}
-        <div className={`${WRAP} pt-11`}>
+        <div className={`${WRAP} py-11 sm:py-16`}>
           <p className={`${CARD} px-[26px] py-6 text-[17px] leading-[1.7] text-etyme-ink/85`}>
             <strong className="font-semibold text-etyme-ink">{FEATURES.slice(0, 6)}</strong>{FEATURES.slice(6)}
           </p>
         </div>
-
-        {/* Chat doors */}
-        <section id="doors" className="scroll-mt-20 py-11 sm:py-16">
-          <div className={WRAP}>
-            <div className="max-w-[720px]">
-              <p className={KICKER}>{DOORS.kicker}</p>
-              <h2 className={H2} style={GELASIO}>{DOORS.heading}</h2>
-            </div>
-            <div className="mt-7 grid gap-[18px] min-[760px]:grid-cols-3">
-              {DOORS.items.map((d, i) => (
-                <div key={d.h} className={`flex items-center gap-3.5 p-[22px] ${CARD}`}>
-                  <div aria-hidden="true" className={`flex h-[46px] w-[46px] flex-none items-center justify-center rounded-xl text-[15px] font-bold text-white ${DOOR_COLORS[i]}`}>{d.mark}</div>
-                  <div className="min-w-0"><h3 className="text-[18px] font-bold">{d.h}{d.soon ? <span className="ml-2 align-middle rounded-full border border-etyme-rule px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-etyme-muted">{DOOR_SOON}</span> : null}</h3><p className="mt-0.5 text-[14.5px] text-etyme-muted">{d.p}</p></div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-5 max-w-[720px] text-[16.5px] text-etyme-ink/85"><strong className="font-semibold text-etyme-ink">{DOORS.noteLead}</strong> {DOORS.note}</p>
-            <Cta label={DOORS.cta} line={DOORS.ctaLine} />
-          </div>
-        </section>
 
         {/* Price, and what Etyme does not do yet */}
         <section id="price" className="scroll-mt-20 pb-11 sm:pb-16">

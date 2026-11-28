@@ -83,14 +83,12 @@ export const DOORS = {
   kicker: 'No new app to learn',
   heading: 'Works where you work',
   items: [
-    { mark: 'T', h: 'Microsoft Teams', p: 'Approvals and alerts inside Teams, signed in through your work account.', soon: false },
-    { mark: 'G', h: 'Google Chat', p: 'The same record in Google Chat, signed in through your work account.', soon: true },
-    { mark: 'W', h: 'WhatsApp', p: 'Timesheet reminders and approvals where contractors actually reply.', soon: true },
+    { mark: 'T', h: 'Microsoft Teams', soon: false },
+    { mark: 'G', h: 'Google Chat', soon: true },
+    { mark: 'W', h: 'WhatsApp', soon: true },
   ],
   noteLead: 'The same record, in the chat your firm already uses.',
   note: 'Client tenants sign in only through their own identity provider — no password back door.',
-  cta: 'Get started',
-  ctaLine: 'Tell us your stack in the form — we set up your door first.',
 } as const
 
 export const PRICE = {
@@ -138,10 +136,12 @@ export function homeHeroLines(): string[] {
 export function homeBodyLines(sample: string[] = []): string[] {
   return [
     ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
-    ASK.kicker, ASK.heading, ASK.lead, ASK.title, ASK.tag, ...sample, ASK.cfoShow, ASK.cfoNote, ASK.cta, ASK.ctaLine,
+    ASK.kicker, ASK.heading, ASK.lead, ASK.title, ASK.tag, ...sample, ASK.cfoShow, ASK.cfoNote,
+    // The chat doors sit beside the Ask panel, in the same section (owner, 2026-11-28).
+    DOORS.kicker, DOORS.heading, ...DOORS.items.map((d) => d.h), DOORS.noteLead, DOORS.note,
+    ASK.cta, ASK.ctaLine,
     GUARANTEE.kicker, GUARANTEE.heading, GUARANTEE.sub, ...GUARANTEE.items, GUARANTEE.cta, GUARANTEE.ctaLine,
     FEATURES,
-    DOORS.kicker, DOORS.heading, ...DOORS.items.flatMap((d) => [d.h, d.p]), DOORS.noteLead, DOORS.note, DOORS.cta, DOORS.ctaLine,
     PRICE.kicker, PRICE.heading, PRICE.body, PRICE.button, PRICE.rateCard.t, PRICE.notHeading, ...PRICE.not.flatMap((n) => [n.b, n.t]),
     START.kicker, START.heading, START.lead, ...START.points, `${START.talkLead} ${START.address} ${START.talkTail}`,
     START.panelHeading, START.panelLine, START_FREE.t,

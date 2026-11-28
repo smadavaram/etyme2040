@@ -36,6 +36,8 @@ deploy.
 
 ## START HERE
 
+**2026-11-28 (Sat): one section of Etyme's home page changed, on the owner's word ("this home page was good", only one section changes).** Ask Etyme is a short chat that plays its four sample questions once, and the three chat doors sit in a narrow column beside it. The separate "Works where you work" section is gone; its heading, kicker, door names and sign-in line moved into the column, and the door descriptions and second button were cut. The CFO view is kept. Function-ready and photographed at both widths; the animation itself was not watched in a running app. Not deployed. The course card and a Learn menu link are drawn (`prototypes/homepage/merged-ask-doors-and-course-2026-11-28.html`) and not built: they wait for the course to exist.
+
 **2026-11-28 (Sat): the course changed owner and shape (record 135).** "AI from Zero in 3 Hours" is Etyme's, built from the owner's own 33-step course file and the full training, not from Tapin's onboarding. BLOCKED on the full transcript and the video or frames, which are not in the Drive folder. Tapin's course-centred home (record 134) is set aside, built and unpublished. The IT Upgrade lessons of Nov 27 are retired as the base. Nothing deployed.
 
 **2026-11-27 (Fri): Tapin's home and the first course. Branch `claude/vigilant-keller-56h8t7`, re-branched from the build branch at c109f2b5c. Nothing deployed.**
