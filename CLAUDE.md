@@ -509,11 +509,9 @@ Full text → 40, 11, 56, 68, 72.
   owned by their creator, free through the learning window, never priced.
 - **"AI from Zero in 3 Hours" is Etyme's own course** (owner, 2026-11-28
   → 135, replacing 133 and 134 on where it lives): 34 animated steps,
-  each with a try-it, questions and a workbook entry; a demo closes each
-  section. Tapin adopts it like any supplier. Still from 134: a public
-  count shows only at 10 or more; a self-paced course earns a completion,
-  and only an assessor or trainer certifies; a minor never signs in;
-  course pages are light; the hero picture and animations are Pax's.
+  each with a try-it, questions and a workbook entry. Tapin adopts it.
+  From 134: a public count shows only at 10 or more; a self-paced course
+  earns a completion; a minor never signs in.
 - **Website and content, and outreach, are plugins too** (owner,
   2026-11-25 → 121, 122), off by default. A site goes public only after
   the Owner's branding yes, the firm's own domain and any compliance pass;
@@ -1532,5 +1530,5 @@ knowledge about the business lives in `.claude/context/etyme-business.md`
 
 When the owner corrects you, add the lesson here as one line so it is not repeated.
 
-- Read a file the owner hands over for what it holds before using it as a look (2026-11-27).
+- Read a file the owner hands over before using it as a look (2026-11-27).
 - Convert the training from its full transcript and frames, never from a summary (2026-11-28).
