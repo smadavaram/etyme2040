@@ -127,13 +127,25 @@ describe('The homepage says what the approved design says', () => {
     expect(HTML.indexOf('id="ask"')).toBeGreaterThan(HTML.indexOf('</h1>'))
     expect(HTML.indexOf('id="ask"')).toBeLessThan(HTML.indexOf('id="desks"'))
   })
-  it('the door to the course is below the guarantees, names the course, and says it is not live yet without linking anywhere', () => {
+  it('the door to the course is below the guarantees, names the course, and says it is not live yet', () => {
     const learn = HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"'))
     expect(HTML.indexOf('id="learn"')).toBeGreaterThan(HTML.indexOf('id="desks"'))
     expect(text(learn)).toContain('AI from Zero in 3 Hours')
     expect(text(learn)).toContain('Not live yet')
-    expect(learn).not.toMatch(/<a\s/)
     expect(text(learn)).not.toMatch(/\bfree\b/i)
+  })
+  it('a chapter tile is not a link while the course cannot be opened', () => {
+    const learn = HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"'))
+    expect(learn.slice(learn.indexOf('<ol'), learn.indexOf('</ol>'))).not.toMatch(/<a\s/)
+  })
+  it('after the course, "join the bench" opens Tapin’s page and "start a company" opens the sign-up, and both pages exist', () => {
+    const learn = HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"'))
+    const links = [...learn.matchAll(/<a href="([^"]+)"[^>]*>(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])])
+    expect(links.map((l) => l[0])).toEqual(['/site/tapin', '/signup'])
+    expect(links[0][1]).toContain('join the bench')
+    expect(links[1][1]).toContain('start a company')
+    expect(read('src/app/site/[slug]/page.tsx')).toContain('export default')
+    expect(read('src/app/(auth)/signup/page.tsx')).toContain('export default')
   })
   it('the course door shows the course’s own nine chapters on one path, three to a level, then what finishing gives', () => {
     const learn = text(HTML.slice(HTML.indexOf('id="learn"'), HTML.indexOf('id="price"')))

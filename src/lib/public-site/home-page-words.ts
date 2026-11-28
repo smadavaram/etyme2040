@@ -129,8 +129,12 @@ export const LEARN = {
   ],
   doneH: 'Course complete — on your record',
   doneP: 'Badge earned, credential page live, share it in one tap.',
+  /** Where finishing leads (owner, 2026-11-28): onto Tapin's bench, or into a firm of your own. */
   joinH: 'Then: join the bench →',
   joinP: 'Your skills, your proof, your profile — in front of firms that hire.',
+  joinHref: '/site/tapin',
+  startH: 'Or: start a company →',
+  startP: 'Open your own firm on Etyme, and run it on one record.',
   replay: 'Replay',
 } as const
 
@@ -185,7 +189,7 @@ export function homeBodyLines(sample: string[] = []): string[] {
     ROLES.kicker, ROLES.heading, ROLES.lead, ...ROLES.cards.flatMap((c) => [c.h, c.p, ROLES.link]), ROLES.cta, ROLES.ctaLine,
     GUARANTEE.kicker, GUARANTEE.heading, GUARANTEE.sub, ...GUARANTEE.items, GUARANTEE.cta, GUARANTEE.ctaLine,
     FEATURES,
-    LEARN.kicker, LEARN.heading, LEARN.lead, ...LEARN.levels, ...LEARN.tiles.flatMap((t) => [t.h, t.p]), LEARN.doneH, LEARN.doneP, LEARN.joinH, LEARN.joinP, LEARN.replay, DOOR_SOON,
+    LEARN.kicker, LEARN.heading, LEARN.lead, ...LEARN.levels, ...LEARN.tiles.flatMap((t) => [t.h, t.p]), LEARN.doneH, LEARN.doneP, LEARN.joinH, LEARN.joinP, LEARN.startH, LEARN.startP, LEARN.replay, DOOR_SOON,
     PRICE.kicker, PRICE.heading, PRICE.body, PRICE.button, PRICE.rateCard.t, PRICE.notHeading, ...PRICE.not.flatMap((n) => [n.b, n.t]),
     START.kicker, START.heading, START.lead, ...START.points, `${START.talkLead} ${START.address} ${START.talkTail}`,
     START.panelHeading, START.panelLine, START_FREE.t,

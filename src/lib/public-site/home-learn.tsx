@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { LEARN, DOOR_SOON } from './home-page-words'
+import { LEARN, DOOR_SOON, START_FREE } from './home-page-words'
 
 /**
  * The home page's door to "AI from Zero in 3 Hours" (record 135), drawn
@@ -13,7 +13,9 @@ import { LEARN, DOOR_SOON } from './home-page-words'
  * Replay. It never loops. With less motion asked for, or with no script,
  * every tile simply stands lit. Nothing changes size while it plays, so the
  * page does not move. The course cannot be opened yet: the door says so and
- * links nowhere. Nothing here calls the network.
+ * its chapter tiles are not links. The two closing cards are links, each to
+ * a page that exists: a bench to join, and the sign-up for a firm of your
+ * own. Nothing here calls the network.
  */
 
 const GELASIO = { fontFamily: 'var(--font-gelasio), Georgia, serif' } as const
@@ -79,15 +81,20 @@ export function HomeLearn() {
         ))}
       </ol>
 
-      <div className="hl-end mt-4 grid gap-3 sm:grid-cols-2" style={{ animationDelay: `${(0.25 + LEARN.tiles.length * EACH + 0.3).toFixed(2)}s` }}>
+      <div className="hl-end mt-4 grid gap-3 min-[760px]:grid-cols-3" style={{ animationDelay: `${(0.25 + LEARN.tiles.length * EACH + 0.3).toFixed(2)}s` }}>
         <div className="rounded-xl border border-etyme-verified-line bg-etyme-verified-wash px-4 py-3.5">
           <strong className="block text-[19px] font-medium text-etyme-verified" style={GELASIO}>{LEARN.doneH}</strong>
           <span className="mt-0.5 block text-[13.5px] leading-[1.55] text-etyme-muted">{LEARN.doneP}</span>
         </div>
-        <div className="rounded-xl bg-etyme-action px-4 py-3.5 text-white">
+        {/* Two ways on from the course: onto a bench, or into a firm of your own. Both pages exist today. */}
+        <a href={LEARN.joinHref} className="block min-h-11 rounded-xl bg-etyme-action px-4 py-3.5 text-white hover:bg-etyme-action-hover">
           <strong className="block text-[19px] font-medium" style={GELASIO}>{LEARN.joinH}</strong>
           <span className="mt-0.5 block text-[13.5px] leading-[1.55] text-white/85">{LEARN.joinP}</span>
-        </div>
+        </a>
+        <a href={START_FREE.href} className="block min-h-11 rounded-xl border border-etyme-action-line bg-etyme-action-wash px-4 py-3.5 text-etyme-ink hover:border-etyme-action">
+          <strong className="block text-[19px] font-medium text-etyme-action-press" style={GELASIO}>{LEARN.startH}</strong>
+          <span className="mt-0.5 block text-[13.5px] leading-[1.55] text-etyme-muted">{LEARN.startP}</span>
+        </a>
       </div>
 
       <div className="mt-5">
