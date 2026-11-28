@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The file your AI reads first · AI from Zero in 3 Hours · prototype</title>
+<!-- PROTOTYPE, 2026-11-28 (record 135). One whole step of "AI from Zero in 3 Hours", in the step format the owner set:
+     an animated step-by-step presentation, something to try, a questionnaire, a workbook entry.
+     This step is our own material (the owner asked for it on 2026-11-28); nothing in it comes from any outside training.
+     The try-it is rules in this page: no model is called and nothing leaves the browser. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0a1c2c;--ink2:#33505f;--muted:#5c7484;--bg:#f7faf9;--surface:#fff;--surface2:#eef6f4;--line:#dce8ec;--shadow:0 2px 10px rgba(10,28,44,.07);
+--teal:#0db5a3;--teal-dark:#078f81;--teal-soft:#e0f5f1;--teal-line:#bfe8e1;--amber:#8a5a00;--amber-soft:#fcf0cb;--ok:#0b5a3c;--ok-soft:#e2f2e9;--no:#8a2a2a;--no-soft:#fbe7e1}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Manrope',system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;font-size:16.5px}
+h1,h2,h3,.sora{font-family:'Sora',system-ui,sans-serif}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
+.top{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:14px;padding-top:10px;padding-bottom:10px;flex-wrap:wrap}
+.name{font-family:'Sora',sans-serif;font-weight:800;font-size:15px}
+.bar{flex:1;min-width:120px;height:8px;background:var(--surface2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.bar span{display:block;height:100%;width:26%;background:var(--teal)}
+.count{font-size:13px;font-weight:700;color:var(--muted)}
+.stamp{display:inline-block;background:var(--amber-soft);color:var(--amber);border-radius:99px;padding:2px 10px;font-size:12.5px;font-weight:800}
+header.step{padding:34px 0 8px}
+header.step .kick{color:var(--teal-dark);font-weight:800;letter-spacing:1.8px;font-size:12px;text-transform:uppercase}
+header.step h1{font-size:clamp(1.8rem,5vw,2.5rem);line-height:1.15;margin:8px 0 10px}
+header.step p{color:var(--ink2);max-width:36rem}
+.parts{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 6px}
+.parts a{font-size:13px;font-weight:800;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:5px 12px;text-decoration:none}
+.parts a:hover,.parts a:focus-visible{border-color:var(--teal)}
+section.card{background:var(--surface);border:1.5px solid var(--line);border-radius:18px;padding:26px;margin:22px 0;box-shadow:var(--shadow)}
+section.card>.tag{font-size:11.5px;font-weight:800;letter-spacing:1.8px;color:var(--teal-dark);text-transform:uppercase}
+section.card>h2{font-size:1.35rem;margin:6px 0 4px}
+section.card>.cap{color:var(--ink2);font-size:15px;max-width:38rem}
+/* presentation */
+.stage{margin-top:18px;background:var(--surface2);border:1px solid var(--line);border-radius:14px;padding:22px;min-height:290px;display:flex;flex-direction:column;justify-content:center}
+.scene{display:none}.scene.on{display:block;animation:in .25s ease-out}
+@keyframes in{from{opacity:0}to{opacity:1}}
+.scene h3{font-size:1.1rem;margin-bottom:8px}
+.scene p{color:var(--ink2);max-width:34rem}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;align-items:stretch}
+.bubble{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14.5px;max-width:260px;box-shadow:var(--shadow)}
+.bubble b{display:block;font-size:11px;letter-spacing:1.2px;color:var(--muted);text-transform:uppercase}
+.bubble.hot{border-color:var(--teal)}
+.file{background:#fff;border:1.5px solid var(--teal-line);border-radius:12px;padding:12px 14px;font-size:13.5px;white-space:pre-wrap;max-width:330px;box-shadow:var(--shadow)}
+.file .fn{display:block;font-family:'Manrope',sans-serif;font-weight:800;font-size:12px;color:var(--teal-dark);margin-bottom:6px}
+.arrow{align-self:center;color:var(--teal);font-weight:800;font-size:22px}
+.note{background:var(--amber-soft);color:var(--amber);border-radius:12px;padding:10px 14px;font-size:14.5px;margin-top:14px;max-width:34rem}
+.ctrl{display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap}
+.btn{background:var(--teal);color:var(--ink);border:0;border-radius:10px;padding:11px 20px;font:inherit;font-weight:800;cursor:pointer;min-height:44px;transition:background-color .18s ease-out}
+.btn:hover,.btn:focus-visible{background:var(--teal-dark);color:#fff}
+.btn.ghost{background:transparent;color:var(--teal-dark);border:1.5px solid var(--teal)}
+.btn:disabled{opacity:.45;cursor:default}
+.dots{display:flex;gap:6px}.dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--teal)}
+/* try it */
+.try{background:var(--teal-soft);border:1.5px solid var(--teal-line);border-radius:14px;padding:18px;margin-top:16px}
+.try label{font-weight:800;font-size:14px;display:block;margin-bottom:6px}
+textarea,input[type=text]{width:100%;border:1.5px solid var(--teal-line);border-radius:10px;padding:10px 12px;font:inherit;color:var(--ink);background:#fff}
+textarea.mono{font-family:'JetBrains Mono',monospace;font-size:14px;min-height:170px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.out{background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14.5px;min-height:96px}
+.out b{display:block;font-size:11px;letter-spacing:1.2px;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+.out.hot{border-color:var(--teal)}
+.why{margin-top:10px;font-size:14px;color:var(--ink2)}
+.why li{margin-left:18px}
+/* questions */
+.q{border-top:1px solid var(--line);padding:16px 0}.q:first-of-type{border-top:0}
+.q p.ask{font-weight:700}
+.q button{display:block;width:100%;text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;font:inherit;color:var(--ink);cursor:pointer;min-height:44px;transition:border-color .15s ease-out}
+.q button:hover,.q button:focus-visible{border-color:var(--teal)}
+.fb{margin-top:10px;border-radius:10px;padding:9px 12px;font-size:14.5px;display:none}
+.fb.ok{display:block;background:var(--ok-soft);color:var(--ok)}.fb.no{display:block;background:var(--no-soft);color:var(--no)}
+.score{font-weight:800;margin-top:6px}
+/* workbook */
+.wb label{font-weight:700;display:block;margin:16px 0 6px}
+.wb textarea{min-height:84px;border-color:var(--line)}
+.saved{font-size:13.5px;color:var(--muted);margin-top:8px;min-height:1.4em}
+.nav{display:flex;justify-content:space-between;gap:12px;margin:26px 0 50px;flex-wrap:wrap}
+a:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid var(--teal-dark);outline-offset:2px}
+@media (max-width:640px){.two{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}section.card{padding:20px}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="top"><div class="wrap">
+  <span class="name">AI from Zero in 3 Hours</span>
+  <div class="bar" aria-label="Your progress"><span></span></div>
+  <span class="count">Step 9 of 34</span>
+  <span class="stamp">Version: Dec 2026</span>
+</div></div>
+
+<div class="wrap">
+<header class="step">
+  <div class="kick">Level 1 · Simple · Chapter 3 · Tools</div>
+  <h1>The file your AI reads first</h1>
+  <p>You already know a skill is one job written down as steps. This step shows where the writing goes: a small text file. About 15 minutes.</p>
+  <nav class="parts" aria-label="Parts of this step">
+    <a href="#watch">1 · Watch</a><a href="#try">2 · Try it</a><a href="#check">3 · Questions</a><a href="#book">4 · Workbook</a>
+  </nav>
+</header>
+
+<!-- 1 · THE PRESENTATION. Slot for a finished animation: data-slot="step-9-presentation". -->
+<section class="card" id="watch" data-slot="step-9-presentation">
+  <div class="tag">Part 1 · Watch</div>
+  <h2>Milo gets a note</h2>
+  <p class="cap">Six short scenes. Press Next when you are ready. Nothing plays by itself.</p>
+  <div class="stage" aria-live="polite">
+    <div class="scene on">
+      <h3>1 · Two customers, one question</h3>
+      <p>Two people ask Milo, the helper at Maple Mart, the same thing. Milo has no notes.</p>
+      <div class="row">
+        <div class="bubble"><b>Monday</b>“My order is late.” → “Apologies for the inconvenience. Deliveries may take additional time.”</div>
+        <div class="bubble"><b>Tuesday</b>“My order is late.” → “Oh no! We’ll give you your money back right now!”</div>
+      </div>
+      <div class="note">Same question. Two different answers. One of them promised money nobody approved.</div>
+    </div>
+    <div class="scene">
+      <h3>2 · Why it happens</h3>
+      <p>Milo starts each chat knowing nothing about how Maple Mart likes things done. It fills the gap with a guess. A guess changes from day to day.</p>
+      <div class="row"><div class="bubble">No notes</div><div class="arrow">→</div><div class="bubble">A new guess each time</div></div>
+    </div>
+    <div class="scene">
+      <h3>3 · The shop writes a note</h3>
+      <p>Ana, who runs the shop, writes down how she wants customers answered. She saves it as a plain text file.</p>
+      <div class="row"><div class="file mono"><span class="fn">milo.md</span># How Milo answers
+
+- Greet the customer by name.
+- Keep answers short.
+- Never promise money back. Ask Ana.</div></div>
+    </div>
+    <div class="scene">
+      <h3>4 · What “md” means</h3>
+      <p>The name ends in <b>.md</b>. That stands for Markdown: plain text with a few simple marks. A person can read it. So can an AI.</p>
+      <div class="row">
+        <div class="bubble"><b>The mark</b><span class="mono"># </span>at the start of a line</div><div class="arrow">→</div><div class="bubble hot"><b>It means</b>This line is a heading</div>
+      </div>
+      <div class="row">
+        <div class="bubble"><b>The mark</b><span class="mono">- </span>at the start of a line</div><div class="arrow">→</div><div class="bubble hot"><b>It means</b>This line is one item in a list</div>
+      </div>
+    </div>
+    <div class="scene">
+      <h3>5 · Milo reads it first, every time</h3>
+      <p>Before Milo answers anybody, it reads the file from top to bottom. Then it reads the customer’s message.</p>
+      <div class="row"><div class="bubble hot">1 · Read milo.md</div><div class="arrow">→</div><div class="bubble">2 · Read the question</div><div class="arrow">→</div><div class="bubble">3 · Answer</div></div>
+    </div>
+    <div class="scene">
+      <h3>6 · Same question, same answer</h3>
+      <p>Now every customer gets the answer Ana wanted. And the money question goes to a person.</p>
+      <div class="row">
+        <div class="bubble hot"><b>Any day</b>“My order is late.” → “Hi Sam. Your order is one day late. I have asked Ana about your money.”</div>
+      </div>
+      <div class="note">To change how Milo behaves, Ana edits one file. She does not retrain anything.</div>
+    </div>
+  </div>
+  <div class="ctrl">
+    <button class="btn ghost" id="prev" disabled>← Back</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn" id="next">Next →</button>
+  </div>
+</section>
+
+<!-- 2 · TRY IT -->
+<section class="card" id="try">
+  <div class="tag">Part 2 · Try it yourself</div>
+  <h2>Write Milo’s file and run it</h2>
+  <p class="cap">Change the lines, press Run, and watch the answer on the right change. The answer on the left never has your file.</p>
+  <div class="try">
+    <label for="md">milo.md</label>
+    <textarea id="md" class="mono" spellcheck="false"># How Milo answers
+
+- Greet the customer by name.
+- Keep answers short.
+</textarea>
+    <div class="ctrl"><button class="btn" id="run">▶ Run</button><span class="count">Customer: Sam · “My order is late. I want my money back.”</span></div>
+    <div class="two">
+      <div class="out"><b>Without your file</b>Oh no! We’ll give you your money back right now!</div>
+      <div class="out hot" id="with"><b>With your file</b>Press Run.</div>
+    </div>
+    <div class="why" id="why"></div>
+  </div>
+</section>
+
+<!-- 3 · QUESTIONS -->
+<section class="card" id="check">
+  <div class="tag">Part 3 · Questions</div>
+  <h2>Check yourself</h2>
+  <p class="cap">Four questions. You get the reason each time, right or wrong.</p>
+  <div id="qs"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+</section>
+
+<!-- 4 · WORKBOOK -->
+<section class="card wb" id="book">
+  <div class="tag">Part 4 · Workbook</div>
+  <h2>Write your own file</h2>
+  <p class="cap">This is yours to keep. It is saved in this browser only, and nothing is sent anywhere.</p>
+  <label for="w1">1 · One job you would hand to an AI helper</label>
+  <textarea id="w1" placeholder="Example: answer parents who ask about homework dates"></textarea>
+  <label for="w2">2 · Three rules for how it should do that job. Start each line with “- ”</label>
+  <textarea id="w2" class="mono" placeholder="- "></textarea>
+  <label for="w3">3 · One thing it must never decide alone, and who decides it</label>
+  <textarea id="w3" placeholder="Example: it never changes a grade. The teacher does."></textarea>
+  <div class="ctrl"><button class="btn" id="copy">Copy my file</button><span class="saved" id="saved" aria-live="polite"></span></div>
+</section>
+
+<div class="nav">
+  <a class="btn ghost" href="#">← Step 8 · A skill</a>
+  <a class="btn" href="#">Step 10 · Project: your first agent →</a>
+</div>
+</div>
+
+<script>
+// 1 · the presentation: reader-paced, one scene at a time
+var scenes=[].slice.call(document.querySelectorAll('.scene')),dots=document.getElementById('dots'),cur=0;
+scenes.forEach(function(){dots.appendChild(document.createElement('i'))});
+function show(i){cur=Math.max(0,Math.min(scenes.length-1,i));scenes.forEach(function(s,j){s.classList.toggle('on',j===cur)});
+  [].forEach.call(dots.children,function(d,j){d.classList.toggle('on',j===cur)});
+  document.getElementById('prev').disabled=cur===0;document.getElementById('next').textContent=cur===scenes.length-1?'Watch again':'Next →'}
+document.getElementById('prev').onclick=function(){show(cur-1)};
+document.getElementById('next').onclick=function(){show(cur===scenes.length-1?0:cur+1)};show(0);
+
+// 2 · the try-it: plain rules read the learner's file. No model is called.
+function runFile(text){
+  var lines=text.split('\n').map(function(l){return l.trim()}),rules=lines.filter(function(l){return /^[-*]\s+\S/.test(l)}).map(function(l){return l.replace(/^[-*]\s+/,'').toLowerCase()});
+  var has=function(re){return rules.some(function(r){return re.test(r)})};
+  var why=[],greet=has(/greet|by name|say hi|hello/),short=has(/short|brief|one sentence|few words/),money=has(/(never|do not|don.t|no)\b.*(money|refund|pay)|ask (ana|a person|the owner|a human)/),sorry=has(/sorry|apolog/),date=has(/when|date|day|arriv|track/);
+  var parts=[];
+  if(greet){parts.push('Hi Sam.');why.push('It greeted Sam by name, because a line told it to.')}
+  if(sorry){parts.push('I am sorry your order is late.');why.push('It said sorry, because a line told it to.')}
+  parts.push(short?'Your order is one day late.':'Your order left our shop yesterday and is running one day behind, so it should reach you tomorrow.');
+  if(short)why.push('It kept the answer short, because a line told it to.');
+  if(date&&short){parts.push('It arrives tomorrow.');why.push('It gave the day, because a line asked for it.')}
+  if(money){parts.push('I cannot promise money back. I have asked Ana, and she will answer you.');why.push('It did not promise money. It passed that to a person, because a line told it to.')}
+  else{parts.push('We’ll give you your money back right now!');why.push('It still promised money back. No line in your file stops it. Try adding: - Never promise money back. Ask Ana.')}
+  if(!rules.length)why=['Your file has no list lines yet. Start a line with “- ” and write one rule.'];
+  if(!lines.some(function(l){return /^#\s+\S/.test(l)}))why.push('Tip: a line starting with “# ” gives your file a heading. People will thank you.');
+  return {says:rules.length?parts.join(' '):'Oh no! We’ll give you your money back right now!',why:why};
+}
+document.getElementById('run').onclick=function(){var r=runFile(document.getElementById('md').value);
+  document.getElementById('with').innerHTML='<b>With your file</b>';document.getElementById('with').appendChild(document.createTextNode(r.says));
+  var w=document.getElementById('why');w.innerHTML='<b>What your file changed</b><ul></ul>';r.why.forEach(function(t){var li=document.createElement('li');li.textContent=t;w.firstElementChild.nextSibling.appendChild(li)})};
+
+// 3 · the questions: feedback in words and in color, with the reason
+var QS=[
+ {q:'What is an md file?',a:['A program that runs the AI','A plain text file with a few simple marks','A picture of a document'],c:1,why:'It is plain text. The marks only say “this is a heading” or “this is a list item”.'},
+ {q:'When does Milo read milo.md?',a:['Once, on the day it was made','Only when a customer is unhappy','Every time, before it answers'],c:2,why:'It reads the file first in every chat. That is why every customer gets the same care.'},
+ {q:'Ana wants Milo to stop promising money. What does she do?',a:['Edit one line in the file','Buy a new AI','Tell each customer herself'],c:0,why:'She changes the file. The next chat already follows the new line.'},
+ {q:'Which line belongs in a file like this?',a:['- Decide who gets their money back','- Never promise money back. Ask Ana.','- Guess when you are not sure'],c:1,why:'Money is a person’s decision. A good file says who that person is.'}
+],right=0,done=0,box=document.getElementById('qs');
+QS.forEach(function(x,i){var d=document.createElement('div');d.className='q';var p=document.createElement('p');p.className='ask';p.textContent=(i+1)+' · '+x.q;d.appendChild(p);
+  var fb=document.createElement('div');fb.className='fb';
+  x.a.forEach(function(t,j){var b=document.createElement('button');b.textContent=t;b.onclick=function(){if(d.dataset.done)return;d.dataset.done=1;done++;var ok=j===x.c;if(ok)right++;
+    fb.className='fb '+(ok?'ok':'no');fb.textContent=(ok?'Right. ':'Not quite. ')+x.why;
+    if(done===QS.length)document.getElementById('score').textContent='You got '+right+' of '+QS.length+'.'};d.appendChild(b)});
+  d.appendChild(fb);box.appendChild(d)});
+
+// 4 · the workbook: kept in this browser only
+var ids=['w1','w2','w3'],KEY='aifz-step9-';
+function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+ids.forEach(function(id){var el=document.getElementById(id),v=store(KEY+id);if(v)el.value=v;
+  el.oninput=function(){store(KEY+id,el.value);document.getElementById('saved').textContent='Saved in this browser.'}});
+document.getElementById('copy').onclick=function(){var t='# '+(document.getElementById('w1').value.trim()||'My AI helper')+'\n\n'+document.getElementById('w2').value.trim()+'\n\n## Never alone\n\n- '+document.getElementById('w3').value.trim()+'\n';
+  var s=document.getElementById('saved');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){s.textContent='Copied. Paste it into any AI chat before your first question.'},function(){s.textContent='Could not copy here. Select your three answers and copy them by hand.'})};
+</script>
+</body>
+</html>

@@ -514,7 +514,7 @@ Full text → 40, 11, 56, 68, 72.
   minor never signs in. The hero picture and animations are Pax's.
   Its pages are light: white cards and soft tinted panels, never dark.
 - **"AI from Zero in 3 Hours" is Etyme's own course** (owner, 2026-11-28
-  → 135, replacing 133 and 134 on where it lives): 33 animated steps,
+  → 135, replacing 133 and 134 on where it lives): 34 animated steps,
   each with a try-it, a questionnaire and a workbook entry; a real-world
   demo closes each section. Tapin adopts it like any supplier.
 - **Website and content, and outreach, are plugins too** (owner,

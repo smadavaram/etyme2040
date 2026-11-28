@@ -41,6 +41,13 @@ in the world can start tomorrow."
    about 3 hours to watch all 33 steps, 6 to 9 hours with the labs,
    questionnaires, workbook, demos and projects.
 
+7. **A 34th step, our own: "The file your AI reads first".** The owner
+   asked whether the course teaches what an md file is and how it helps.
+   It teaches skills, roles and pinned instructions, and never names the
+   file. The owner: "Yes add it as its own step." It sits in the Simple
+   level after skills. It is drawn whole as the first step in the new
+   format: `prototypes/learn/step-the-file-your-ai-reads-first.html`.
+
 ## Open, waiting on the owner
 
 - The full transcript and the video or its frames. Without them only key
