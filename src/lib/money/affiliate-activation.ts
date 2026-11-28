@@ -17,6 +17,7 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { prisma as defaultDb } from '@/lib/db'
 import { firmRunsOwnBusiness } from '@/lib/money/own-business'
 import { writeActivation, type AffiliateAct } from './affiliate-registry'
+import { doorOf } from './affiliate-links'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -33,11 +34,16 @@ export async function rememberReferral(
   companyId: string,
   code: string | null | undefined,
   db: Db = defaultDb,
+  door?: string | null,
 ): Promise<{ ok: true; kept: boolean } | { ok: false; says: string }> {
   const clean = (code ?? '').trim().toLowerCase()
-  if (!clean) return { ok: true, kept: false }
-  const company = await db.company.findUnique({ where: { id: companyId }, select: { referredByCode: true, activatedAt: true } })
+  const arrivedBy = doorOf(door)
+  if (!clean && !arrivedBy) return { ok: true, kept: false }
+  const company = await db.company.findUnique({ where: { id: companyId }, select: { referredByCode: true, activatedAt: true, arrivalDoor: true } })
   if (!company) return { ok: false, says: 'There is no such company.' }
+  // The door is a label kept once, before the clock starts; it pays nothing.
+  if (arrivedBy && !company.arrivalDoor && !company.activatedAt) await db.company.update({ where: { id: companyId }, data: { arrivalDoor: arrivedBy } })
+  if (!clean) return { ok: true, kept: false }
   if (company.activatedAt) return { ok: false, says: 'This firm’s clock has started, so who referred it is already written. A mistake is corrected by Etyme staff with a reason.' }
   if (company.referredByCode) return { ok: true, kept: false }
   await db.company.update({ where: { id: companyId }, data: { referredByCode: clean } })

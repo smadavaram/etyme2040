@@ -14,6 +14,7 @@ import type { PrismaClient } from '@prisma/client'
 import { prisma as defaultDb } from '@/lib/db'
 import { accrualOf, clawbackOf, selfReferral, statementMonthOf } from './affiliate-commission'
 import { meterActs } from './affiliate-metering'
+import { classEarns, hasAttestation } from './affiliate-class'
 import { effectiveAffiliate, reasonOk, type Actor, type AffiliateAct, type Refused } from './affiliate-registry'
 
 export interface ReceiptActor extends Actor {
@@ -61,13 +62,18 @@ export async function markSubscriptionPaid(
     const eff = await effectiveAffiliate(company.id, tx)
     if (!eff || !eff.affiliateId) return { ok: true as const, receiptId: receipt.id, commissionCents: null, commissionNote: 'The tenant belongs to the house; no commission.', acts }
     // Checked again at every receipt: a person who takes a seat after activation stops the earning from that receipt on.
-    const aff = await tx.affiliate.findUnique({ where: { id: eff.affiliateId }, select: { name: true, ownCompanyId: true, accountPersonId: true } })
+    const aff = await tx.affiliate.findUnique({ where: { id: eff.affiliateId }, select: { name: true, ownCompanyId: true, accountPersonId: true, affiliateClass: true } })
     if (aff) {
       const seats = aff.accountPersonId ? (await tx.context.findMany({ where: { personId: aff.accountPersonId, companyId: { not: null } }, select: { companyId: true } })).map((r) => r.companyId as string) : []
       if (selfReferral({ affiliateOwnCompanyId: aff.ownCompanyId, affiliateSeatCompanyIds: seats, tenantCompanyId: company.id })) {
         const why = `${aff.name} owns or now holds a seat at ${company.name}, and an affiliate never earns on its own tenant, so this receipt earns nothing.`
         await done({ action: 'COMMISSION_NOT_EARNED', recordType: 'SubscriptionReceipt', recordId: receipt.id, summary: why, personId: actor.personId })
         return { ok: true as const, receiptId: receipt.id, commissionCents: null, commissionNote: why, acts }
+      }
+      const byClass = classEarns({ affiliateClass: aff.affiliateClass, attested: aff.affiliateClass === 'RECRUITER' ? await hasAttestation(eff.affiliateId, tx) : true, name: aff.name })
+      if (!byClass.ok) {
+        await done({ action: 'COMMISSION_NOT_EARNED', recordType: 'SubscriptionReceipt', recordId: receipt.id, summary: byClass.says, personId: actor.personId })
+        return { ok: true as const, receiptId: receipt.id, commissionCents: null, commissionNote: byClass.says, acts }
       }
     }
     const a = accrualOf({ activatedAt: eff.activatedAt, periodStart: i.periodStart, contractorCents: i.contractorCents, platformFeeCents: i.platformFeeCents })

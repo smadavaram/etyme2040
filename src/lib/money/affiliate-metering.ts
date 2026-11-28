@@ -35,6 +35,8 @@ export function tenantSentence(a: Pick<AffiliateAct, 'action'>): string {
     COMMISSION_ACCRUED: 'A referral commission was accrued on this payment.',
     COMMISSION_CLAWED_BACK: 'A referral commission was reversed on this refund.',
     COMMISSION_NOT_EARNED: 'No referral commission was earned on this payment.',
+    CLASS_SET: 'A referral partner’s class was changed.',
+    ATTESTED: 'A referral partner confirmed its terms.',
   }
   return words[a.action] ?? 'A referral act was recorded.'
 }
